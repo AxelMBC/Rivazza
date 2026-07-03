@@ -1,0 +1,56 @@
+import { useTelemetry } from './hooks/useTelemetry';
+import { useInputHistory } from './hooks/useInputHistory';
+import { useLapDelta } from './hooks/useLapDelta';
+import { SessionHeader } from './components/SessionHeader';
+import { LapTimes } from './components/LapTimes';
+import { InstrumentCluster } from './components/InstrumentCluster';
+import { PedalTrace } from './components/PedalTrace';
+import { GForceMeter } from './components/GForceMeter';
+import { SteeringBar } from './components/SteeringBar';
+import { TrackMap } from './components/TrackMap';
+import type { ConnectionStatus } from './types';
+
+const WaitingScreen = ({ status }: { status: ConnectionStatus }) => (
+  <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+    <p className="text-2xl font-semibold text-ink-secondary">
+      {status === 'connecting' ? 'Connecting to telemetry bridge…' : 'Waiting for Assetto Corsa'}
+    </p>
+    <p className="max-w-md text-sm text-ink-muted">
+      {status === 'connecting'
+        ? 'Make sure the bridge is running (npm run dev starts it alongside this app).'
+        : 'Start Assetto Corsa and enter a session — the dashboard will light up automatically.'}
+    </p>
+  </div>
+);
+
+const App = () => {
+  const { status, session, telemetry, telemetryRef } = useTelemetry();
+  const historyRef = useInputHistory(telemetry);
+  const deltaMs = useLapDelta(telemetry);
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <SessionHeader session={session} status={status} />
+      {session ? (
+        <main className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[24rem_1fr]">
+          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+            <InstrumentCluster telemetry={telemetry} />
+            <LapTimes telemetry={telemetry} deltaMs={deltaMs} />
+            <PedalTrace historyRef={historyRef} />
+            <div className="grid grid-cols-[10rem_1fr] items-start gap-3">
+              <GForceMeter historyRef={historyRef} />
+              <div className="rounded-lg border border-edge bg-surface p-4">
+                <SteeringBar telemetry={telemetry} />
+              </div>
+            </div>
+          </div>
+          <TrackMap session={session} telemetryRef={telemetryRef} />
+        </main>
+      ) : (
+        <WaitingScreen status={status} />
+      )}
+    </div>
+  );
+};
+
+export default App;

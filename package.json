@@ -1,0 +1,17 @@
+{
+  "name": "assettocorsa-track",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Live Assetto Corsa telemetry dashboard: Node UDP bridge + React web app",
+  "workspaces": [
+    "bridge",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n bridge,web -c yellow,cyan \"npm run dev -w bridge\" \"npm run dev -w web\"",
+    "build": "npm run build -w bridge && npm run build -w web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
