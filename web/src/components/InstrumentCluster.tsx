@@ -1,9 +1,10 @@
-import { useRef } from 'react';
 import type { TelemetryFrame } from '../types';
 import { formatGear } from '../lib/format';
+import { AnalogGauge } from './AnalogGauge';
 
-const RPM_FLOOR = 8000; // bar scale never drops below this
-const REDLINE_FRACTION = 0.85; // top 15% of the scale renders as redline
+const SPEED_MAX_KMH = 320;
+const RPM_MAX = 10000;
+const REDLINE_FROM_RPM = 8500;
 
 const StatusLight = ({
   label,
@@ -30,52 +31,45 @@ const StatusLight = ({
 );
 
 export const InstrumentCluster = ({ telemetry }: { telemetry: TelemetryFrame | null }) => {
-  // Rolling session max so the bar is meaningful without per-car redline data.
-  const maxRpmRef = useRef(RPM_FLOOR);
-  const rpm = telemetry?.rpm ?? 0;
-  maxRpmRef.current = Math.max(maxRpmRef.current, rpm);
-  const rpmFraction = Math.min(1, rpm / maxRpmRef.current);
-  const inRedline = rpmFraction >= REDLINE_FRACTION;
   const limiter = telemetry?.engineLimiterOn ?? false;
 
   return (
     <section className="rounded-lg border border-edge bg-surface p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs tracking-wide text-ink-muted uppercase">Speed</p>
-          <p className="text-4xl font-semibold tabular-nums">
-            {telemetry ? Math.round(telemetry.speedKmh) : '–'}
-            <span className="ml-1 text-sm font-normal text-ink-muted">km/h</span>
-          </p>
-        </div>
-        <p
-          className={`text-7xl font-bold tabular-nums ${
-            limiter ? 'animate-pulse text-redline' : inRedline ? 'text-redline' : 'text-accent'
-          }`}
+      <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
+        <AnalogGauge
+          min={0}
+          max={SPEED_MAX_KMH}
+          value={telemetry?.speedKmh ?? 0}
+          majorTickStep={40}
+          label="km/h"
         >
-          {telemetry ? formatGear(telemetry.gear) : '–'}
-        </p>
-        <div className="text-right">
-          <p className="text-xs tracking-wide text-ink-muted uppercase">RPM</p>
-          <p className="text-4xl font-semibold tabular-nums">
-            {telemetry ? Math.round(telemetry.rpm).toLocaleString() : '–'}
+          <p className="rounded border border-hairline bg-page px-2 py-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">
+            {telemetry ? Math.round(telemetry.speedKmh) : '–'}
+            <span className="ml-1 text-[0.65rem] font-normal text-ink-muted">km/h</span>
           </p>
-        </div>
+        </AnalogGauge>
+
+        <AnalogGauge
+          min={0}
+          max={RPM_MAX}
+          value={telemetry?.rpm ?? 0}
+          majorTickStep={1000}
+          redlineFrom={REDLINE_FROM_RPM}
+          formatTickLabel={(rpm) => String(rpm / 1000)}
+          label="rpm ×1000"
+          flash={limiter}
+        >
+          <p
+            className={`text-3xl font-bold tabular-nums ${
+              limiter ? 'animate-pulse text-redline' : 'text-accent'
+            }`}
+          >
+            {telemetry ? formatGear(telemetry.gear) : '–'}
+          </p>
+        </AnalogGauge>
       </div>
 
-      <div className={`relative mt-3 h-3 overflow-hidden rounded-full bg-hairline ${limiter ? 'animate-pulse' : ''}`}>
-        {/* Redline zone marker */}
-        <div
-          className="absolute inset-y-0 right-0 bg-redline/25"
-          style={{ width: `${Math.round((1 - REDLINE_FRACTION) * 100)}%` }}
-        />
-        <div
-          className={`h-full rounded-full ${inRedline ? 'bg-redline' : 'bg-accent'}`}
-          style={{ width: `${Math.round(rpmFraction * 100)}%` }}
-        />
-      </div>
-
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex justify-center gap-2">
         <StatusLight
           label="ABS"
           enabled={telemetry?.absEnabled ?? false}
