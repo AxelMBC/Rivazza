@@ -90,6 +90,12 @@ Archive a completed change in the experimental workflow.
    - Spec sync status (synced / sync skipped / no delta specs)
    - Note about any warnings (incomplete artifacts/tasks)
 
+7. **Always suggest a commit title**
+
+   After every successful archive, propose a one-line commit title (Conventional Commits style, e.g. `feat: add hover-reveal panels for lap history and tyre data`) summarizing the implemented change, and append it to the summary output as a `**Suggested commit:**` line.
+
+   **Never run `git commit` (or `git add`) yourself as part of this command** — the user copy-pastes the title themselves. This applies even if the user has otherwise authorized commits elsewhere in the conversation.
+
 **Output On Success**
 
 ```
@@ -101,6 +107,8 @@ Archive a completed change in the experimental workflow.
 **Specs:** ✓ Synced to main specs
 
 All artifacts complete. All tasks complete.
+
+**Suggested commit:** <one-line commit title>
 ```
 
 **Output On Success (No Delta Specs)**
@@ -114,6 +122,8 @@ All artifacts complete. All tasks complete.
 **Specs:** No delta specs
 
 All artifacts complete. All tasks complete.
+
+**Suggested commit:** <one-line commit title>
 ```
 
 **Output On Success With Warnings**
@@ -132,6 +142,8 @@ All artifacts complete. All tasks complete.
 - Delta spec sync was skipped (user chose to skip)
 
 Review the archive if this was not intentional.
+
+**Suggested commit:** <one-line commit title>
 ```
 
 **Output On Error (Archive Exists)**
@@ -158,3 +170,5 @@ Target archive directory already exists.
 - Show clear summary of what happened
 - If sync is requested, use the Skill tool to invoke `openspec-sync-specs` (agent-driven)
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting
+- ALWAYS suggest a commit title after archiving, even on error/failure paths where nothing was archived — skip it only then
+- NEVER commit on the user's behalf (no `git add`/`git commit`) — the user copy-pastes the suggested title themselves

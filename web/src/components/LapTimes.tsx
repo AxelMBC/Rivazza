@@ -1,4 +1,5 @@
 import type { TelemetryFrame } from '../types';
+import type { LapRecord } from '../hooks/useLapHistory';
 import { formatLapTime } from '../lib/format';
 
 const TimeTile = ({
@@ -21,12 +22,56 @@ const formatDelta = (deltaMs: number): string => {
   return `${deltaMs <= 0 ? '−' : '+'}${seconds.toFixed(2)}`;
 };
 
+// Hover-revealed session lap log. The outer wrapper uses padding (not margin)
+// to bridge the gap above the Lap tile, so the cursor can travel from tile to
+// panel without leaving the hover group — required to wheel-scroll the list
+// without ever clicking (clicks would steal focus from the game).
+const LapListPanel = ({ laps }: { laps: LapRecord[] }) => {
+  const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
+  const bestValid = validTimes.length > 0 ? Math.min(...validTimes) : null;
+
+  return (
+    <div className="pointer-events-none absolute bottom-full left-0 z-10 w-full pb-2 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100">
+      <div className="max-h-64 overflow-y-auto rounded-lg border border-edge bg-page/95 p-3 shadow-xl backdrop-blur">
+        <p className="mb-2 text-xs tracking-wide text-ink-muted uppercase">Session laps</p>
+        {laps.length === 0 ? (
+          <p className="text-sm text-ink-muted">No laps completed yet</p>
+        ) : (
+          <ul className="space-y-1">
+            {laps.map((l) => (
+              <li key={l.lap} className="flex items-center justify-between gap-6 text-sm">
+                <span className="text-ink-muted">
+                  Lap {l.lap}
+                  {l.invalid && <span className="ml-2 text-[0.65rem] uppercase text-critical">inv</span>}
+                </span>
+                <span
+                  className={`font-semibold tabular-nums ${
+                    l.invalid
+                      ? 'text-critical'
+                      : l.timeMs === bestValid
+                        ? 'text-best'
+                        : 'text-ink'
+                  }`}
+                >
+                  {formatLapTime(l.timeMs)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const LapTimes = ({
   telemetry,
   deltaMs,
+  lapsRef,
 }: {
   telemetry: TelemetryFrame | null;
   deltaMs: number | null;
+  lapsRef: React.RefObject<LapRecord[]>;
 }) => (
   <section className="grid grid-cols-2 gap-2">
     <TimeTile label="Current lap" value={formatLapTime(telemetry?.lapTimeMs)} />
@@ -41,7 +86,8 @@ export const LapTimes = ({
       value={formatLapTime(telemetry?.bestLapMs)}
       accentClass="text-best"
     />
-    <div className="col-span-2 flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2">
+    <div className="group relative col-span-2 flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60">
+      <LapListPanel laps={lapsRef.current} />
       <span className="text-xs tracking-wide text-ink-muted uppercase">Lap</span>
       <span className="text-lg font-semibold tabular-nums">
         {telemetry ? telemetry.lapCount + 1 : '–'}

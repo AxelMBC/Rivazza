@@ -94,6 +94,12 @@ Archive a completed change in the experimental workflow.
    - Whether specs were synced (if applicable)
    - Note about any warnings (incomplete artifacts/tasks)
 
+7. **Always suggest a commit title**
+
+   After every successful archive, propose a one-line commit title (Conventional Commits style, e.g. `feat: add hover-reveal panels for lap history and tyre data`) summarizing the implemented change, and append it to the summary output as a `**Suggested commit:**` line.
+
+   **Never run `git commit` (or `git add`) yourself as part of this command** — the user copy-pastes the title themselves. This applies even if the user has otherwise authorized commits elsewhere in the conversation.
+
 **Output On Success**
 
 ```
@@ -105,6 +111,8 @@ Archive a completed change in the experimental workflow.
 **Specs:** ✓ Synced to main specs (or "No delta specs" or "Sync skipped")
 
 All artifacts complete. All tasks complete.
+
+**Suggested commit:** <one-line commit title>
 ```
 
 **Guardrails**
@@ -115,3 +123,5 @@ All artifacts complete. All tasks complete.
 - Show clear summary of what happened
 - If sync is requested, use openspec-sync-specs approach (agent-driven)
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting
+- ALWAYS suggest a commit title after archiving, even on error/failure paths where nothing was archived — skip it only then
+- NEVER commit on the user's behalf (no `git add`/`git commit`) — the user copy-pastes the suggested title themselves

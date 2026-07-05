@@ -1,6 +1,7 @@
 import { useTelemetry } from './hooks/useTelemetry';
 import { useInputHistory } from './hooks/useInputHistory';
 import { useLapDelta } from './hooks/useLapDelta';
+import { useLapHistory } from './hooks/useLapHistory';
 import { SessionHeader } from './components/SessionHeader';
 import { LapTimes } from './components/LapTimes';
 import { InstrumentCluster } from './components/InstrumentCluster';
@@ -27,6 +28,7 @@ const App = () => {
   const { status, session, telemetry, telemetryRef } = useTelemetry();
   const historyRef = useInputHistory(telemetry);
   const deltaMs = useLapDelta(telemetry);
+  const lapHistoryRef = useLapHistory(telemetry);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -35,7 +37,7 @@ const App = () => {
         <main className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[24rem_1fr]">
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
             <InstrumentCluster telemetry={telemetry} />
-            <LapTimes telemetry={telemetry} deltaMs={deltaMs} />
+            <LapTimes telemetry={telemetry} deltaMs={deltaMs} lapsRef={lapHistoryRef} />
             <PedalTrace historyRef={historyRef} />
             <div className="grid grid-cols-[10rem_1fr] items-start gap-3">
               <GForceMeter historyRef={historyRef} />
@@ -44,7 +46,7 @@ const App = () => {
               </div>
             </div>
           </div>
-          <TrackMap session={session} telemetryRef={telemetryRef} />
+          <TrackMap session={session} telemetryRef={telemetryRef} lapsRef={lapHistoryRef} />
         </main>
       ) : (
         <WaitingScreen status={status} />

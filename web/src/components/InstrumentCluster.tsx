@@ -1,6 +1,7 @@
 import type { TelemetryFrame } from '../types';
 import { formatGear } from '../lib/format';
 import { AnalogGauge } from './AnalogGauge';
+import { TyreOverlay } from './TyreOverlay';
 
 const SPEED_MAX_KMH = 320;
 const RPM_MAX = 10000;
@@ -34,7 +35,8 @@ export const InstrumentCluster = ({ telemetry }: { telemetry: TelemetryFrame | n
   const limiter = telemetry?.engineLimiterOn ?? false;
 
   return (
-    <section className="rounded-lg border border-edge bg-surface p-4">
+    <section className="group relative rounded-lg border border-edge bg-surface p-4">
+      <TyreOverlay telemetry={telemetry} />
       <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
         <AnalogGauge
           min={0}

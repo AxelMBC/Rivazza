@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MapMeta, SessionInfo, TelemetryFrame } from '../types';
+import type { LapRecord } from '../hooks/useLapHistory';
+import { formatLapTime } from '../lib/format';
 import { BRIDGE_HTTP } from '../hooks/useTelemetry';
 
 type Props = {
   session: SessionInfo;
   telemetryRef: React.RefObject<TelemetryFrame | null>;
+  lapsRef: React.RefObject<LapRecord[]>;
 };
 
 // meta alone (map.ini bounds) fixes the viewport; the image is optional.
@@ -32,6 +35,7 @@ const FIRST_LAP_EXTENT = 1500;
 const SURFACE = '#1a1a19';
 const PREVIOUS_LAP = 'rgba(255, 255, 255, 0.45)';
 const HOVERED_LAP = '#3987e5';
+const INVALID_TIME = '#f0554b'; // theme critical, brightened for the small canvas label
 
 // Pedal-state colors: coast (yellow) blends toward throttle (green) or
 // brake (red) with pedal magnitude, so partial inputs read as softer tones.
@@ -52,7 +56,7 @@ const segmentColor = (gas: number, brake: number): string => {
 
 const freshBounds = () => ({ minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
 
-export const TrackMap = ({ session, telemetryRef }: Props) => {
+export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [mapData, setMapData] = useState<MapData | null>(null);
   const [mapProbed, setMapProbed] = useState(false);
@@ -196,23 +200,33 @@ export const TrackMap = ({ session, telemetryRef }: Props) => {
       return best;
     };
 
+    // "Lap N" plus the recorded time when the lap log has it (red when the
+    // lap was invalid); laps driven before the page connected have no record
+    // and keep the number-only label.
     const drawHoverLabel = (lapNumber: number) => {
       const m = mouseRef.current;
       if (!m) return;
-      const label = `Lap ${lapNumber}`;
+      const record = lapsRef.current.find((l) => l.lap === lapNumber);
+      const base = record ? `Lap ${lapNumber} — ` : `Lap ${lapNumber}`;
+      const time = record ? formatLapTime(record.timeMs) : '';
       ctx.font = '12px system-ui';
-      const textW = ctx.measureText(label).width;
+      const baseW = ctx.measureText(base).width;
+      const timeW = time ? ctx.measureText(time).width : 0;
       const x = m.x + 14;
       const y = m.y - 8;
       ctx.beginPath();
-      ctx.roundRect(x - 6, y - 14, textW + 12, 20, 6);
+      ctx.roundRect(x - 6, y - 14, baseW + timeW + 12, 20, 6);
       ctx.fillStyle = 'rgba(13, 13, 13, 0.92)';
       ctx.fill();
       ctx.lineWidth = 1;
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
       ctx.stroke();
       ctx.fillStyle = '#ffffff';
-      ctx.fillText(label, x, y);
+      ctx.fillText(base, x, y);
+      if (record) {
+        ctx.fillStyle = record.invalid ? INVALID_TIME : '#ffffff';
+        ctx.fillText(time, x + baseW, y);
+      }
     };
 
     const drawLaps = (project: Project) => {
@@ -386,7 +400,7 @@ export const TrackMap = ({ session, telemetryRef }: Props) => {
       canvas.removeEventListener('mousemove', onMouseMove);
       canvas.removeEventListener('mouseleave', onMouseLeave);
     };
-  }, [mapData, telemetryRef]);
+  }, [mapData, telemetryRef, lapsRef]);
 
   return (
     <section className="relative flex min-h-0 flex-col rounded-lg border border-edge bg-surface">
