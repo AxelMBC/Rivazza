@@ -22,9 +22,11 @@ let frameDirty = false;
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  const url = req.url ?? '';
+  // req.url includes the query string; the image request carries a
+  // cache-busting ?v=<track> param, so routes match on the pathname only.
+  const pathname = (req.url ?? '').split('?')[0];
 
-  if (url === '/api/track-map/meta') {
+  if (pathname === '/api/track-map/meta') {
     if (!trackAssets) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'no map for current track' }));
@@ -35,7 +37,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (url === '/api/track-map/image') {
+  if (pathname === '/api/track-map/image') {
     if (!trackAssets?.mapImagePath) {
       res.writeHead(404);
       res.end();

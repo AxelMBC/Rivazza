@@ -10,8 +10,10 @@ type Props = {
   lapsRef: React.RefObject<LapRecord[]>;
 };
 
-// meta alone (map.ini bounds) fixes the viewport; the image is optional.
-type MapData = { meta: MapMeta; image: HTMLImageElement | null };
+// map.ini metadata fixes the viewport and projection. The track's map.png is
+// deliberately never drawn: AC strokes it at constant width around the AI
+// line, so it misrepresents track limits — the driven lines are the track.
+type MapData = { meta: MapMeta };
 // `jump` marks a teleport (pits, restart) — no segment is drawn into it.
 // `speedKmh` is the raw frame speed, kept for the hover speed readout.
 type Sample = { x: number; z: number; gas: number; brake: number; speedKmh: number; jump: boolean };
@@ -126,22 +128,8 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
       } catch {
         // bridge unreachable; treated as no map data
       }
-      let image: HTMLImageElement | null = null;
-      if (meta) {
-        try {
-          const img = new Image();
-          // Cache-bust per track so a new session never shows the previous map.
-          img.src = `${BRIDGE_HTTP}/api/track-map/image?v=${encodeURIComponent(
-            `${session.track}/${session.trackConfig}`,
-          )}`;
-          await img.decode();
-          image = img;
-        } catch {
-          // no map.png for this track; bounds-only rendering
-        }
-      }
       if (cancelled) return;
-      if (meta) setMapData({ meta, image });
+      if (meta) setMapData({ meta });
       setMapProbed(true);
     };
     load();
@@ -560,9 +548,9 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
 
       if (mapData) {
         easing = false;
-        // map.ini pixel dimensions fix the viewport with or without the image,
-        // so the framing is identical from the very first frame.
-        const { meta, image } = mapData;
+        // map.ini pixel dimensions fix the viewport, so the framing is
+        // identical from the very first frame.
+        const { meta } = mapData;
         const scale = Math.min(
           (width - PADDING * 2) / meta.width,
           (height - PADDING * 2) / meta.height,
@@ -571,19 +559,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
         const drawnH = meta.height * scale;
         const offsetX = (width - drawnW) / 2;
         const offsetY = (height - drawnH) / 2;
-        // The image goes through the same zoom transform as the projected
-        // points so background, lines, and dot stay registered. Lines are
-        // re-projected vectors and stay crisp; only the PNG blurs when deep in.
         const zm = zoomRef.current;
-        if (image) {
-          ctx.drawImage(
-            image,
-            offsetX * zm.level + zm.ox,
-            offsetY * zm.level + zm.oy,
-            drawnW * zm.level,
-            drawnH * zm.level,
-          );
-        }
 
         // World (x, z) -> map.ini pixel space -> normalized -> canvas.
         const project: Project = zoomed((p) => ({
@@ -662,12 +638,13 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
         view.ex !== target.ex ||
         view.ez !== target.ez;
       const scale = Math.min((width - PADDING * 2) / view.ex, (height - PADDING * 2) / view.ez);
-      // Y is flipped so driving north in the sim moves the dot up on screen.
+      // World +Z maps down-screen — the same handedness as the map.ini /
+      // map.png projection, so turn direction is never mirrored between modes.
       // User zoom multiplies the eased auto-fit view; at 1× the automatic
       // camera behaves exactly as before.
       const project: Project = zoomed((p) => ({
         px: width / 2 + (p.x - view.cx) * scale,
-        py: height / 2 - (p.z - view.cz) * scale,
+        py: height / 2 + (p.z - view.cz) * scale,
       }));
 
       const zm = zoomRef.current;
@@ -724,7 +701,6 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
       </p>
       <div className="absolute top-3 right-4 flex items-center gap-3 text-xs text-ink-muted">
         {mapProbed && !mapData && <span>No map file — drawing your driving line</span>}
-        {mapData && !mapData.image && <span>No map image — track bounds from map.ini</span>}
         <span className="flex items-center gap-1">
           <span className="inline-block size-2 rounded-full" style={{ background: 'rgb(18, 190, 60)' }} />
           Throttle
