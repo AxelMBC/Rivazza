@@ -7,7 +7,13 @@ import { resolveCarTopSpeed } from './carAssets.js';
 import type { BridgeMessage, SessionInfo, TelemetryFrame } from './types.js';
 
 const PORT = Number(process.env.BRIDGE_PORT ?? 3001);
-const BROADCAST_HZ = 30;
+// 60 Hz keeps frame spacing near 1 m even at top speed, so the track map's
+// meter-scale line sampling holds everywhere on track. Windows quantizes
+// short timers to ~15.6 ms ticks (a bare 60 Hz setInterval fires at ~32 Hz),
+// so delivery is driven by packet arrival against a due-time accumulator and
+// the interval below only sweeps up the trailing frame when packets pause.
+const BROADCAST_HZ = 60;
+const BROADCAST_INTERVAL_MS = 1000 / BROADCAST_HZ;
 
 let session: SessionInfo | null = null;
 let trackAssets: TrackAssets | null = null;
@@ -84,17 +90,27 @@ ac.on('waiting', () => {
   broadcast({ type: 'status', state: 'waiting' });
 });
 
-// AC floods RTCarInfo packets; keep only the newest and flush at a fixed rate.
+// AC floods RTCarInfo packets; keep only the newest and flush at BROADCAST_HZ.
+let nextDueAt = 0;
+
+const flushIfDue = (): void => {
+  if (!frameDirty || !latestFrame) return;
+  const now = performance.now();
+  if (now < nextDueAt) return;
+  // Catch up in interval steps while roughly on schedule; re-anchor after a
+  // long gap so a pause doesn't buy a burst of back-to-back sends.
+  nextDueAt = now - nextDueAt > BROADCAST_INTERVAL_MS ? now + BROADCAST_INTERVAL_MS : nextDueAt + BROADCAST_INTERVAL_MS;
+  frameDirty = false;
+  broadcast({ type: 'telemetry', ...latestFrame });
+};
+
 ac.on('telemetry', (frame) => {
   latestFrame = frame;
   frameDirty = true;
+  flushIfDue();
 });
 
-setInterval(() => {
-  if (!frameDirty || !latestFrame) return;
-  frameDirty = false;
-  broadcast({ type: 'telemetry', ...latestFrame });
-}, 1000 / BROADCAST_HZ);
+setInterval(flushIfDue, BROADCAST_INTERVAL_MS);
 
 server.listen(PORT, () => {
   console.log(`[bridge] http + ws listening on http://localhost:${PORT}`);

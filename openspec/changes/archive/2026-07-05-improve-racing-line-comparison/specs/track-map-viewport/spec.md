@@ -1,9 +1,6 @@
-# track-map-viewport
+# track-map-viewport (delta)
 
-## Purpose
-TBD - created by syncing change track-map-bounds. Update Purpose after review.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Real track bounds fix the viewport from the first frame
 Whenever `map.ini` metadata is available (`boundsAvailable`), the track map SHALL project world coordinates through the metadata transform (offsets, scale factor, pixel dimensions) — exactly as map-image mode does — even when no map image exists. The resulting viewport SHALL be fully determined before the first telemetry frame and SHALL NOT pan, zoom, or re-fit **automatically** at any point: absent user input, the first-lap line draws at the same position and scale it will have on every later lap. User-initiated scroll-wheel zoom (per the `track-map-zoom` capability) MAY magnify this viewport; at 1× zoom the framing is exactly the fixed fit described here.
@@ -19,10 +16,3 @@ Whenever `map.ini` metadata is available (`boundsAvailable`), the track map SHAL
 #### Scenario: User zoom is the only camera movement
 - **WHEN** the user scroll-zooms during a lap and later returns to 1×
 - **THEN** the view changes only in direct response to the wheel input and lands back on the fixed fit framing
-
-### Requirement: Heuristic camera only without bounds data
-The anchored, zoomed-out heuristic camera SHALL be used only when no `map.ini` metadata exists for the track (e.g. mod tracks without map data), and the on-canvas note SHALL distinguish this case (drawing blind) from the bounds-known case (map image missing but scale known).
-
-#### Scenario: Mod track without any map data
-- **WHEN** a session starts on a track with neither `map.png` nor `map.ini`
-- **THEN** the fallback anchored camera behavior applies, as today

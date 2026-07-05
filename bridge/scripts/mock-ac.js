@@ -23,9 +23,14 @@ const handshakeResponse = () => {
 
 // magione map.ini: WIDTH=342.88 HEIGHT=861.583 X_OFFSET=187.289 Z_OFFSET=444.422
 // so the oval below stays inside the map image.
+// t advances by real elapsed time so the car's pace is independent of how
+// fast (and how coarsely Windows quantizes) the send timer actually fires.
 let t = 0;
+let lastTick = Date.now();
 const carInfo = () => {
-  t += 0.03;
+  const now = Date.now();
+  t += (now - lastTick) / 1000;
+  lastTick = now;
   const lapMs = Math.round((t * 1000) % 90000);
   const b = Buffer.alloc(328);
   b.write('a', 0);
@@ -58,7 +63,10 @@ sock.on('message', (msg, rinfo) => {
   } else if (op === 1) {
     console.log('[mock] subscribe from', key);
     if (!streams.has(key)) {
-      streams.set(key, setInterval(() => sock.send(carInfo(), rinfo.port, rinfo.address), 20));
+      // Real AC floods packets far faster than any consumer rate; a 5 ms ask
+      // lands around Windows' timer floor (~15 ms → ~65+ Hz), fast enough to
+      // exercise the bridge's 60 Hz delivery gate.
+      streams.set(key, setInterval(() => sock.send(carInfo(), rinfo.port, rinfo.address), 5));
     }
   } else if (op === 3) {
     console.log('[mock] dismiss from', key);
