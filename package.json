@@ -3,6 +3,11 @@
   "private": true,
   "version": "0.1.0",
   "description": "Live Assetto Corsa telemetry dashboard: Node UDP bridge + React web app",
+  "license": "MIT",
+  "author": "Axel Barraza",
+  "engines": {
+    "node": ">=20.19"
+  },
   "workspaces": [
     "bridge",
     "web"

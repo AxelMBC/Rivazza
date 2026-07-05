@@ -45,14 +45,24 @@ handshaking and emits `waiting`. It retries the handshake every 3s while the gam
 
 **Throttling (`bridge/src/index.ts`).** AC floods RTCarInfo packets; the bridge keeps only the
 newest frame and flushes to WebSocket clients at 60 Hz (needed for the track map's ~1 m line
-sampling). On the web side, `useTelemetry` updates `telemetryRef` on every message but throttles
-React state to ~30 Hz (with a trailing-edge flush), so text readouts re-render at half rate while
-canvas rAF consumers keep full fidelity. New WS clients get a `hello` (current status + session)
-on connect.
+sampling). Windows quantizes short timers to ~15.6 ms, so a bare 60 Hz `setInterval` fires at
+~32 Hz — delivery is instead driven by packet arrival against a due-time accumulator, with the
+interval only sweeping up the trailing frame. On the web side, `useTelemetry` updates
+`telemetryRef` on every message but throttles React state to ~30 Hz (with a trailing-edge flush),
+so text readouts re-render at half rate while canvas rAF consumers keep full fidelity. New WS
+clients get a `hello` (current status + session) on connect.
 
 **Track assets (`bridge/src/trackAssets.ts`).** Reads `content/tracks/<track>/[<config>/]data/map.ini`
-for projection bounds and the optional `map.png`. The `.ini` bounds alone are enough to fix the
-viewport; the image is optional. Tracks with neither fall back to drawing the driven line.
+for projection bounds; served at `/api/track-map/meta`. The `.ini` bounds alone fix the viewport.
+`map.png` is still served at `/api/track-map/image`, but the web app **deliberately never draws
+it** — AC strokes it at constant width around the AI line, misrepresenting track limits; the
+driven lines are the track. Tracks without a `map.ini` fall back to an auto-fit view of the
+driven line.
+
+**Car assets (`bridge/src/carAssets.ts`).** Resolves the car's advertised top speed from
+`content/cars/<car>/ui/ui_car.json` (→ `topSpeedKmh` on `SessionInfo`, used to scale the
+speedometer dial). These files routinely contain raw control characters that break `JSON.parse`,
+so the field is regex-scanned out of the text — same garbage-tolerant philosophy as `parsers.ts`.
 
 **Type contract.** `bridge/src/types.ts` and `web/src/types.ts` are hand-mirrored and **must be
 kept in sync** — the `BridgeMessage` union (`status` | `session` | `telemetry`) is the wire format
@@ -63,9 +73,22 @@ every 1.5s) and exposes telemetry two ways: React state (`telemetry`) for normal
 `telemetryRef` for `requestAnimationFrame` loops (the track map) that must read every frame without
 triggering re-renders. When adding high-frequency canvas visuals, read the ref, not the state.
 
+**Derived-data hooks (`web/src/hooks/`).** `useInputHistory` (pedal/G ring buffer), `useLapHistory`
+(session lap log), and `useLapDelta` (live delta vs. fastest recorded lap) all follow the same
+pattern: bookkeeping in an effect keyed on the throttled `telemetry` state, result exposed as a
+ref so canvas rAF loops can read it. AC's protocol sends no lap list and no invalid-lap flag, so
+`useLapHistory` reconstructs laps from `lapCount` ticks and infers validity heuristically (a
+would-be PB the game didn't adopt = cut lap; pit-lane touch = invalid). Also note: AC's "restart
+session" does **not** re-handshake — restarts are detected by the lap counter or lap clock running
+backwards, a signature duplicated in `useLapHistory`, `useLapDelta`, and `TrackMap`. Keep them in
+sync if you change one.
+
 **Track map projection (`web/src/components/TrackMap.tsx`).** `pixel = (world + OFFSET) / SCALE_FACTOR`
-from `map.ini`. If the dot appears mirrored on some track, flip the X term in `project`. The map also
-draws pedal-colored driving lines (coast→throttle/brake color lerp) and keeps a bounded history of laps.
+from `map.ini`. If the dot appears mirrored on some track, flip the X term in `project`. The map draws
+pedal-colored driving lines (coast→throttle/brake color lerp) for the current lap, keeps a bounded
+per-lap history with identity colors, and layers cursor-anchored wheel zoom over the base fit
+projection. All canvas components (`TrackMap`, `PedalTrace`, `GForceMeter`) dirty-gate their rAF
+loops — they only repaint when what's rendered actually changed. Preserve this when editing them.
 
 ## Conventions
 

@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "UDP-to-WebSocket bridge for Assetto Corsa remote telemetry",
+  "license": "MIT",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",

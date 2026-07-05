@@ -1,20 +1,38 @@
 # Assetto Corsa Live Telemetry
 
-Live dashboard for Assetto Corsa (original): track, car, lap times, speed/gear/pedals,
-and a 2D track map with a dot showing your car's position in real time.
+Live dashboard for Assetto Corsa (original): gauges, lap times with live delta,
+pedal trace, G-meter, and a 2D track map that draws your driving lines in real time.
 
 ```
-Assetto Corsa ──UDP 9996──▶ bridge (Node) ──WebSocket──▶ React app (browser)
+Assetto Corsa ──UDP 9996──▶ bridge (Node) ──WebSocket :3001──▶ React app :5173
                               │
-                              └── serves the track's map.png + map.ini from the game folder
+                              └── serves the track's projection metadata over HTTP
 ```
 
 - **`bridge/`** — Node + TypeScript. Speaks AC's remote telemetry UDP protocol
   (handshake → subscribe → RTCarInfo stream), rebroadcasts frames over WebSocket at
-  30 Hz on port **3001**, and serves the current track's map image and projection
-  metadata over HTTP.
+  60 Hz on port **3001**, and serves the current track's map projection metadata
+  over HTTP.
 - **`web/`** — React + Vite + Tailwind (TypeScript). Connects to the bridge and renders
   the dashboard, including the canvas track map.
+
+## Features
+
+- Analog speedometer scaled to the current car's real top speed (read from the
+  game's car data), plus gear, RPM, and fuel readouts
+- Lap time log with validity detection and a live delta against your fastest lap
+- Pedal trace (throttle / brake / clutch) and lateral/longitudinal G-meter
+- 2D track map with pedal-colored driving lines (green throttle, red brake,
+  yellow coast), per-lap colored history, cursor-anchored wheel zoom, and a
+  hover speed readout on any lap line
+- Mock mode to develop and demo without the game running
+
+## Requirements
+
+- **Node.js ≥ 20.19**
+- **Assetto Corsa** (the original, not Competizione) — the bridge auto-discovers
+  your Steam library; set `AC_PATH` if it's installed somewhere unusual
+- No game configuration or mods needed — AC's remote telemetry is built in
 
 ## Quick start
 
@@ -24,8 +42,8 @@ npm run dev        # starts bridge (:3001) + web app (:5173)
 ```
 
 Open **http://localhost:5173**, then start Assetto Corsa and enter any session
-(practice, race…). The dashboard connects automatically — no game configuration or
-mods needed. Exit to the menu and start a different track/car and it follows along.
+(practice, race…). The dashboard connects automatically. Exit to the menu and start
+a different track/car and it follows along.
 
 ## Demo without the game
 
@@ -40,15 +58,34 @@ Runs a fake Assetto Corsa on UDP 9996 that streams a car lapping Magione.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `AC_PATH` | `C:\Program Files (x86)\Steam\steamapps\common\assettocorsa` | Game folder (for track maps) |
+| `AC_PATH` | auto-discovered from Steam | Game folder (for track/car data) |
 | `AC_HOST` | `127.0.0.1` | Machine running the game |
 | `AC_PORT` | `9996` | AC remote telemetry port |
 | `BRIDGE_PORT` | `3001` | Bridge HTTP/WebSocket port |
 
+## Development
+
+```sh
+npm run dev             # bridge + web together (concurrently)
+npm run lint -w web     # oxlint
+npm run build           # type-checks the bridge, type-checks + builds the web app
+```
+
+There is no test framework; the mock server (`npm run mock -w bridge`) is the main
+way to exercise the app end-to-end. Architecture notes live in `CLAUDE.md`, and
+feature specs in `openspec/specs/` (the project is spec-driven via
+[OpenSpec](https://github.com/Fission-AI/OpenSpec)).
+
 ## Notes
 
-- Tracks without a `map.png` (some partially-installed DLC / mods) fall back to
-  drawing your driving line — the outline appears as you drive.
+- The track map draws your driven lines rather than the game's `map.png` — AC's
+  map images are stroked at constant width around the AI line, so they misrepresent
+  the real track limits. The `data/map.ini` projection metadata alone fixes the
+  viewport; tracks without one fall back to an auto-fit view of the driven line.
 - The map projection is `pixel = (world + OFFSET) / SCALE_FACTOR` from the track's
   `data/map.ini`. If the dot ever appears mirrored on some track, flip the X term in
   `web/src/components/TrackMap.tsx` (`project`).
+
+## License
+
+[MIT](LICENSE)
