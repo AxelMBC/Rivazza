@@ -3,7 +3,7 @@ import type { InputSample } from '../hooks/useInputHistory';
 
 const MAX_G = 2.5; // outer edge of the gauge
 const RINGS = [1, 2];
-const PATH_SAMPLES = 60; // ~2s of recent dot travel
+const PATH_SAMPLES = 60; // ~2s of recent dot travel at the ~30 Hz state rate
 
 export const GForceMeter = ({ historyRef }: { historyRef: React.RefObject<InputSample[]> }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -15,12 +15,37 @@ export const GForceMeter = ({ historyRef }: { historyRef: React.RefObject<InputS
     if (!ctx) return;
     let rafId = 0;
 
+    // Dirty gating: the meter is purely data-driven (no time scrolling), so
+    // it only repaints when the input history or canvas size changes.
+    // lastLen starts at -1 so the first frame paints the empty rings.
+    let lastLen = -1;
+    let lastT = -1;
+    let lastW = 0;
+    let lastH = 0;
+    let lastDpr = 0;
+
     const draw = () => {
       rafId = requestAnimationFrame(draw);
       const dpr = window.devicePixelRatio || 1;
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       if (width === 0 || height === 0) return;
+
+      const history = historyRef.current;
+      const newest = history[history.length - 1];
+      const dirty =
+        width !== lastW ||
+        height !== lastH ||
+        dpr !== lastDpr ||
+        history.length !== lastLen ||
+        (newest?.t ?? -1) !== lastT;
+      if (!dirty) return;
+      lastW = width;
+      lastH = height;
+      lastDpr = dpr;
+      lastLen = history.length;
+      lastT = newest?.t ?? -1;
+
       if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
         canvas.width = width * dpr;
         canvas.height = height * dpr;
@@ -52,7 +77,6 @@ export const GForceMeter = ({ historyRef }: { historyRef: React.RefObject<InputS
         ctx.fillText(`${g}G`, cx + r + 2, cy - 2);
       }
 
-      const history = historyRef.current;
       if (history.length === 0) return;
 
       // Lateral G on x, longitudinal on y (braking pulls the dot down).

@@ -155,6 +155,14 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    // Offscreen layers so a typical frame is two blits plus the segments added
+    // since the last one — instead of re-projecting and re-stroking every
+    // stored lap. Both live only as long as this effect (mapData/session).
+    const lapsLayer = document.createElement('canvas');
+    const lapsLayerCtx = lapsLayer.getContext('2d');
+    const currentLayer = document.createElement('canvas');
+    const currentLayerCtx = currentLayer.getContext('2d');
+    if (!lapsLayerCtx || !currentLayerCtx) return;
     let rafId = 0;
 
     type Projected = { px: number; py: number };
@@ -169,46 +177,134 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
       return { px: px * zm.level + zm.ox, py: py * zm.level + zm.oy };
     };
 
+    // Per-segment colored polyline. `from` lets the current-lap layer append
+    // only the segments added since its last draw.
     const drawPath = (
+      target: CanvasRenderingContext2D,
       samples: Sample[],
       project: Project,
       colorFor: (s: Sample) => string,
       lineWidth: number,
+      from = 1,
     ) => {
       if (samples.length < 2) return;
-      const points = samples.map(project);
-      ctx.lineWidth = lineWidth;
-      ctx.lineCap = 'round';
-      for (let i = 1; i < points.length; i++) {
+      target.lineWidth = lineWidth;
+      target.lineCap = 'round';
+      for (let i = Math.max(1, from); i < samples.length; i++) {
         if (samples[i].jump) continue;
-        ctx.strokeStyle = colorFor(samples[i]);
-        ctx.beginPath();
-        ctx.moveTo(points[i - 1].px, points[i - 1].py);
-        ctx.lineTo(points[i].px, points[i].py);
-        ctx.stroke();
+        const a = project(samples[i - 1]);
+        const b = project(samples[i]);
+        target.strokeStyle = colorFor(samples[i]);
+        target.beginPath();
+        target.moveTo(a.px, a.py);
+        target.lineTo(b.px, b.py);
+        target.stroke();
       }
     };
 
-    // Uniform-color laps batch into a single stroke, so a whole session of
-    // stored laps stays cheap to redraw every frame.
+    // Uniform-color laps batch into a single stroke, so re-rendering the
+    // cached lap layer stays cheap even with a full session of laps.
     const drawUniformPath = (
+      target: CanvasRenderingContext2D,
       samples: Sample[],
       project: Project,
       color: string,
       lineWidth: number,
     ) => {
       if (samples.length < 2) return;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = lineWidth;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
+      target.strokeStyle = color;
+      target.lineWidth = lineWidth;
+      target.lineCap = 'round';
+      target.lineJoin = 'round';
+      target.beginPath();
       samples.forEach((s, i) => {
         const { px, py } = project(s);
-        if (i === 0 || s.jump) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
+        if (i === 0 || s.jump) target.moveTo(px, py);
+        else target.lineTo(px, py);
       });
-      ctx.stroke();
+      target.stroke();
+    };
+
+    const sizeLayer = (layer: HTMLCanvasElement, w: number, h: number) => {
+      if (layer.width !== w || layer.height !== h) {
+        layer.width = w;
+        layer.height = h;
+      }
+    };
+
+    // Layers hold device pixels sized exactly like the main canvas, so they
+    // blit 1:1 in device space — pixel-identical to drawing directly.
+    const blitLayer = (layer: HTMLCanvasElement) => {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(layer, 0, 0);
+      ctx.restore();
+    };
+
+    // Cache invalidation state. `lapsVersion` counts every mutation of
+    // previousLapsRef (push/shift/reset) because at MAX_LAPS a rollover keeps
+    // the array length constant. `appendedCount` is how many current-lap
+    // samples are already drawn into currentLayer.
+    let lapsVersion = 0;
+    let lapsLayerKey = '';
+    let currentLayerKey = '';
+    let appendedCount = 0;
+
+    // All completed laps except the hovered one (kept out so the emphasis
+    // pass reproduces today's exact skip-and-redraw pixels).
+    const renderLapsLayer = (
+      project: Project,
+      projKey: string,
+      hoveredIndex: number,
+      width: number,
+      height: number,
+      dpr: number,
+    ) => {
+      const laps = previousLapsRef.current;
+      const key = `${projKey}|${lapsVersion}|${hoveredIndex}`;
+      if (key === lapsLayerKey) return;
+      lapsLayerKey = key;
+      sizeLayer(lapsLayer, canvas.width, canvas.height);
+      lapsLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      lapsLayerCtx.clearRect(0, 0, width, height);
+      // The most recent laps carry stable identity colors; older ones stay grey.
+      const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
+      laps.forEach(({ lap, samples }, index) => {
+        if (index === hoveredIndex) return;
+        const color = index >= coloredFrom ? lapColor(lap) : PREVIOUS_LAP;
+        drawUniformPath(lapsLayerCtx, samples, project, color, LINE_WIDTH - 0.5);
+      });
+    };
+
+    // Current lap accumulates incrementally; any projection change (zoom,
+    // resize, fallback view movement) or shrink (rollover/reset) redraws it.
+    const renderCurrentLayer = (
+      project: Project,
+      projKey: string,
+      width: number,
+      height: number,
+      dpr: number,
+    ) => {
+      const samples = currentRef.current;
+      if (projKey !== currentLayerKey || samples.length < appendedCount) {
+        currentLayerKey = projKey;
+        sizeLayer(currentLayer, canvas.width, canvas.height);
+        currentLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        currentLayerCtx.clearRect(0, 0, width, height);
+        appendedCount = 0;
+      }
+      if (samples.length > appendedCount) {
+        currentLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawPath(
+          currentLayerCtx,
+          samples,
+          project,
+          (s) => segmentColor(s.gas, s.brake),
+          LINE_WIDTH,
+          Math.max(1, appendedCount),
+        );
+        appendedCount = samples.length;
+      }
     };
 
     // Hover pick: the nearest stored lap line within HOVER_RADIUS of the
@@ -302,24 +398,36 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
       });
     };
 
-    const drawLaps = (project: Project) => {
+    let lastCursor = '';
+    const setCursor = (cursor: string) => {
+      if (cursor === lastCursor) return;
+      lastCursor = cursor;
+      canvas.style.cursor = cursor;
+    };
+
+    const drawLaps = (
+      project: Project,
+      projKey: string,
+      width: number,
+      height: number,
+      dpr: number,
+    ) => {
       const hit = hitTestLaps(project);
-      canvas.style.cursor = hit.nearest >= 0 ? 'pointer' : 'default';
-      const laps = previousLapsRef.current;
-      // The most recent laps carry stable identity colors; older ones stay grey.
-      const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
-      laps.forEach(({ lap, samples }, index) => {
-        if (index === hit.nearest) return;
-        const color = index >= coloredFrom ? lapColor(lap) : PREVIOUS_LAP;
-        drawUniformPath(samples, project, color, LINE_WIDTH - 0.5);
-      });
-      drawPath(currentRef.current, project, (s) => segmentColor(s.gas, s.brake), LINE_WIDTH);
+      setCursor(hit.nearest >= 0 ? 'pointer' : 'default');
+      // Draw order matches the pre-layer renderer exactly: previous laps
+      // (minus hovered) → current lap → hovered emphasis → readout.
+      renderLapsLayer(project, projKey, hit.nearest, width, height, dpr);
+      blitLayer(lapsLayer);
+      renderCurrentLayer(project, projKey, width, height, dpr);
+      blitLayer(currentLayer);
       if (hit.nearest >= 0) {
         // Emphasis keeps the lap's identity color: thicker + full opacity
         // (grey laps brighten to solid white) instead of a separate hue.
+        const laps = previousLapsRef.current;
+        const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
         const { lap, samples } = laps[hit.nearest];
         const color = hit.nearest >= coloredFrom ? lapColor(lap) : HOVERED_GREY_LAP;
-        drawUniformPath(samples, project, color, LINE_WIDTH + 1);
+        drawUniformPath(ctx, samples, project, color, LINE_WIDTH + 1);
         drawHoverReadout(hit);
       }
     };
@@ -334,12 +442,47 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
       ctx.stroke();
     };
 
+    // Dirty gating: repaint only when something rendered actually changed.
+    // Telemetry frames, mouse positions, and zoom states are fresh objects on
+    // every change, so identity comparison is a faithful change detector.
+    let lastFrame: TelemetryFrame | null = null;
+    let lastMouse: { x: number; y: number } | null = null;
+    let lastZoom = zoomRef.current;
+    let lastW = 0;
+    let lastH = 0;
+    let lastDpr = 0;
+    let firstDraw = true;
+    // Fallback mode keeps repainting while the auto-fit viewport eases.
+    let easing = false;
+
     const draw = () => {
       rafId = requestAnimationFrame(draw);
       const dpr = window.devicePixelRatio || 1;
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       if (width === 0 || height === 0) return;
+
+      const frame = telemetryRef.current;
+      const mouse = mouseRef.current;
+      const zoom = zoomRef.current;
+      const dirty =
+        firstDraw ||
+        easing ||
+        frame !== lastFrame ||
+        mouse !== lastMouse ||
+        zoom !== lastZoom ||
+        width !== lastW ||
+        height !== lastH ||
+        dpr !== lastDpr;
+      if (!dirty) return;
+      firstDraw = false;
+      lastFrame = frame;
+      lastMouse = mouse;
+      lastZoom = zoom;
+      lastW = width;
+      lastH = height;
+      lastDpr = dpr;
+
       if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
         canvas.width = width * dpr;
         canvas.height = height * dpr;
@@ -347,7 +490,6 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
-      const frame = telemetryRef.current;
       if (frame) {
         const prevLap = lapRef.current;
         // AC's "restart session" doesn't re-handshake — spot it by the lap
@@ -358,12 +500,14 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
             (frame.lapCount === prevLap && frame.lapTimeMs + 1000 < lapTimeRef.current));
         if (restarted) {
           resetLines();
+          lapsVersion++;
         } else if (prevLap !== null && frame.lapCount > prevLap) {
           // Lap finished: keep it among the grey reference lines underneath.
           // Display convention matches the LAP tile: lapCount N is "Lap N+1".
           previousLapsRef.current.push({ lap: prevLap + 1, samples: currentRef.current });
           if (previousLapsRef.current.length > MAX_LAPS) previousLapsRef.current.shift();
           currentRef.current = [];
+          lapsVersion++;
         }
         lapRef.current = frame.lapCount;
         lapTimeRef.current = frame.lapTimeMs;
@@ -415,6 +559,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
       }
 
       if (mapData) {
+        easing = false;
         // map.ini pixel dimensions fix the viewport with or without the image,
         // so the framing is identical from the very first frame.
         const { meta, image } = mapData;
@@ -446,7 +591,9 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
           py: offsetY + (((p.z + meta.zOffset) / meta.scaleFactor) / meta.height) * drawnH,
         }));
 
-        drawLaps(project);
+        // Everything the projection depends on — a change invalidates layers.
+        const projKey = `m|${width}x${height}@${dpr}|${zm.level},${zm.ox},${zm.oy}`;
+        drawLaps(project, projKey, width, height, dpr);
         if (frame) {
           const { px, py } = project({ x: frame.x, z: frame.z });
           drawDot(px, py);
@@ -457,7 +604,10 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
       // No map.png for this track: auto-fit the driven lines. The viewport
       // eases toward the (margin-padded) bounds so the first lap doesn't pin
       // the car dot against the canvas edges while the extent is still growing.
-      if (!frame || (currentRef.current.length < 2 && previousLapsRef.current.length === 0)) return;
+      if (!frame || (currentRef.current.length < 2 && previousLapsRef.current.length === 0)) {
+        easing = false;
+        return;
+      }
       const b = boundsRef.current;
       const anchor = anchorRef.current;
       let target: View;
@@ -491,7 +641,26 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
         view.cz += (target.cz - view.cz) * VIEW_EASE;
         view.ex += (target.ex - view.ex) * VIEW_EASE;
         view.ez += (target.ez - view.ez) * VIEW_EASE;
+        // The easing is asymptotic — snap once within a sub-pixel epsilon so
+        // it terminates and the map can go idle between telemetry frames.
+        const eps = Math.max(target.ex, target.ez) * 1e-4;
+        if (
+          Math.abs(target.cx - view.cx) < eps &&
+          Math.abs(target.cz - view.cz) < eps &&
+          Math.abs(target.ex - view.ex) < eps &&
+          Math.abs(target.ez - view.ez) < eps
+        ) {
+          view.cx = target.cx;
+          view.cz = target.cz;
+          view.ex = target.ex;
+          view.ez = target.ez;
+        }
       }
+      easing =
+        view.cx !== target.cx ||
+        view.cz !== target.cz ||
+        view.ex !== target.ex ||
+        view.ez !== target.ez;
       const scale = Math.min((width - PADDING * 2) / view.ex, (height - PADDING * 2) / view.ez);
       // Y is flipped so driving north in the sim moves the dot up on screen.
       // User zoom multiplies the eased auto-fit view; at 1× the automatic
@@ -501,7 +670,9 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
         py: height / 2 - (p.z - view.cz) * scale,
       }));
 
-      drawLaps(project);
+      const zm = zoomRef.current;
+      const projKey = `f|${width}x${height}@${dpr}|${zm.level},${zm.ox},${zm.oy}|${view.cx},${view.cz},${view.ex},${view.ez}`;
+      drawLaps(project, projKey, width, height, dpr);
       const { px, py } = project({ x: frame.x, z: frame.z });
       drawDot(px, py);
     };

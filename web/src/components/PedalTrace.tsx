@@ -20,12 +20,37 @@ export const PedalTrace = ({ historyRef }: { historyRef: React.RefObject<InputSa
     if (!ctx) return;
     let rafId = 0;
 
+    // Dirty gating. The trace is time-scrolled, so it keeps repainting while
+    // any sample is still inside WINDOW_MS (a paused stream visibly drains
+    // off the left edge exactly as before); once empty it paints one final
+    // clearing frame (reference lines only) and idles.
+    let lastLen = -1;
+    let lastT = -1;
+    let lastW = 0;
+    let lastH = 0;
+    let lastDpr = 0;
+    let paintedEmpty = false;
+
     const draw = () => {
       rafId = requestAnimationFrame(draw);
       const dpr = window.devicePixelRatio || 1;
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       if (width === 0 || height === 0) return;
+
+      const history = historyRef.current;
+      const newest = history[history.length - 1];
+      const sizeChanged = width !== lastW || height !== lastH || dpr !== lastDpr;
+      const historyChanged = history.length !== lastLen || (newest?.t ?? -1) !== lastT;
+      const hasVisible = !!newest && performance.now() - newest.t <= WINDOW_MS;
+      if (!sizeChanged && !historyChanged && !hasVisible && paintedEmpty) return;
+      lastW = width;
+      lastH = height;
+      lastDpr = dpr;
+      lastLen = history.length;
+      lastT = newest?.t ?? -1;
+      paintedEmpty = !hasVisible;
+
       if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
         canvas.width = width * dpr;
         canvas.height = height * dpr;
@@ -44,7 +69,6 @@ export const PedalTrace = ({ historyRef }: { historyRef: React.RefObject<InputSa
         ctx.stroke();
       }
 
-      const history = historyRef.current;
       if (history.length < 2) return;
       const now = performance.now();
 

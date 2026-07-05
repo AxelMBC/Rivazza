@@ -9,13 +9,19 @@ import type {
 export const BRIDGE_HTTP = `http://${window.location.hostname}:3001`;
 const BRIDGE_WS = `ws://${window.location.hostname}:3001/ws`;
 const RECONNECT_MS = 1500;
+// React state carries the text readouts and data-derivation hooks; ~30 Hz is
+// visually indistinguishable for those (the gauge needle interpolates over
+// 100 ms anyway) and halves render work. `telemetryRef` stays at the full
+// bridge rate so canvas rAF consumers keep 60 Hz fidelity.
+const STATE_INTERVAL_MS = 1000 / 30;
 
 export type Telemetry = {
   status: ConnectionStatus;
   session: SessionInfo | null;
+  // Throttled to ~STATE_INTERVAL_MS between updates (trailing frame always lands).
   telemetry: TelemetryFrame | null;
-  // Same data as `telemetry` but updated outside React — read it from
-  // requestAnimationFrame loops (the track map) without re-render coupling.
+  // Same data as `telemetry` but updated on every bridge message — read it
+  // from requestAnimationFrame loops (the track map) without re-render coupling.
   telemetryRef: React.RefObject<TelemetryFrame | null>;
 };
 
@@ -28,7 +34,26 @@ export const useTelemetry = (): Telemetry => {
   useEffect(() => {
     let socket: WebSocket | null = null;
     let reconnectTimer: number | undefined;
+    let flushTimer: number | undefined;
+    let lastStateAt = 0;
     let disposed = false;
+
+    // Trailing-edge flush: when the throttle skips a frame, this makes sure
+    // the newest frame still reaches state within one interval — so the final
+    // frame of a pausing stream (lap boundaries included) is never dropped.
+    const scheduleFlush = (delay: number) => {
+      window.clearTimeout(flushTimer);
+      flushTimer = window.setTimeout(() => {
+        lastStateAt = performance.now();
+        setTelemetry(telemetryRef.current);
+      }, delay);
+    };
+
+    const clearFrame = () => {
+      window.clearTimeout(flushTimer);
+      setTelemetry(null);
+      telemetryRef.current = null;
+    };
 
     const connect = () => {
       socket = new WebSocket(BRIDGE_WS);
@@ -40,19 +65,25 @@ export const useTelemetry = (): Telemetry => {
             setStatus(message.state);
             if (message.state === 'waiting') {
               setSession(null);
-              setTelemetry(null);
-              telemetryRef.current = null;
+              clearFrame();
             }
             break;
           case 'session':
             setSession(message);
-            setTelemetry(null);
-            telemetryRef.current = null;
+            clearFrame();
             break;
-          case 'telemetry':
+          case 'telemetry': {
             telemetryRef.current = message;
-            setTelemetry(message);
+            const elapsed = performance.now() - lastStateAt;
+            if (elapsed >= STATE_INTERVAL_MS) {
+              window.clearTimeout(flushTimer);
+              lastStateAt = performance.now();
+              setTelemetry(message);
+            } else {
+              scheduleFlush(STATE_INTERVAL_MS - elapsed);
+            }
             break;
+          }
         }
       };
 
@@ -68,6 +99,7 @@ export const useTelemetry = (): Telemetry => {
     return () => {
       disposed = true;
       window.clearTimeout(reconnectTimer);
+      window.clearTimeout(flushTimer);
       socket?.close();
     };
   }, []);

@@ -44,8 +44,11 @@ RTCarInfo stream. AC never signals session end, so a stale timer (5s of silence)
 handshaking and emits `waiting`. It retries the handshake every 3s while the game is closed.
 
 **Throttling (`bridge/src/index.ts`).** AC floods RTCarInfo packets; the bridge keeps only the
-newest frame and flushes to WebSocket clients at a fixed 30 Hz. New WS clients get a `hello`
-(current status + session) on connect.
+newest frame and flushes to WebSocket clients at 60 Hz (needed for the track map's ~1 m line
+sampling). On the web side, `useTelemetry` updates `telemetryRef` on every message but throttles
+React state to ~30 Hz (with a trailing-edge flush), so text readouts re-render at half rate while
+canvas rAF consumers keep full fidelity. New WS clients get a `hello` (current status + session)
+on connect.
 
 **Track assets (`bridge/src/trackAssets.ts`).** Reads `content/tracks/<track>/[<config>/]data/map.ini`
 for projection bounds and the optional `map.png`. The `.ini` bounds alone are enough to fix the

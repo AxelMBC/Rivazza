@@ -10,7 +10,7 @@ export type InputSample = {
   accGF: number; // longitudinal G
 };
 
-const CAPACITY = 360; // ~12s of samples at 30 Hz
+const CAPACITY = 360; // ~12s of samples at the ~30 Hz React state rate (see useTelemetry)
 
 // Ring buffer of recent driver inputs, exposed as a ref so canvas components
 // (pedal trace, G-meter) can read it from requestAnimationFrame loops without
