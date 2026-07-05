@@ -28,7 +28,7 @@ const discoverAcPath = (): string => {
   return DEFAULT_AC_PATH;
 };
 
-const AC_PATH = discoverAcPath();
+export const AC_PATH = discoverAcPath();
 if (fs.existsSync(AC_PATH)) {
   console.log(`[map] using AC install at ${AC_PATH}`);
 } else {

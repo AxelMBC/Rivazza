@@ -3,6 +3,7 @@ import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ACClient } from './acClient.js';
 import { resolveTrackAssets, type TrackAssets } from './trackAssets.js';
+import { resolveCarTopSpeed } from './carAssets.js';
 import type { BridgeMessage, SessionInfo, TelemetryFrame } from './types.js';
 
 const PORT = Number(process.env.BRIDGE_PORT ?? 3001);
@@ -70,6 +71,7 @@ ac.on('session', (handshake) => {
     driver: handshake.driverName,
     mapAvailable: trackAssets?.mapImagePath != null,
     boundsAvailable: trackAssets !== null,
+    topSpeedKmh: resolveCarTopSpeed(handshake.carName),
   };
   broadcast({ type: 'status', state: 'connected' });
   broadcast({ type: 'session', ...session });

@@ -36,7 +36,7 @@ const App = () => {
       {session ? (
         <main className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[24rem_1fr]">
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
-            <InstrumentCluster telemetry={telemetry} />
+            <InstrumentCluster telemetry={telemetry} session={session} />
             <LapTimes telemetry={telemetry} deltaMs={deltaMs} lapsRef={lapHistoryRef} />
             <PedalTrace historyRef={historyRef} />
             <div className="grid grid-cols-[10rem_1fr] items-start gap-3">

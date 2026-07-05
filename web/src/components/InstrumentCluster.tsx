@@ -1,9 +1,9 @@
-import type { TelemetryFrame } from '../types';
+import type { SessionInfo, TelemetryFrame } from '../types';
 import { formatGear } from '../lib/format';
+import { speedScale } from '../lib/speedScale';
 import { AnalogGauge } from './AnalogGauge';
 import { TyreOverlay } from './TyreOverlay';
 
-const SPEED_MAX_KMH = 320;
 const RPM_MAX = 10000;
 const REDLINE_FROM_RPM = 8500;
 
@@ -31,8 +31,15 @@ const StatusLight = ({
   </span>
 );
 
-export const InstrumentCluster = ({ telemetry }: { telemetry: TelemetryFrame | null }) => {
+export const InstrumentCluster = ({
+  telemetry,
+  session,
+}: {
+  telemetry: TelemetryFrame | null;
+  session: SessionInfo;
+}) => {
   const limiter = telemetry?.engineLimiterOn ?? false;
+  const speed = speedScale(session.topSpeedKmh);
 
   return (
     <section className="group relative rounded-lg border border-edge bg-surface p-4">
@@ -40,9 +47,9 @@ export const InstrumentCluster = ({ telemetry }: { telemetry: TelemetryFrame | n
       <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
         <AnalogGauge
           min={0}
-          max={SPEED_MAX_KMH}
+          max={speed.max}
           value={telemetry?.speedKmh ?? 0}
-          majorTickStep={40}
+          majorTickStep={speed.majorTickStep}
           label="km/h"
         >
           <p className="rounded border border-hairline bg-page px-2 py-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">

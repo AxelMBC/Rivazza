@@ -7,6 +7,9 @@ export type SessionInfo = {
   mapAvailable: boolean;
   // Bounds metadata (data/map.ini) found — enough to scale the map view.
   boundsAvailable: boolean;
+  // Car's advertised top speed in km/h (from ui_car.json), or null when
+  // unavailable — the speedometer scale is derived from it, else falls back.
+  topSpeedKmh: number | null;
 };
 
 export type TelemetryFrame = {
