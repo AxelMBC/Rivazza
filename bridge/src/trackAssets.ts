@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { MapMeta } from './types.js';
+import { resolveTrackEdges } from './aiSpline.js';
+import type { MapMeta, TrackEdges } from './types.js';
 
 const DEFAULT_AC_PATH = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\assettocorsa';
 const STEAM_LIBRARY_CONFIGS = [
@@ -37,10 +38,13 @@ if (fs.existsSync(AC_PATH)) {
   );
 }
 
-// meta (data/map.ini) alone is enough for track bounds; the image is optional.
+// The three assets resolve independently: meta (data/map.ini) fixes the
+// viewport, edges (ai/fast_lane.ai) depict the track limits, and the image
+// exists but is deliberately never drawn by the web app.
 export type TrackAssets = {
-  meta: MapMeta;
+  meta: MapMeta | null;
   mapImagePath: string | null;
+  edges: TrackEdges | null;
 };
 
 const parseMapIni = (iniPath: string): MapMeta | null => {
@@ -66,21 +70,39 @@ export const resolveTrackAssets = (track: string, trackConfig: string): TrackAss
   const trackRoot = path.join(AC_PATH, 'content', 'tracks', track);
   const candidates = trackConfig ? [path.join(trackRoot, trackConfig), trackRoot] : [trackRoot];
 
+  let meta: MapMeta | null = null;
+  let mapImagePath: string | null = null;
   for (const dir of candidates) {
     const iniPath = path.join(dir, 'data', 'map.ini');
     if (!fs.existsSync(iniPath)) continue;
     try {
-      const meta = parseMapIni(iniPath);
+      meta = parseMapIni(iniPath);
       if (!meta) continue;
-      const mapImagePath = path.join(dir, 'map.png');
-      return { meta, mapImagePath: fs.existsSync(mapImagePath) ? mapImagePath : null };
+      const imagePath = path.join(dir, 'map.png');
+      mapImagePath = fs.existsSync(imagePath) ? imagePath : null;
+      break;
     } catch (err) {
       console.error(`[map] failed to parse ${iniPath}:`, err);
     }
   }
-  // JSON.stringify exposes invisible characters in the handshake strings.
-  console.warn(
-    `[map] no map data found for track ${JSON.stringify(track)} (config ${JSON.stringify(trackConfig)})`,
-  );
-  return null;
+
+  // First existing fast_lane.ai wins with no fallthrough: on a multi-layout
+  // track the root spline describes a different layout, so a layout file
+  // that fails validation must not fall back to it.
+  let edges: TrackEdges | null = null;
+  for (const dir of candidates) {
+    const aiPath = path.join(dir, 'ai', 'fast_lane.ai');
+    if (!fs.existsSync(aiPath)) continue;
+    edges = resolveTrackEdges(aiPath, meta);
+    break;
+  }
+
+  if (!meta && !edges) {
+    // JSON.stringify exposes invisible characters in the handshake strings.
+    console.warn(
+      `[map] no map data found for track ${JSON.stringify(track)} (config ${JSON.stringify(trackConfig)})`,
+    );
+    return null;
+  }
+  return { meta, mapImagePath, edges };
 };

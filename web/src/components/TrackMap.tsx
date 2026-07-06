@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { MapMeta, SessionInfo, TelemetryFrame } from '../types';
+import type { MapMeta, SessionInfo, TelemetryFrame, TrackEdges } from '../types';
 import type { LapRecord } from '../hooks/useLapHistory';
 import { formatLapTime } from '../lib/format';
 import { BRIDGE_HTTP } from '../hooks/useTelemetry';
@@ -10,10 +10,12 @@ type Props = {
   lapsRef: React.RefObject<LapRecord[]>;
 };
 
-// map.ini metadata fixes the viewport and projection. The track's map.png is
+// map.ini metadata fixes the viewport and projection; edges are the track
+// limits parsed from the AI spline's side distances. The track's map.png is
 // deliberately never drawn: AC strokes it at constant width around the AI
-// line, so it misrepresents track limits — the driven lines are the track.
-type MapData = { meta: MapMeta };
+// line, so it misrepresents track limits — the ribbon (when edges resolve)
+// and the driven lines are the track. Null only when neither asset exists.
+type MapData = { meta: MapMeta | null; edges: TrackEdges | null };
 // `jump` marks a teleport (pits, restart) — no segment is drawn into it.
 // `speedKmh` is the raw frame speed, kept for the hover speed readout.
 type Sample = { x: number; z: number; gas: number; brake: number; speedKmh: number; jump: boolean };
@@ -45,6 +47,11 @@ const ZOOM_STEP = 1.2;
 const ZOOM_RESET: Zoom = { level: 1, ox: 0, oy: 0 };
 
 const SURFACE = '#1a1a19';
+// Track-limits ribbon: asphalt just above the panel surface, edge strokes
+// muted so the pedal-colored lines stay visually dominant.
+const TRACK_FILL = '#242422';
+const TRACK_EDGE = 'rgba(255, 255, 255, 0.28)';
+const TRACK_EDGE_WIDTH = 1;
 const PREVIOUS_LAP = 'rgba(255, 255, 255, 0.45)';
 const HOVERED_GREY_LAP = '#ffffff'; // uncolored laps brighten to solid white on hover
 const INVALID_TIME = '#f0554b'; // theme critical, brightened for the small canvas label
@@ -120,16 +127,22 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
     // Always probe the bridge instead of trusting session flags — a page
     // holding a stale session must still pick up bounds the bridge has now.
     let cancelled = false;
-    const load = async () => {
-      let meta: MapMeta | null = null;
+    const probe = async <T,>(url: string): Promise<T | null> => {
       try {
-        const res = await fetch(`${BRIDGE_HTTP}/api/track-map/meta`);
-        if (res.ok) meta = await res.json();
+        const res = await fetch(url);
+        return res.ok ? ((await res.json()) as T) : null;
       } catch {
         // bridge unreachable; treated as no map data
+        return null;
       }
+    };
+    const load = async () => {
+      const [meta, edges] = await Promise.all([
+        probe<MapMeta>(`${BRIDGE_HTTP}/api/track-map/meta`),
+        probe<TrackEdges>(`${BRIDGE_HTTP}/api/track-map/edges`),
+      ]);
       if (cancelled) return;
-      if (meta) setMapData({ meta });
+      if (meta || edges) setMapData({ meta, edges });
       setMapProbed(true);
     };
     load();
@@ -143,15 +156,42 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    // Offscreen layers so a typical frame is two blits plus the segments added
-    // since the last one — instead of re-projecting and re-stroking every
-    // stored lap. Both live only as long as this effect (mapData/session).
+    // Offscreen layers so a typical frame is a few blits plus the segments
+    // added since the last one — instead of re-projecting and re-stroking
+    // every stored lap. All live only as long as this effect (mapData/session).
     const lapsLayer = document.createElement('canvas');
     const lapsLayerCtx = lapsLayer.getContext('2d');
     const currentLayer = document.createElement('canvas');
     const currentLayerCtx = currentLayer.getContext('2d');
-    if (!lapsLayerCtx || !currentLayerCtx) return;
+    const trackLayer = document.createElement('canvas');
+    const trackLayerCtx = trackLayer.getContext('2d');
+    if (!lapsLayerCtx || !currentLayerCtx || !trackLayerCtx) return;
     let rafId = 0;
+
+    const edges = mapData?.edges ?? null;
+    // Track edges without map.ini: the ribbon's world bounds (plus margin)
+    // fix the viewport — the same never-moving guarantee as the metadata fit.
+    let edgeView: View | null = null;
+    if (edges && !mapData?.meta) {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (const line of [edges.left, edges.right]) {
+        for (const [x, z] of line) {
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+          minZ = Math.min(minZ, z);
+          maxZ = Math.max(maxZ, z);
+        }
+      }
+      edgeView = {
+        cx: (minX + maxX) / 2,
+        cz: (minZ + maxZ) / 2,
+        ex: Math.max(maxX - minX, 50) * (1 + VIEW_MARGIN * 2),
+        ez: Math.max(maxZ - minZ, 50) * (1 + VIEW_MARGIN * 2),
+      };
+    }
 
     type Projected = { px: number; py: number };
     type Project = (p: { x: number; z: number }) => Projected;
@@ -237,6 +277,63 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
     let lapsLayerKey = '';
     let currentLayerKey = '';
     let appendedCount = 0;
+    let trackLayerKey = '';
+
+    // The track-limits ribbon under everything else. Edges are static for
+    // the whole session, so only a projection change (zoom, resize, DPR)
+    // re-renders the layer; every other frame just re-blits it.
+    const renderTrackLayer = (
+      project: Project,
+      projKey: string,
+      width: number,
+      height: number,
+      dpr: number,
+    ) => {
+      if (!edges) return;
+      if (projKey !== trackLayerKey) {
+        trackLayerKey = projKey;
+        sizeLayer(trackLayer, canvas.width, canvas.height);
+        trackLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        trackLayerCtx.clearRect(0, 0, width, height);
+
+        const trace = (line: [number, number][], reverse: boolean, move: boolean) => {
+          for (let i = 0; i < line.length; i++) {
+            const [x, z] = line[reverse ? line.length - 1 - i : i];
+            const { px, py } = project({ x, z });
+            if (i === 0 && move) trackLayerCtx.moveTo(px, py);
+            else trackLayerCtx.lineTo(px, py);
+          }
+        };
+        // Closed circuits fill as an annulus: the two edge rings run in
+        // opposite directions, so the nonzero rule leaves the infield empty.
+        // Open splines (hillclimbs) fill as a single strip.
+        trackLayerCtx.beginPath();
+        if (edges.closed) {
+          trace(edges.left, false, true);
+          trackLayerCtx.closePath();
+          trace(edges.right, true, true);
+          trackLayerCtx.closePath();
+        } else {
+          trace(edges.left, false, true);
+          trace(edges.right, true, false);
+          trackLayerCtx.closePath();
+        }
+        trackLayerCtx.fillStyle = TRACK_FILL;
+        trackLayerCtx.fill();
+
+        // The edge strokes are the actual track limits.
+        trackLayerCtx.strokeStyle = TRACK_EDGE;
+        trackLayerCtx.lineWidth = TRACK_EDGE_WIDTH;
+        trackLayerCtx.lineJoin = 'round';
+        for (const line of [edges.left, edges.right]) {
+          trackLayerCtx.beginPath();
+          trace(line, false, true);
+          if (edges.closed) trackLayerCtx.closePath();
+          trackLayerCtx.stroke();
+        }
+      }
+      blitLayer(trackLayer);
+    };
 
     // All completed laps except the hovered one (kept out so the emphasis
     // pass reproduces today's exact skip-and-redraw pixels).
@@ -546,11 +643,11 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
         }
       }
 
-      if (mapData) {
+      if (mapData?.meta) {
         easing = false;
         // map.ini pixel dimensions fix the viewport, so the framing is
         // identical from the very first frame.
-        const { meta } = mapData;
+        const meta = mapData.meta;
         const scale = Math.min(
           (width - PADDING * 2) / meta.width,
           (height - PADDING * 2) / meta.height,
@@ -569,6 +666,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
 
         // Everything the projection depends on — a change invalidates layers.
         const projKey = `m|${width}x${height}@${dpr}|${zm.level},${zm.ox},${zm.oy}`;
+        renderTrackLayer(project, projKey, width, height, dpr);
         drawLaps(project, projKey, width, height, dpr);
         if (frame) {
           const { px, py } = project({ x: frame.x, z: frame.z });
@@ -577,9 +675,31 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
         return;
       }
 
-      // No map.png for this track: auto-fit the driven lines. The viewport
-      // eases toward the (margin-padded) bounds so the first lap doesn't pin
-      // the car dot against the canvas edges while the extent is still growing.
+      if (edgeView) {
+        // Edges without map.ini: fixed fit around the ribbon bounds.
+        easing = false;
+        const view = edgeView;
+        const scale = Math.min((width - PADDING * 2) / view.ex, (height - PADDING * 2) / view.ez);
+        // Same handedness as the map.ini projection (world +Z down-screen).
+        const project: Project = zoomed((p) => ({
+          px: width / 2 + (p.x - view.cx) * scale,
+          py: height / 2 + (p.z - view.cz) * scale,
+        }));
+        const zm = zoomRef.current;
+        const projKey = `e|${width}x${height}@${dpr}|${zm.level},${zm.ox},${zm.oy}`;
+        renderTrackLayer(project, projKey, width, height, dpr);
+        drawLaps(project, projKey, width, height, dpr);
+        if (frame) {
+          const { px, py } = project({ x: frame.x, z: frame.z });
+          drawDot(px, py);
+        }
+        return;
+      }
+
+      // No map data at all for this track: auto-fit the driven lines. The
+      // viewport eases toward the (margin-padded) bounds so the first lap
+      // doesn't pin the car dot against the canvas edges while the extent is
+      // still growing.
       if (!frame || (currentRef.current.length < 2 && previousLapsRef.current.length === 0)) {
         easing = false;
         return;

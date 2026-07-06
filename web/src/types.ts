@@ -8,6 +8,8 @@ export type SessionInfo = {
   mapAvailable: boolean;
   // Bounds metadata (data/map.ini) found — enough to scale the map view.
   boundsAvailable: boolean;
+  // Track-edge polylines resolved from ai/fast_lane.ai.
+  edgesAvailable: boolean;
   // Car's advertised top speed in km/h (from ui_car.json), or null when
   // unavailable — the speedometer scale is derived from it, else falls back.
   topSpeedKmh: number | null;
@@ -55,6 +57,15 @@ export type MapMeta = {
   xOffset: number;
   zOffset: number;
   scaleFactor: number;
+};
+
+// Track limits from the AI spline's per-point side distances: one polyline
+// per track edge, [x, z] world-meter pairs (cm precision). `closed` marks a
+// circuit loop; open splines (hillclimbs) get no closing segment.
+export type TrackEdges = {
+  closed: boolean;
+  left: [number, number][];
+  right: [number, number][];
 };
 
 export type ConnectionStatus = 'connecting' | 'waiting' | 'connected';

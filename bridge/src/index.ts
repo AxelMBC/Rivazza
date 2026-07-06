@@ -27,13 +27,24 @@ const server = http.createServer((req, res) => {
   const pathname = (req.url ?? '').split('?')[0];
 
   if (pathname === '/api/track-map/meta') {
-    if (!trackAssets) {
+    if (!trackAssets?.meta) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'no map for current track' }));
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(trackAssets.meta));
+    return;
+  }
+
+  if (pathname === '/api/track-map/edges') {
+    if (!trackAssets?.edges) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'no track edges for current track' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(trackAssets.edges));
     return;
   }
 
@@ -78,7 +89,8 @@ ac.on('session', (handshake) => {
     car: handshake.carName,
     driver: handshake.driverName,
     mapAvailable: trackAssets?.mapImagePath != null,
-    boundsAvailable: trackAssets !== null,
+    boundsAvailable: trackAssets?.meta != null,
+    edgesAvailable: trackAssets?.edges != null,
     topSpeedKmh: resolveCarTopSpeed(handshake.carName),
   };
   broadcast({ type: 'status', state: 'connected' });
