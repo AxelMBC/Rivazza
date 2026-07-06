@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useTelemetry } from './hooks/useTelemetry';
 import { useInputHistory } from './hooks/useInputHistory';
 import { useLapDelta } from './hooks/useLapDelta';
@@ -25,10 +26,13 @@ const WaitingScreen = ({ status }: { status: ConnectionStatus }) => (
 );
 
 const App = () => {
-  const { status, session, telemetry, telemetryRef } = useTelemetry();
+  const { status, session, telemetry, telemetryRef, cutsRef, cutSeq } = useTelemetry();
   const historyRef = useInputHistory(telemetry);
   const deltaMs = useLapDelta(telemetry);
-  const lapHistoryRef = useLapHistory(telemetry);
+  const { lapsRef: lapHistoryRef, currentLapInvalidRef } = useLapHistory(telemetry, cutsRef, cutSeq);
+  // Display lap number hovered in the session-lap list; the track map reveals
+  // that lap's cut markers. A ref, not state — the map's rAF loop reads it.
+  const hoveredLapRef = useRef<number | null>(null);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -37,7 +41,13 @@ const App = () => {
         <main className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[24rem_1fr]">
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
             <InstrumentCluster telemetry={telemetry} session={session} />
-            <LapTimes telemetry={telemetry} deltaMs={deltaMs} lapsRef={lapHistoryRef} />
+            <LapTimes
+              telemetry={telemetry}
+              deltaMs={deltaMs}
+              lapsRef={lapHistoryRef}
+              currentLapInvalidRef={currentLapInvalidRef}
+              hoveredLapRef={hoveredLapRef}
+            />
             <PedalTrace historyRef={historyRef} />
             <div className="grid grid-cols-[10rem_1fr] items-start gap-3">
               <GForceMeter historyRef={historyRef} />
@@ -46,7 +56,13 @@ const App = () => {
               </div>
             </div>
           </div>
-          <TrackMap session={session} telemetryRef={telemetryRef} lapsRef={lapHistoryRef} />
+          <TrackMap
+            session={session}
+            telemetryRef={telemetryRef}
+            lapsRef={lapHistoryRef}
+            cutsRef={cutsRef}
+            hoveredLapRef={hoveredLapRef}
+          />
         </main>
       ) : (
         <WaitingScreen status={status} />

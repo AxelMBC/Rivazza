@@ -22,7 +22,7 @@ The web app SHALL accumulate a session-scoped lap log from the telemetry stream:
 - **THEN** the log contains only laps completed after connecting (laps 1–4 are absent, not fabricated)
 
 ### Requirement: Heuristic lap invalidity
-A recorded lap SHALL be marked `invalid` when either: (a) its time beat the `bestLapMs` in effect before the lap completed but `bestLapMs` did not adopt it, or (b) `inPit` was true on any frame during that lap. When no prior best exists, a completed lap that leaves `bestLapMs` unset SHALL also be marked invalid. Laps not matching these conditions SHALL be marked valid; the heuristic's known miss (cut laps slower than best) is accepted.
+A recorded lap SHALL be marked `invalid` when any of: (a) its time beat the `bestLapMs` in effect before the lap completed but `bestLapMs` did not adopt it, (b) `inPit` was true on any frame during that lap, or (c) a cut event (from the bridge's shared-memory cut detection) was received during that lap — matched by lap counter, including a cut that arrives while the completed lap's record is still pending its refreshed time. When no prior best exists, a completed lap that leaves `bestLapMs` unset SHALL also be marked invalid. Laps not matching these conditions SHALL be marked valid. The heuristic's known miss (cut laps slower than best) is accepted only while cut detection is unavailable — when cut events arrive they close that gap authoritatively.
 
 #### Scenario: Rejected would-be best
 - **WHEN** a lap completes with a time faster than the previous `bestLapMs` and `bestLapMs` keeps its previous value
@@ -35,6 +35,14 @@ A recorded lap SHALL be marked `invalid` when either: (a) its time beat the `bes
 #### Scenario: Lap through the pits
 - **WHEN** `inPit` was true at any point during a lap
 - **THEN** that lap is recorded as invalid
+
+#### Scenario: Cut lap slower than best
+- **WHEN** a cut event was received during a lap whose final time does not beat the session best
+- **THEN** that lap is recorded as invalid (previously the accepted heuristic miss)
+
+#### Scenario: Cut arrives while the record is pending
+- **WHEN** a cut event referencing the just-completed lap arrives while that lap's record is held pending a fresh `lastLapMs`
+- **THEN** the recorded lap is marked invalid
 
 ### Requirement: Hover-revealed lap list on the Lap tile
 Hovering the Lap counter tile SHALL reveal a panel listing every recorded lap with its number and formatted time (tabular numerals). Invalid laps SHALL render their time in the critical/red color; the fastest valid lap SHALL render in the best-lap accent color. The panel SHALL scroll vertically when the list outgrows its maximum height, SHALL disappear when the pointer leaves, and SHALL require no click, keyboard, or window focus to open, scroll, or close. When no laps are recorded yet, the panel SHALL state that instead of rendering empty.
@@ -69,3 +77,18 @@ The existing track-map lap-line hover label SHALL be extended to show the hovere
 #### Scenario: Hovering an unrecorded lap line
 - **WHEN** the hovered lap has no entry in the lap log
 - **THEN** the label shows only "Lap N" as today
+
+### Requirement: Live invalid state for the in-progress lap
+The lap log SHALL expose whether the in-progress lap has received a cut event, and the Current-lap tile SHALL indicate it live: while the state is set, the tile renders its time in the critical color with a small "INV" mark (the lap list's existing chip styling). The state SHALL reset when a new lap starts, when the session restarts, and when the session changes.
+
+#### Scenario: Lap dies mid-corner
+- **WHEN** a cut event for the current lap arrives while the lap is in progress
+- **THEN** the Current-lap tile switches to the critical/invalid presentation within a state update
+
+#### Scenario: Crossing the line resets the cue
+- **WHEN** the invalidated lap completes and a new lap begins
+- **THEN** the Current-lap tile returns to its normal presentation
+
+#### Scenario: Restart resets the cue
+- **WHEN** a session restart is detected while the cue is showing
+- **THEN** the cue clears with the rest of the lap log

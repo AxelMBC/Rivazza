@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ACClient } from './acClient.js';
+import { startCutDetection } from './sharedMemory.js';
 import { resolveTrackAssets, type TrackAssets } from './trackAssets.js';
 import { resolveCarTopSpeed } from './carAssets.js';
 import type { BridgeMessage, SessionInfo, TelemetryFrame } from './types.js';
@@ -126,12 +127,26 @@ ac.on('telemetry', (frame) => {
 
 setInterval(flushIfDue, BROADCAST_INTERVAL_MS);
 
+// Cut detection reads AC's shared-memory tyres-out counter (Windows, same-PC
+// only) and pins each 4-tyres-out onset to the newest UDP frame's position.
+const stopCutDetection = startCutDetection({
+  getFrame: () => latestFrame,
+  isLive: () => session !== null,
+  onCut: (cut) => {
+    console.log(
+      `[shm] cut: ${cut.tyresOut} tyres out on lap ${cut.lapCount + 1} at (${cut.x.toFixed(1)}, ${cut.z.toFixed(1)})`,
+    );
+    broadcast({ type: 'cut', ...cut });
+  },
+});
+
 server.listen(PORT, () => {
   console.log(`[bridge] http + ws listening on http://localhost:${PORT}`);
   ac.start();
 });
 
 const shutdown = (): void => {
+  stopCutDetection();
   ac.stop();
   server.close();
   process.exit(0);

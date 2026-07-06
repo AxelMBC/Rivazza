@@ -28,7 +28,7 @@ There is **no test framework** in this repo — do not invent test commands.
 
 ## Bridge configuration (env vars)
 
-`AC_PATH` (game folder for track maps; auto-discovered from Steam library configs if unset), `AC_HOST` (default `127.0.0.1`), `AC_PORT` (default `9996`), `BRIDGE_PORT` (default `3001`).
+`AC_PATH` (game folder for track maps; auto-discovered from Steam library configs if unset), `AC_HOST` (default `127.0.0.1`), `AC_PORT` (default `9996`), `BRIDGE_PORT` (default `3001`), `AC_SHM` (set `0` to disable shared-memory cut detection).
 
 ## Architecture
 
@@ -52,6 +52,21 @@ interval only sweeping up the trailing frame. On the web side, `useTelemetry` up
 so text readouts re-render at half rate while canvas rAF consumers keep full fidelity. New WS
 clients get a `hello` (current status + session) on connect.
 
+**Cut detection (`bridge/src/sharedMemory.ts`).** Windows/same-PC only. `koffi` (the repo's
+only native dependency) maps AC's `Local\acpmf_physics` shared-memory page and polls it at
+~60 Hz with offset-based Buffer reads (`packetId`@0, `speedKmh`@28, `numberOfTyresOut`@244 —
+magic numbers in the parsers.ts tradition). `numberOfTyresOut` is the game's own
+lap-invalidation counter: a `<4 → ≥4` transition across fresh `packetId`s broadcasts a
+`{ type: 'cut' }` message stamped with the newest UDP frame's position/lap. Gates (frozen
+`packetId`, `inPit`, speed < 10 km/h, no live session) suppress pause/menu/teleport noise.
+Anywhere the page can't be read (non-Windows, `AC_SHM=0`, remote `AC_HOST`, koffi load
+failure) the feature is silently off — never let it affect the UDP path. The mock writes the
+same mapping with periodic fake excursions. Web side: `useTelemetry` accumulates cuts
+(`cutsRef` + `cutSeq` signal), `useLapHistory` turns them into authoritative lap invalidity
+plus the live current-lap INV cue, and `TrackMap` draws red × markers — ambient only
+while the invalid lap is in progress; stored laps reveal theirs on hover (their map
+line, or their session-lap-list row via the shared `hoveredLapRef`).
+
 **Track assets (`bridge/src/trackAssets.ts`).** Reads `content/tracks/<track>/[<config>/]data/map.ini`
 for projection bounds; served at `/api/track-map/meta`. The `.ini` bounds alone fix the viewport.
 `map.png` is still served at `/api/track-map/image`, but the web app **deliberately never draws
@@ -65,8 +80,8 @@ speedometer dial). These files routinely contain raw control characters that bre
 so the field is regex-scanned out of the text — same garbage-tolerant philosophy as `parsers.ts`.
 
 **Type contract.** `bridge/src/types.ts` and `web/src/types.ts` are hand-mirrored and **must be
-kept in sync** — the `BridgeMessage` union (`status` | `session` | `telemetry`) is the wire format
-for both sides.
+kept in sync** — the `BridgeMessage` union (`status` | `session` | `telemetry` | `cut`) is the
+wire format for both sides.
 
 **Web data flow.** `useTelemetry` (`web/src/hooks/useTelemetry.ts`) owns the WebSocket (auto-reconnect
 every 1.5s) and exposes telemetry two ways: React state (`telemetry`) for normal components, and a
@@ -78,7 +93,8 @@ triggering re-renders. When adding high-frequency canvas visuals, read the ref, 
 pattern: bookkeeping in an effect keyed on the throttled `telemetry` state, result exposed as a
 ref so canvas rAF loops can read it. AC's protocol sends no lap list and no invalid-lap flag, so
 `useLapHistory` reconstructs laps from `lapCount` ticks and infers validity heuristically (a
-would-be PB the game didn't adopt = cut lap; pit-lane touch = invalid). Also note: AC's "restart
+would-be PB the game didn't adopt = cut lap; pit-lane touch = invalid), with shared-memory cut
+events as the authoritative override when available. Also note: AC's "restart
 session" does **not** re-handshake — restarts are detected by the lap counter or lap clock running
 backwards, a signature duplicated in `useLapHistory`, `useLapDelta`, and `TrackMap`. Keep them in
 sync if you change one.

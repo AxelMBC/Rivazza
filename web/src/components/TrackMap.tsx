@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { MapMeta, SessionInfo, TelemetryFrame, TrackEdges } from '../types';
+import type { CutEvent, MapMeta, SessionInfo, TelemetryFrame, TrackEdges } from '../types';
 import type { LapRecord } from '../hooks/useLapHistory';
 import { formatLapTime } from '../lib/format';
 import { BRIDGE_HTTP } from '../hooks/useTelemetry';
@@ -8,6 +8,10 @@ type Props = {
   session: SessionInfo;
   telemetryRef: React.RefObject<TelemetryFrame | null>;
   lapsRef: React.RefObject<LapRecord[]>;
+  cutsRef: React.RefObject<CutEvent[]>;
+  // Display lap number hovered in the session-lap list (LapTimes writes it);
+  // that lap's cut markers reveal while set.
+  hoveredLapRef: React.RefObject<number | null>;
 };
 
 // map.ini metadata fixes the viewport and projection; edges are the track
@@ -19,6 +23,8 @@ type MapData = { meta: MapMeta | null; edges: TrackEdges | null };
 // `jump` marks a teleport (pits, restart) — no segment is drawn into it.
 // `speedKmh` is the raw frame speed, kept for the hover speed readout.
 type Sample = { x: number; z: number; gas: number; brake: number; speedKmh: number; jump: boolean };
+// Where a lap died: the world position of one 4-tyres-out onset.
+type CutMarker = { x: number; z: number };
 type View = { cx: number; cz: number; ex: number; ez: number };
 // Screen-space zoom layered over the base fit projection: zoomed = base * level + (ox, oy).
 type Zoom = { level: number; ox: number; oy: number };
@@ -33,6 +39,11 @@ const HOVER_RADIUS_SQ = 12 * 12; // px² — how close the cursor must be to pic
 const TELEPORT_DIST = 100; // a jump this large between frames isn't driving
 const DEAD_ZONE = 0.05;
 const LINE_WIDTH = 3;
+// Cut × geometry in screen pixels — zoom-invariant because the projection
+// scales points, not the canvas transform.
+const CUT_ARM = 5;
+const CUT_WIDTH = 2.5;
+const CUT_HALO_WIDTH = 5;
 const VIEW_MARGIN = 0.15; // extra space around the driven bounds (fallback mode)
 const VIEW_EASE = 0.06; // per-frame easing toward the target view (fallback mode)
 // Until a full lap exists the track's real size is unknown — assume at least
@@ -82,14 +93,22 @@ const segmentColor = (gas: number, brake: number): string => {
 
 const freshBounds = () => ({ minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
 
-export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
+export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRef }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [mapData, setMapData] = useState<MapData | null>(null);
   const [mapProbed, setMapProbed] = useState(false);
   // Current lap's driving line (pedal-colored) and every completed lap
   // (drawn grey underneath so the session history never disappears).
   const currentRef = useRef<Sample[]>([]);
-  const previousLapsRef = useRef<{ lap: number; samples: Sample[] }[]>([]);
+  const previousLapsRef = useRef<{ lap: number; samples: Sample[]; cuts: CutMarker[] }[]>([]);
+  // Cut markers for the in-progress lap; completed laps carry theirs in
+  // previousLapsRef. The session cut list is consumed incrementally and the
+  // bookkeeping lives outside the draw effect so re-creating it (map data
+  // changes) never re-attaches already-consumed cuts; a replaced list (new
+  // session) restarts consumption via the identity check in the loop.
+  const currentCutsRef = useRef<CutMarker[]>([]);
+  const consumedCutsRef = useRef(0);
+  const seenCutsRef = useRef<CutEvent[] | null>(null);
   // Cursor position in canvas CSS pixels, null when not hovering.
   const mouseRef = useRef<{ x: number; y: number } | null>(null);
   const lapRef = useRef<number | null>(null);
@@ -111,6 +130,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
   const resetLines = () => {
     currentRef.current = [];
     previousLapsRef.current = [];
+    currentCutsRef.current = [];
     lapRef.current = null;
     lapTimeRef.current = 0;
     boundsRef.current = freshBounds();
@@ -513,7 +533,45 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
         const { lap, samples } = laps[hit.nearest];
         const color = hit.nearest >= coloredFrom ? lapColor(lap) : HOVERED_GREY_LAP;
         drawUniformPath(ctx, samples, project, color, LINE_WIDTH + 1);
-        drawHoverReadout(hit);
+      }
+      drawCutMarkers(project, hit.nearest);
+      if (hit.nearest >= 0) drawHoverReadout(hit);
+    };
+
+    // Cut markers are stroked directly on every repaint — a session holds at
+    // most a handful, so projecting them is far cheaper than another layer.
+    const strokeCross = (px: number, py: number, color: string, width: number) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(px - CUT_ARM, py - CUT_ARM);
+      ctx.lineTo(px + CUT_ARM, py + CUT_ARM);
+      ctx.moveTo(px - CUT_ARM, py + CUT_ARM);
+      ctx.lineTo(px + CUT_ARM, py - CUT_ARM);
+      ctx.stroke();
+    };
+
+    const drawCutMarker = (px: number, py: number) => {
+      strokeCross(px, py, SURFACE, CUT_HALO_WIDTH); // halo keeps the × readable on any layer
+      strokeCross(px, py, INVALID_TIME, CUT_WIDTH);
+    };
+
+    // Only the in-progress lap's markers are ambient (they leave with the
+    // lap at the line). A stored lap reveals its markers on demand: hovering
+    // its line here, or its row in the session-lap list (hoveredLapRef).
+    const drawCutMarkers = (project: Project, hoveredIndex: number) => {
+      const listLap = hoveredLapRef.current;
+      previousLapsRef.current.forEach(({ lap, cuts }, index) => {
+        if (index !== hoveredIndex && lap !== listLap) return;
+        for (const c of cuts) {
+          const { px, py } = project(c);
+          drawCutMarker(px, py);
+        }
+      });
+      for (const c of currentCutsRef.current) {
+        const { px, py } = project(c);
+        drawCutMarker(px, py);
       }
     };
 
@@ -533,6 +591,9 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
     let lastFrame: TelemetryFrame | null = null;
     let lastMouse: { x: number; y: number } | null = null;
     let lastZoom = zoomRef.current;
+    let lastCuts: CutEvent[] | null = null;
+    let lastCutCount = 0;
+    let lastHoveredLap: number | null = null;
     let lastW = 0;
     let lastH = 0;
     let lastDpr = 0;
@@ -550,12 +611,17 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
       const frame = telemetryRef.current;
       const mouse = mouseRef.current;
       const zoom = zoomRef.current;
+      const cutList = cutsRef.current;
+      const hoveredLap = hoveredLapRef.current;
       const dirty =
         firstDraw ||
         easing ||
         frame !== lastFrame ||
         mouse !== lastMouse ||
         zoom !== lastZoom ||
+        cutList !== lastCuts ||
+        cutList.length !== lastCutCount ||
+        hoveredLap !== lastHoveredLap ||
         width !== lastW ||
         height !== lastH ||
         dpr !== lastDpr;
@@ -564,6 +630,9 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
       lastFrame = frame;
       lastMouse = mouse;
       lastZoom = zoom;
+      lastCuts = cutList;
+      lastCutCount = cutList.length;
+      lastHoveredLap = hoveredLap;
       lastW = width;
       lastH = height;
       lastDpr = dpr;
@@ -586,16 +655,41 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
         if (restarted) {
           resetLines();
           lapsVersion++;
+          // Unconsumed pre-restart cuts reference laps that no longer exist.
+          consumedCutsRef.current = cutList.length;
         } else if (prevLap !== null && frame.lapCount > prevLap) {
           // Lap finished: keep it among the grey reference lines underneath.
           // Display convention matches the LAP tile: lapCount N is "Lap N+1".
-          previousLapsRef.current.push({ lap: prevLap + 1, samples: currentRef.current });
+          previousLapsRef.current.push({
+            lap: prevLap + 1,
+            samples: currentRef.current,
+            cuts: currentCutsRef.current,
+          });
           if (previousLapsRef.current.length > MAX_LAPS) previousLapsRef.current.shift();
           currentRef.current = [];
+          currentCutsRef.current = [];
           lapsVersion++;
         }
         lapRef.current = frame.lapCount;
         lapTimeRef.current = frame.lapTimeMs;
+
+        // Attach newly arrived cuts: the in-progress lap collects them live,
+        // a just-completed stored lap picks up a boundary straggler, and
+        // anything else (pre-restart leftovers) is dropped.
+        if (cutList !== seenCutsRef.current) {
+          seenCutsRef.current = cutList;
+          consumedCutsRef.current = 0;
+        }
+        for (; consumedCutsRef.current < cutList.length; consumedCutsRef.current++) {
+          const cut = cutList[consumedCutsRef.current];
+          if (cut.lapCount === frame.lapCount) {
+            currentCutsRef.current.push({ x: cut.x, z: cut.z });
+          } else {
+            previousLapsRef.current
+              .find((l) => l.lap === cut.lapCount + 1)
+              ?.cuts.push({ x: cut.x, z: cut.z });
+          }
+        }
 
         const samples = currentRef.current;
         const last = samples[samples.length - 1];
@@ -812,7 +906,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef }: Props) => {
       canvas.removeEventListener('mouseleave', onMouseLeave);
       canvas.removeEventListener('wheel', onWheel);
     };
-  }, [mapData, telemetryRef, lapsRef]);
+  }, [mapData, telemetryRef, lapsRef, cutsRef, hoveredLapRef]);
 
   return (
     <section className="relative flex min-h-0 flex-col rounded-lg border border-edge bg-surface">

@@ -6,14 +6,21 @@ const TimeTile = ({
   label,
   value,
   accentClass = 'text-ink',
+  invalid = false,
 }: {
   label: string;
   value: string;
   accentClass?: string;
+  invalid?: boolean;
 }) => (
   <div className="rounded-lg border border-edge bg-surface px-4 py-3">
-    <p className="text-xs tracking-wide text-ink-muted uppercase">{label}</p>
-    <p className={`mt-1 text-2xl font-semibold tabular-nums ${accentClass}`}>{value}</p>
+    <p className="text-xs tracking-wide text-ink-muted uppercase">
+      {label}
+      {invalid && <span className="ml-2 text-[0.65rem] uppercase text-critical">inv</span>}
+    </p>
+    <p className={`mt-1 text-2xl font-semibold tabular-nums ${invalid ? 'text-critical' : accentClass}`}>
+      {value}
+    </p>
   </div>
 );
 
@@ -26,20 +33,43 @@ const formatDelta = (deltaMs: number): string => {
 // to bridge the gap above the Lap tile, so the cursor can travel from tile to
 // panel without leaving the hover group — required to wheel-scroll the list
 // without ever clicking (clicks would steal focus from the game).
-const LapListPanel = ({ laps }: { laps: LapRecord[] }) => {
+// Hovering a row writes its lap number into hoveredLapRef so the track map
+// reveals that lap's cut markers — a ref, read by the map's rAF loop, so the
+// hover costs no re-renders.
+const LapListPanel = ({
+  laps,
+  hoveredLapRef,
+}: {
+  laps: LapRecord[];
+  hoveredLapRef: React.RefObject<number | null>;
+}) => {
   const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
   const bestValid = validTimes.length > 0 ? Math.min(...validTimes) : null;
 
   return (
     <div className="pointer-events-none absolute bottom-full left-0 z-10 w-full pb-2 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100">
-      <div className="max-h-64 overflow-y-auto rounded-lg border border-edge bg-page/95 p-3 shadow-xl backdrop-blur">
+      <div
+        className="max-h-64 overflow-y-auto rounded-lg border border-edge bg-page/95 p-3 shadow-xl backdrop-blur"
+        onMouseLeave={() => {
+          hoveredLapRef.current = null;
+        }}
+      >
         <p className="mb-2 text-xs tracking-wide text-ink-muted uppercase">Session laps</p>
         {laps.length === 0 ? (
           <p className="text-sm text-ink-muted">No laps completed yet</p>
         ) : (
           <ul className="space-y-1">
             {laps.map((l) => (
-              <li key={l.lap} className="flex items-center justify-between gap-6 text-sm">
+              <li
+                key={l.lap}
+                className="flex items-center justify-between gap-6 text-sm"
+                onMouseEnter={() => {
+                  hoveredLapRef.current = l.lap;
+                }}
+                onMouseLeave={() => {
+                  hoveredLapRef.current = null;
+                }}
+              >
                 <span className="text-ink-muted">
                   Lap {l.lap}
                   {l.invalid && <span className="ml-2 text-[0.65rem] uppercase text-critical">inv</span>}
@@ -68,13 +98,21 @@ export const LapTimes = ({
   telemetry,
   deltaMs,
   lapsRef,
+  currentLapInvalidRef,
+  hoveredLapRef,
 }: {
   telemetry: TelemetryFrame | null;
   deltaMs: number | null;
   lapsRef: React.RefObject<LapRecord[]>;
+  currentLapInvalidRef: React.RefObject<boolean>;
+  hoveredLapRef: React.RefObject<number | null>;
 }) => (
   <section className="grid grid-cols-2 gap-2">
-    <TimeTile label="Current lap" value={formatLapTime(telemetry?.lapTimeMs)} />
+    <TimeTile
+      label="Current lap"
+      value={formatLapTime(telemetry?.lapTimeMs)}
+      invalid={currentLapInvalidRef.current}
+    />
     <TimeTile
       label="Delta"
       value={deltaMs === null ? '––.––' : formatDelta(deltaMs)}
@@ -87,7 +125,7 @@ export const LapTimes = ({
       accentClass="text-best"
     />
     <div className="group relative col-span-2 flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60">
-      <LapListPanel laps={lapsRef.current} />
+      <LapListPanel laps={lapsRef.current} hoveredLapRef={hoveredLapRef} />
       <span className="text-xs tracking-wide text-ink-muted uppercase">Lap</span>
       <span className="text-lg font-semibold tabular-nums">
         {telemetry ? telemetry.lapCount + 1 : '–'}

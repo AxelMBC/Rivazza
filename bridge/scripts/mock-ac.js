@@ -21,6 +21,51 @@ const handshakeResponse = () => {
   return b;
 };
 
+// Real AC also publishes its physics struct at Local\acpmf_physics with
+// numberOfTyresOut — the counter behind lap invalidation. On Windows the mock
+// creates and writes the same mapping (with periodic simulated excursions) so
+// the bridge's shared-memory cut detection runs end to end without the game.
+// Anywhere that can't work, the mock just streams UDP exactly as before.
+const startPhysicsPage = async () => {
+  if (process.platform !== 'win32') return null;
+  try {
+    const koffi = (await import('koffi')).default;
+    const lib = koffi.load('kernel32.dll');
+    const createFileMapping = lib.func('CreateFileMappingW', 'void *', [
+      'intptr_t', 'void *', 'uint32', 'uint32', 'uint32', 'str16',
+    ]);
+    const mapViewOfFile = lib.func('MapViewOfFile', 'void *', [
+      'void *', 'uint32', 'uint32', 'uint32', 'size_t',
+    ]);
+    const rtlMoveMemory = lib.func('RtlMoveMemory', 'void', ['void *', 'uint8 *', 'size_t']);
+    const INVALID_HANDLE_VALUE = -1; // page-file-backed section, like the game's
+    const PAGE_READWRITE = 0x04;
+    const FILE_MAP_WRITE = 0x0002;
+    const PAGE_SIZE = 800; // roomy for the full SPageFilePhysics struct
+    const handle = createFileMapping(INVALID_HANDLE_VALUE, null, PAGE_READWRITE, 0, PAGE_SIZE, 'Local\\acpmf_physics');
+    if (handle == null) return null;
+    const view = mapViewOfFile(handle, FILE_MAP_WRITE, 0, 0, 0);
+    if (view == null) return null;
+    const staging = Buffer.alloc(PAGE_SIZE);
+    let packetId = 0;
+    // Offsets match the bridge reader: packetId 0, speedKmh 28, tyresOut 244.
+    return (speedKmh, tyresOut) => {
+      staging.writeInt32LE(++packetId, 0);
+      staging.writeFloatLE(speedKmh, 28);
+      staging.writeInt32LE(tyresOut, 244);
+      rtlMoveMemory(view, staging, PAGE_SIZE);
+    };
+  } catch {
+    return null;
+  }
+};
+const writePhysics = await startPhysicsPage();
+console.log(
+  writePhysics
+    ? '[mock] physics page live — simulated cuts every ~40 s of driving'
+    : '[mock] physics page off (needs Windows + koffi); udp telemetry only',
+);
+
 // magione map.ini: WIDTH=342.88 HEIGHT=861.583 X_OFFSET=187.289 Z_OFFSET=444.422
 // so the oval below stays inside the map image.
 // t advances by real elapsed time so the car's pace is independent of how
@@ -32,10 +77,11 @@ const carInfo = () => {
   t += (now - lastTick) / 1000;
   lastTick = now;
   const lapMs = Math.round((t * 1000) % 90000);
+  const speedKmh = 120 + 60 * Math.sin(t * 2);
   const b = Buffer.alloc(328);
   b.write('a', 0);
   b.writeInt32LE(328, 4);
-  b.writeFloatLE(120 + 60 * Math.sin(t * 2), 8); // speed kmh
+  b.writeFloatLE(speedKmh, 8); // speed kmh
   b.writeInt32LE(lapMs, 40); // lapTime
   b.writeInt32LE(83456, 44); // lastLap
   b.writeInt32LE(81999, 48); // bestLap
@@ -48,6 +94,9 @@ const carInfo = () => {
   b.writeFloatLE(-15.8 + 120 * Math.cos(t), 316); // world x
   b.writeFloatLE(5.0, 320); // world y
   b.writeFloatLE(-13.6 + 300 * Math.sin(t), 324); // world z
+  // The same tick feeds the physics page: a ~0.6 s four-tyres-out window
+  // every ~40 s of driving, phase-shifted so the first cut lands mid-lap.
+  writePhysics?.(speedKmh, (t + 20) % 40 < 0.6 ? 4 : 0);
   return b;
 };
 

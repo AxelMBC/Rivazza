@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type {
   BridgeMessage,
   ConnectionStatus,
+  CutEvent,
   SessionInfo,
   TelemetryFrame,
 } from '../types';
@@ -23,13 +24,21 @@ export type Telemetry = {
   // Same data as `telemetry` but updated on every bridge message — read it
   // from requestAnimationFrame loops (the track map) without re-render coupling.
   telemetryRef: React.RefObject<TelemetryFrame | null>;
+  // Session-scoped cut events, appended as they arrive (cuts are rare).
+  // Consumers read the ref from effects and rAF loops, tracking their own
+  // consumed index; a replaced array identity marks a session reset. `cutSeq`
+  // bumps on every append and reset — the re-render/effect change signal.
+  cutsRef: React.RefObject<CutEvent[]>;
+  cutSeq: number;
 };
 
 export const useTelemetry = (): Telemetry => {
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryFrame | null>(null);
+  const [cutSeq, setCutSeq] = useState(0);
   const telemetryRef = useRef<TelemetryFrame | null>(null);
+  const cutsRef = useRef<CutEvent[]>([]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -53,6 +62,8 @@ export const useTelemetry = (): Telemetry => {
       window.clearTimeout(flushTimer);
       setTelemetry(null);
       telemetryRef.current = null;
+      cutsRef.current = [];
+      setCutSeq((n) => n + 1);
     };
 
     const connect = () => {
@@ -84,6 +95,10 @@ export const useTelemetry = (): Telemetry => {
             }
             break;
           }
+          case 'cut':
+            cutsRef.current.push(message);
+            setCutSeq((n) => n + 1);
+            break;
         }
       };
 
@@ -104,5 +119,5 @@ export const useTelemetry = (): Telemetry => {
     };
   }, []);
 
-  return { status, session, telemetry, telemetryRef };
+  return { status, session, telemetry, telemetryRef, cutsRef, cutSeq };
 };

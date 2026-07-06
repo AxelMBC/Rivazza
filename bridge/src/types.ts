@@ -45,10 +45,24 @@ export type TelemetryFrame = {
   z: number;
 };
 
+// One 4-tyres-out onset read from AC's physics shared-memory page, stamped
+// with the newest RTCarInfo frame at the moment of detection. `lapCount` is
+// the raw AC counter (display convention: lapCount N is "Lap N+1").
+export type CutEvent = {
+  lapCount: number;
+  lapTimeMs: number;
+  x: number;
+  z: number;
+  speedKmh: number;
+  // Counter value that fired the onset (>= 4).
+  tyresOut: number;
+};
+
 export type BridgeMessage =
   | { type: 'status'; state: 'waiting' | 'connected' }
   | ({ type: 'session' } & SessionInfo)
-  | ({ type: 'telemetry' } & TelemetryFrame);
+  | ({ type: 'telemetry' } & TelemetryFrame)
+  | ({ type: 'cut' } & CutEvent);
 
 export type HandshakerResponse = {
   carName: string;
