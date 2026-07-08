@@ -86,10 +86,12 @@ $env:VITE_DEMO_MODE=1; npm run dev -w web
 VITE_DEMO_MODE=1 npm run dev -w web
 ```
 
-**Deploy to Vercel:** `vercel.json` pins the build (`npm run build -w web` →
-`web/dist`) and sets `VITE_DEMO_MODE=1`, so any Vercel build is the demo — no
-dashboard env var to configure. Import the repo and deploy. A normal build/dev
-(without the flag) is unchanged and connects to the live bridge as always.
+**Deploy to Vercel:** import the repo and set the project's **Root Directory to
+`web`** (Settings → General). Vercel then auto-detects Vite (build `npm run
+build`, output `dist`) and `web/vercel.json` sets `VITE_DEMO_MODE=1` plus the
+SPA rewrite — so any Vercel build is the demo, with no dashboard env var to
+configure and no monorepo path juggling. A normal build/dev (without the flag)
+is unchanged and connects to the live bridge as always.
 
 ## Configuration (env vars for the bridge)
 
