@@ -54,6 +54,43 @@ npm run mock -w bridge
 Runs a fake Assetto Corsa on UDP 9996 that streams a car lapping Magione.
 **Stop it before playing the real game** — both bind port 9996.
 
+## Hosted demo (Vercel)
+
+The bridge (UDP + WebSocket + native shared memory) can't run on a static host, so
+the deployed demo **replays a recorded session** instead of connecting to a bridge.
+Nothing about the live path changes — demo mode is a build-time flag, off by default.
+
+**Record a session** (bridge + game or mock running), then commit the file:
+
+```sh
+# captures the exact BridgeMessage stream the web app consumes
+npm run record -w bridge -- --out web/public/demo/imola.json --duration 180
+# (or omit --duration and stop with Ctrl-C)
+```
+
+The recorder is just another WebSocket client — it complements `npm run mock` and
+touches nothing in the bridge. It writes two files: `imola.json` (the frame
+stream) and `imola.map.json` (the track outline — map.ini bounds + AI-spline
+edges — which the live app fetches from the bridge but must be static in demo
+mode). Commit both.
+
+**Run the demo locally** (replays the recording, no bridge or game needed):
+
+```powershell
+# PowerShell (Windows)
+$env:VITE_DEMO_MODE=1; npm run dev -w web
+```
+
+```sh
+# bash / zsh
+VITE_DEMO_MODE=1 npm run dev -w web
+```
+
+**Deploy to Vercel:** `vercel.json` pins the build (`npm run build -w web` →
+`web/dist`) and sets `VITE_DEMO_MODE=1`, so any Vercel build is the demo — no
+dashboard env var to configure. Import the repo and deploy. A normal build/dev
+(without the flag) is unchanged and connects to the live bridge as always.
+
 ## Configuration (env vars for the bridge)
 
 | Variable | Default | Purpose |

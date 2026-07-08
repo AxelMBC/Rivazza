@@ -1,6 +1,9 @@
 import type { ConnectionStatus, SessionInfo } from '../types';
 import { prettifyName } from '../lib/format';
+import { IS_DEMO } from '../lib/demo';
 import { ConnectionBadge } from './ConnectionBadge';
+import { DemoBadge } from './DemoBadge';
+import { GitHubLink } from './GitHubLink';
 
 type Props = {
   session: SessionInfo | null;
@@ -25,6 +28,10 @@ export const SessionHeader = ({ session, status }: Props) => (
         </p>
       )}
     </div>
-    <ConnectionBadge status={status} />
+    <div className="flex items-center gap-2">
+      {IS_DEMO && <DemoBadge />}
+      <ConnectionBadge status={status} />
+      <GitHubLink />
+    </div>
   </header>
 );

@@ -6,6 +6,7 @@ import type {
   SessionInfo,
   TelemetryFrame,
 } from '../types';
+import { IS_DEMO, DEMO_RECORDING_URL } from '../lib/demo';
 
 export const BRIDGE_HTTP = `http://${window.location.hostname}:3001`;
 const BRIDGE_WS = `ws://${window.location.hostname}:3001/ws`;
@@ -15,6 +16,10 @@ const RECONNECT_MS = 1500;
 // 100 ms anyway) and halves render work. `telemetryRef` stays at the full
 // bridge rate so canvas rAF consumers keep 60 Hz fidelity.
 const STATE_INTERVAL_MS = 1000 / 30;
+
+// A recorded session: relative-ms-stamped BridgeMessages produced by the bridge
+// recorder (bridge/src/record.ts) and replayed in demo mode. See lib/demo.ts.
+type RecordedEntry = { t: number; msg: BridgeMessage };
 
 export type Telemetry = {
   status: ConnectionStatus;
@@ -44,6 +49,7 @@ export const useTelemetry = (): Telemetry => {
     let socket: WebSocket | null = null;
     let reconnectTimer: number | undefined;
     let flushTimer: number | undefined;
+    let replayTimer: number | undefined;
     let lastStateAt = 0;
     let disposed = false;
 
@@ -66,40 +72,45 @@ export const useTelemetry = (): Telemetry => {
       setCutSeq((n) => n + 1);
     };
 
+    // The one place bridge messages become app state — shared by the live
+    // WebSocket path and the demo replay path so both behave identically.
+    const handleMessage = (message: BridgeMessage) => {
+      switch (message.type) {
+        case 'status':
+          setStatus(message.state);
+          if (message.state === 'waiting') {
+            setSession(null);
+            clearFrame();
+          }
+          break;
+        case 'session':
+          setSession(message);
+          clearFrame();
+          break;
+        case 'telemetry': {
+          telemetryRef.current = message;
+          const elapsed = performance.now() - lastStateAt;
+          if (elapsed >= STATE_INTERVAL_MS) {
+            window.clearTimeout(flushTimer);
+            lastStateAt = performance.now();
+            setTelemetry(message);
+          } else {
+            scheduleFlush(STATE_INTERVAL_MS - elapsed);
+          }
+          break;
+        }
+        case 'cut':
+          cutsRef.current.push(message);
+          setCutSeq((n) => n + 1);
+          break;
+      }
+    };
+
     const connect = () => {
       socket = new WebSocket(BRIDGE_WS);
 
       socket.onmessage = (event) => {
-        const message: BridgeMessage = JSON.parse(event.data);
-        switch (message.type) {
-          case 'status':
-            setStatus(message.state);
-            if (message.state === 'waiting') {
-              setSession(null);
-              clearFrame();
-            }
-            break;
-          case 'session':
-            setSession(message);
-            clearFrame();
-            break;
-          case 'telemetry': {
-            telemetryRef.current = message;
-            const elapsed = performance.now() - lastStateAt;
-            if (elapsed >= STATE_INTERVAL_MS) {
-              window.clearTimeout(flushTimer);
-              lastStateAt = performance.now();
-              setTelemetry(message);
-            } else {
-              scheduleFlush(STATE_INTERVAL_MS - elapsed);
-            }
-            break;
-          }
-          case 'cut':
-            cutsRef.current.push(message);
-            setCutSeq((n) => n + 1);
-            break;
-        }
+        handleMessage(JSON.parse(event.data) as BridgeMessage);
       };
 
       socket.onclose = () => {
@@ -110,11 +121,65 @@ export const useTelemetry = (): Telemetry => {
       };
     };
 
-    connect();
+    // Demo mode: fetch the recorded session and replay it into the same sinks,
+    // honoring recorded inter-frame timing and looping forever. No WebSocket is
+    // opened and no reconnect is scheduled — the app runs with zero backend.
+    const replay = (recording: RecordedEntry[]) => {
+      if (!recording.length) {
+        setStatus('waiting');
+        return;
+      }
+      let index = 0;
+      // Wall-clock anchor for the current loop; each entry is due at
+      // loopStart + entry.t, so playback tracks real time and self-corrects
+      // for timer drift instead of accumulating per-frame delay.
+      let loopStart = performance.now();
+
+      const tick = () => {
+        if (disposed) return;
+        const now = performance.now();
+        // Emit every entry now due (frames arrive in ~16 ms bursts; catch them
+        // up within one tick rather than one timer per frame).
+        while (index < recording.length && loopStart + recording[index].t <= now) {
+          handleMessage(recording[index].msg);
+          index++;
+        }
+        if (index >= recording.length) {
+          // Loop: reset session-scoped state as a fresh session would, then the
+          // replayed status/session messages re-establish it seamlessly.
+          clearFrame();
+          index = 0;
+          loopStart = performance.now();
+        }
+        const dueAt = loopStart + recording[index].t;
+        replayTimer = window.setTimeout(tick, Math.max(0, dueAt - performance.now()));
+      };
+
+      tick();
+    };
+
+    if (IS_DEMO) {
+      setStatus('connecting');
+      fetch(DEMO_RECORDING_URL)
+        .then((res) => {
+          if (!res.ok) throw new Error(`demo recording ${res.status}`);
+          return res.json() as Promise<RecordedEntry[]>;
+        })
+        .then((recording) => {
+          if (!disposed) replay(recording);
+        })
+        .catch(() => {
+          if (!disposed) setStatus('waiting');
+        });
+    } else {
+      connect();
+    }
+
     return () => {
       disposed = true;
       window.clearTimeout(reconnectTimer);
       window.clearTimeout(flushTimer);
+      window.clearTimeout(replayTimer);
       socket?.close();
     };
   }, []);

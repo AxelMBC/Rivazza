@@ -1,8 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
-import type { CutEvent, MapMeta, SessionInfo, TelemetryFrame, TrackEdges } from '../types';
-import type { LapRecord } from '../hooks/useLapHistory';
-import { formatLapTime } from '../lib/format';
-import { BRIDGE_HTTP } from '../hooks/useTelemetry';
+import { useEffect, useRef, useState } from "react";
+import type {
+  CutEvent,
+  MapMeta,
+  SessionInfo,
+  TelemetryFrame,
+  TrackEdges,
+} from "../types";
+import type { LapRecord } from "../hooks/useLapHistory";
+import { formatLapTime } from "../lib/format";
+import { BRIDGE_HTTP } from "../hooks/useTelemetry";
+import { IS_DEMO, DEMO_MAP_URL } from "../lib/demo";
 
 type Props = {
   session: SessionInfo;
@@ -22,13 +29,25 @@ type Props = {
 type MapData = { meta: MapMeta | null; edges: TrackEdges | null };
 // `jump` marks a teleport (pits, restart) — no segment is drawn into it.
 // `speedKmh` is the raw frame speed, kept for the hover speed readout.
-type Sample = { x: number; z: number; gas: number; brake: number; speedKmh: number; jump: boolean };
+type Sample = {
+  x: number;
+  z: number;
+  gas: number;
+  brake: number;
+  speedKmh: number;
+  jump: boolean;
+};
 // Where a lap died: the world position of one 4-tyres-out onset.
 type CutMarker = { x: number; z: number };
 type View = { cx: number; cz: number; ex: number; ez: number };
 // Screen-space zoom layered over the base fit projection: zoomed = base * level + (ox, oy).
 type Zoom = { level: number; ox: number; oy: number };
-type LegendEntry = { lap: number; color: string; timeMs: number | null; invalid: boolean };
+type LegendEntry = {
+  lap: number;
+  color: string;
+  timeMs: number | null;
+  invalid: boolean;
+};
 
 const PADDING = 24;
 const DOT_RADIUS = 7;
@@ -57,20 +76,20 @@ const ZOOM_MAX = 40;
 const ZOOM_STEP = 1.2;
 const ZOOM_RESET: Zoom = { level: 1, ox: 0, oy: 0 };
 
-const SURFACE = '#1a1a19';
+const SURFACE = "#1a1a19";
 // Track-limits ribbon: asphalt just above the panel surface, edge strokes
 // muted so the pedal-colored lines stay visually dominant.
-const TRACK_FILL = '#242422';
-const TRACK_EDGE = 'rgba(255, 255, 255, 0.28)';
+const TRACK_FILL = "#242422";
+const TRACK_EDGE = "rgba(255, 255, 255, 0.28)";
 const TRACK_EDGE_WIDTH = 1;
-const PREVIOUS_LAP = 'rgba(255, 255, 255, 0.45)';
-const HOVERED_GREY_LAP = '#ffffff'; // uncolored laps brighten to solid white on hover
-const INVALID_TIME = '#f0554b'; // theme critical, brightened for the small canvas label
+const PREVIOUS_LAP = "rgba(255, 255, 255, 0.45)";
+const HOVERED_GREY_LAP = "#ffffff"; // uncolored laps brighten to solid white on hover
+const INVALID_TIME = "#f0554b"; // theme critical, brightened for the small canvas label
 
 // Identity colors for the most recent completed laps, assigned by lap % size
 // so a lap keeps its color all session. Hues deliberately avoid the green /
 // red / yellow reserved for the current lap's pedal gradient.
-const LAP_PALETTE = ['#3f8efc', '#ff8a3d', '#a06bf5', '#2fd0e0', '#f25fd0', '#8f9dff'];
+const LAP_PALETTE = ["#3f8efc", "#a06bf5", "#2fd0e0", "#f25fd0", "#8f9dff"];
 const COLORED_LAPS = LAP_PALETTE.length;
 const lapColor = (lap: number): string => LAP_PALETTE[lap % LAP_PALETTE.length];
 
@@ -80,8 +99,14 @@ const COAST: [number, number, number] = [250, 178, 25];
 const THROTTLE: [number, number, number] = [18, 190, 60];
 const BRAKE: [number, number, number] = [235, 55, 45];
 
-const lerpColor = (from: [number, number, number], to: [number, number, number], t: number) => {
-  const c = from.map((f, i) => Math.round(f + (to[i] - f) * Math.min(1, Math.max(0, t))));
+const lerpColor = (
+  from: [number, number, number],
+  to: [number, number, number],
+  t: number,
+) => {
+  const c = from.map((f, i) =>
+    Math.round(f + (to[i] - f) * Math.min(1, Math.max(0, t))),
+  );
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 };
 
@@ -91,16 +116,29 @@ const segmentColor = (gas: number, brake: number): string => {
   return `rgb(${COAST[0]}, ${COAST[1]}, ${COAST[2]})`;
 };
 
-const freshBounds = () => ({ minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
+const freshBounds = () => ({
+  minX: Infinity,
+  maxX: -Infinity,
+  minZ: Infinity,
+  maxZ: -Infinity,
+});
 
-export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRef }: Props) => {
+export const TrackMap = ({
+  session,
+  telemetryRef,
+  lapsRef,
+  cutsRef,
+  hoveredLapRef,
+}: Props) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [mapData, setMapData] = useState<MapData | null>(null);
   const [mapProbed, setMapProbed] = useState(false);
   // Current lap's driving line (pedal-colored) and every completed lap
   // (drawn grey underneath so the session history never disappears).
   const currentRef = useRef<Sample[]>([]);
-  const previousLapsRef = useRef<{ lap: number; samples: Sample[]; cuts: CutMarker[] }[]>([]);
+  const previousLapsRef = useRef<
+    { lap: number; samples: Sample[]; cuts: CutMarker[] }[]
+  >([]);
   // Cut markers for the in-progress lap; completed laps carry theirs in
   // previousLapsRef. The session cut list is consumed incrementally and the
   // bookkeeping lives outside the draw effect so re-creating it (map data
@@ -125,7 +163,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
   const zoomRef = useRef<Zoom>(ZOOM_RESET);
   // DOM legend for the colored laps; the key ref gates setState from the rAF loop.
   const [legend, setLegend] = useState<LegendEntry[]>([]);
-  const legendKeyRef = useRef('');
+  const legendKeyRef = useRef("");
 
   const resetLines = () => {
     currentRef.current = [];
@@ -157,6 +195,16 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
       }
     };
     const load = async () => {
+      // Demo mode has no bridge: the outline is a static file recorded next to
+      // the session (see lib/demo.ts). Everything downstream is identical.
+      if (IS_DEMO) {
+        const data = await probe<MapData>(DEMO_MAP_URL);
+        if (cancelled) return;
+        if (data && (data.meta || data.edges))
+          setMapData({ meta: data.meta ?? null, edges: data.edges ?? null });
+        setMapProbed(true);
+        return;
+      }
       const [meta, edges] = await Promise.all([
         probe<MapMeta>(`${BRIDGE_HTTP}/api/track-map/meta`),
         probe<TrackEdges>(`${BRIDGE_HTTP}/api/track-map/edges`),
@@ -174,17 +222,17 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
     // Offscreen layers so a typical frame is a few blits plus the segments
     // added since the last one — instead of re-projecting and re-stroking
     // every stored lap. All live only as long as this effect (mapData/session).
-    const lapsLayer = document.createElement('canvas');
-    const lapsLayerCtx = lapsLayer.getContext('2d');
-    const currentLayer = document.createElement('canvas');
-    const currentLayerCtx = currentLayer.getContext('2d');
-    const trackLayer = document.createElement('canvas');
-    const trackLayerCtx = trackLayer.getContext('2d');
+    const lapsLayer = document.createElement("canvas");
+    const lapsLayerCtx = lapsLayer.getContext("2d");
+    const currentLayer = document.createElement("canvas");
+    const currentLayerCtx = currentLayer.getContext("2d");
+    const trackLayer = document.createElement("canvas");
+    const trackLayerCtx = trackLayer.getContext("2d");
     if (!lapsLayerCtx || !currentLayerCtx || !trackLayerCtx) return;
     let rafId = 0;
 
@@ -219,11 +267,13 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
     // Screen-space zoom over a base fit projection. Points (not the canvas
     // transform) are scaled, so stroke widths, the dot radius, and the hover
     // pick radius stay constant in screen pixels at every zoom level.
-    const zoomed = (base: Project): Project => (p) => {
-      const { px, py } = base(p);
-      const zm = zoomRef.current;
-      return { px: px * zm.level + zm.ox, py: py * zm.level + zm.oy };
-    };
+    const zoomed =
+      (base: Project): Project =>
+      (p) => {
+        const { px, py } = base(p);
+        const zm = zoomRef.current;
+        return { px: px * zm.level + zm.ox, py: py * zm.level + zm.oy };
+      };
 
     // Per-segment colored polyline. `from` lets the current-lap layer append
     // only the segments added since its last draw.
@@ -237,7 +287,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
     ) => {
       if (samples.length < 2) return;
       target.lineWidth = lineWidth;
-      target.lineCap = 'round';
+      target.lineCap = "round";
       for (let i = Math.max(1, from); i < samples.length; i++) {
         if (samples[i].jump) continue;
         const a = project(samples[i - 1]);
@@ -262,8 +312,8 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
       if (samples.length < 2) return;
       target.strokeStyle = color;
       target.lineWidth = lineWidth;
-      target.lineCap = 'round';
-      target.lineJoin = 'round';
+      target.lineCap = "round";
+      target.lineJoin = "round";
       target.beginPath();
       samples.forEach((s, i) => {
         const { px, py } = project(s);
@@ -294,10 +344,10 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
     // the array length constant. `appendedCount` is how many current-lap
     // samples are already drawn into currentLayer.
     let lapsVersion = 0;
-    let lapsLayerKey = '';
-    let currentLayerKey = '';
+    let lapsLayerKey = "";
+    let currentLayerKey = "";
     let appendedCount = 0;
-    let trackLayerKey = '';
+    let trackLayerKey = "";
 
     // The track-limits ribbon under everything else. Edges are static for
     // the whole session, so only a projection change (zoom, resize, DPR)
@@ -316,7 +366,11 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
         trackLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         trackLayerCtx.clearRect(0, 0, width, height);
 
-        const trace = (line: [number, number][], reverse: boolean, move: boolean) => {
+        const trace = (
+          line: [number, number][],
+          reverse: boolean,
+          move: boolean,
+        ) => {
           for (let i = 0; i < line.length; i++) {
             const [x, z] = line[reverse ? line.length - 1 - i : i];
             const { px, py } = project({ x, z });
@@ -344,7 +398,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
         // The edge strokes are the actual track limits.
         trackLayerCtx.strokeStyle = TRACK_EDGE;
         trackLayerCtx.lineWidth = TRACK_EDGE_WIDTH;
-        trackLayerCtx.lineJoin = 'round';
+        trackLayerCtx.lineJoin = "round";
         for (const line of [edges.left, edges.right]) {
           trackLayerCtx.beginPath();
           trace(line, false, true);
@@ -377,7 +431,13 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
       laps.forEach(({ lap, samples }, index) => {
         if (index === hoveredIndex) return;
         const color = index >= coloredFrom ? lapColor(lap) : PREVIOUS_LAP;
-        drawUniformPath(lapsLayerCtx, samples, project, color, LINE_WIDTH - 0.5);
+        drawUniformPath(
+          lapsLayerCtx,
+          samples,
+          project,
+          color,
+          LINE_WIDTH - 0.5,
+        );
       });
     };
 
@@ -445,7 +505,8 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
           nearestD = bestD;
           nearest = index;
         }
-        if (index >= coloredFrom) rows.push({ lap, color: lapColor(lap), speedKmh: bestSpeed });
+        if (index >= coloredFrom)
+          rows.push({ lap, color: lapColor(lap), speedKmh: bestSpeed });
       });
       rows.reverse(); // laps store oldest-first; the readout lists newest first
       return { nearest, rows };
@@ -468,7 +529,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
         return [
           {
             text: ` — ${formatLapTime(record.timeMs)}`,
-            color: record.invalid ? INVALID_TIME : '#ffffff',
+            color: record.invalid ? INVALID_TIME : "#ffffff",
           },
         ];
       };
@@ -478,20 +539,27 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
         { text: ` · ${Math.round(row.speedKmh)} km/h`, color: row.color },
       ]);
       if (!rows.some((row) => row.lap === nearestLap)) {
-        lines.unshift([{ text: `Lap ${nearestLap}`, color: '#ffffff' }, ...timeSegs(nearestLap)]);
+        lines.unshift([
+          { text: `Lap ${nearestLap}`, color: "#ffffff" },
+          ...timeSegs(nearestLap),
+        ]);
       }
-      ctx.font = '12px system-ui';
+      ctx.font = "12px system-ui";
       const rowH = 16;
       const boxW =
-        Math.max(...lines.map((segs) => segs.reduce((w, s) => w + ctx.measureText(s.text).width, 0))) + 12;
+        Math.max(
+          ...lines.map((segs) =>
+            segs.reduce((w, s) => w + ctx.measureText(s.text).width, 0),
+          ),
+        ) + 12;
       const x = m.x + 14;
       const y = m.y - 8;
       ctx.beginPath();
       ctx.roundRect(x - 6, y - 14, boxW, lines.length * rowH + 4, 6);
-      ctx.fillStyle = 'rgba(13, 13, 13, 0.92)';
+      ctx.fillStyle = "rgba(13, 13, 13, 0.92)";
       ctx.fill();
       ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
       ctx.stroke();
       lines.forEach((segs, row) => {
         let sx = x;
@@ -503,7 +571,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
       });
     };
 
-    let lastCursor = '';
+    let lastCursor = "";
     const setCursor = (cursor: string) => {
       if (cursor === lastCursor) return;
       lastCursor = cursor;
@@ -518,7 +586,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
       dpr: number,
     ) => {
       const hit = hitTestLaps(project);
-      setCursor(hit.nearest >= 0 ? 'pointer' : 'default');
+      setCursor(hit.nearest >= 0 ? "pointer" : "default");
       // Draw order matches the pre-layer renderer exactly: previous laps
       // (minus hovered) → current lap → hovered emphasis → readout.
       renderLapsLayer(project, projKey, hit.nearest, width, height, dpr);
@@ -531,7 +599,8 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
         const laps = previousLapsRef.current;
         const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
         const { lap, samples } = laps[hit.nearest];
-        const color = hit.nearest >= coloredFrom ? lapColor(lap) : HOVERED_GREY_LAP;
+        const color =
+          hit.nearest >= coloredFrom ? lapColor(lap) : HOVERED_GREY_LAP;
         drawUniformPath(ctx, samples, project, color, LINE_WIDTH + 1);
       }
       drawCutMarkers(project, hit.nearest);
@@ -540,10 +609,15 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
 
     // Cut markers are stroked directly on every repaint — a session holds at
     // most a handful, so projecting them is far cheaper than another layer.
-    const strokeCross = (px: number, py: number, color: string, width: number) => {
+    const strokeCross = (
+      px: number,
+      py: number,
+      color: string,
+      width: number,
+    ) => {
       ctx.strokeStyle = color;
       ctx.lineWidth = width;
-      ctx.lineCap = 'round';
+      ctx.lineCap = "round";
       ctx.beginPath();
       ctx.moveTo(px - CUT_ARM, py - CUT_ARM);
       ctx.lineTo(px + CUT_ARM, py + CUT_ARM);
@@ -578,7 +652,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
     const drawDot = (px: number, py: number) => {
       ctx.beginPath();
       ctx.arc(px, py, DOT_RADIUS, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = "#ffffff";
       ctx.fill();
       ctx.lineWidth = 2;
       ctx.strokeStyle = SURFACE;
@@ -651,7 +725,8 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
         const restarted =
           prevLap !== null &&
           (frame.lapCount < prevLap ||
-            (frame.lapCount === prevLap && frame.lapTimeMs + 1000 < lapTimeRef.current));
+            (frame.lapCount === prevLap &&
+              frame.lapTimeMs + 1000 < lapTimeRef.current));
         if (restarted) {
           resetLines();
           lapsVersion++;
@@ -665,7 +740,8 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
             samples: currentRef.current,
             cuts: currentCutsRef.current,
           });
-          if (previousLapsRef.current.length > MAX_LAPS) previousLapsRef.current.shift();
+          if (previousLapsRef.current.length > MAX_LAPS)
+            previousLapsRef.current.shift();
           currentRef.current = [];
           currentCutsRef.current = [];
           lapsVersion++;
@@ -680,7 +756,11 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
           seenCutsRef.current = cutList;
           consumedCutsRef.current = 0;
         }
-        for (; consumedCutsRef.current < cutList.length; consumedCutsRef.current++) {
+        for (
+          ;
+          consumedCutsRef.current < cutList.length;
+          consumedCutsRef.current++
+        ) {
           const cut = cutList[consumedCutsRef.current];
           if (cut.lapCount === frame.lapCount) {
             currentCutsRef.current.push({ x: cut.x, z: cut.z });
@@ -693,9 +773,12 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
 
         const samples = currentRef.current;
         const last = samples[samples.length - 1];
-        const moved = last ? Math.hypot(frame.x - last.x, frame.z - last.z) : Infinity;
+        const moved = last
+          ? Math.hypot(frame.x - last.x, frame.z - last.z)
+          : Infinity;
         if (samples.length < MAX_SAMPLES && moved > SAMPLE_SPACING) {
-          if (!anchorRef.current) anchorRef.current = { x: frame.x, z: frame.z };
+          if (!anchorRef.current)
+            anchorRef.current = { x: frame.x, z: frame.z };
           samples.push({
             x: frame.x,
             z: frame.z,
@@ -730,7 +813,9 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
             };
           })
           .reverse();
-        const key = entries.map((e) => `${e.lap}:${e.timeMs}:${e.invalid}`).join('|');
+        const key = entries
+          .map((e) => `${e.lap}:${e.timeMs}:${e.invalid}`)
+          .join("|");
         if (key !== legendKeyRef.current) {
           legendKeyRef.current = key;
           setLegend(entries);
@@ -754,8 +839,12 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
 
         // World (x, z) -> map.ini pixel space -> normalized -> canvas.
         const project: Project = zoomed((p) => ({
-          px: offsetX + (((p.x + meta.xOffset) / meta.scaleFactor) / meta.width) * drawnW,
-          py: offsetY + (((p.z + meta.zOffset) / meta.scaleFactor) / meta.height) * drawnH,
+          px:
+            offsetX +
+            ((p.x + meta.xOffset) / meta.scaleFactor / meta.width) * drawnW,
+          py:
+            offsetY +
+            ((p.z + meta.zOffset) / meta.scaleFactor / meta.height) * drawnH,
         }));
 
         // Everything the projection depends on — a change invalidates layers.
@@ -773,7 +862,10 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
         // Edges without map.ini: fixed fit around the ribbon bounds.
         easing = false;
         const view = edgeView;
-        const scale = Math.min((width - PADDING * 2) / view.ex, (height - PADDING * 2) / view.ez);
+        const scale = Math.min(
+          (width - PADDING * 2) / view.ex,
+          (height - PADDING * 2) / view.ez,
+        );
         // Same handedness as the map.ini projection (world +Z down-screen).
         const project: Project = zoomed((p) => ({
           px: width / 2 + (p.x - view.cx) * scale,
@@ -794,7 +886,10 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
       // viewport eases toward the (margin-padded) bounds so the first lap
       // doesn't pin the car dot against the canvas edges while the extent is
       // still growing.
-      if (!frame || (currentRef.current.length < 2 && previousLapsRef.current.length === 0)) {
+      if (
+        !frame ||
+        (currentRef.current.length < 2 && previousLapsRef.current.length === 0)
+      ) {
         easing = false;
         return;
       }
@@ -809,8 +904,14 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
         target = {
           cx: anchor.x,
           cz: anchor.z,
-          ex: Math.max(FIRST_LAP_EXTENT, 2 * Math.max(b.maxX - anchor.x, anchor.x - b.minX) * pad),
-          ez: Math.max(FIRST_LAP_EXTENT, 2 * Math.max(b.maxZ - anchor.z, anchor.z - b.minZ) * pad),
+          ex: Math.max(
+            FIRST_LAP_EXTENT,
+            2 * Math.max(b.maxX - anchor.x, anchor.x - b.minX) * pad,
+          ),
+          ez: Math.max(
+            FIRST_LAP_EXTENT,
+            2 * Math.max(b.maxZ - anchor.z, anchor.z - b.minZ) * pad,
+          ),
         };
       } else {
         const spanX = Math.max(b.maxX - b.minX, 50);
@@ -851,7 +952,10 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
         view.cz !== target.cz ||
         view.ex !== target.ex ||
         view.ez !== target.ez;
-      const scale = Math.min((width - PADDING * 2) / view.ex, (height - PADDING * 2) / view.ez);
+      const scale = Math.min(
+        (width - PADDING * 2) / view.ex,
+        (height - PADDING * 2) / view.ez,
+      );
       // World +Z maps down-screen — the same handedness as the map.ini /
       // map.png projection, so turn direction is never mirrored between modes.
       // User zoom multiplies the eased auto-fit view; at 1× the automatic
@@ -879,7 +983,10 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const zm = zoomRef.current;
-      const level = Math.min(ZOOM_MAX, Math.max(1, zm.level * ZOOM_STEP ** (-e.deltaY / 100)));
+      const level = Math.min(
+        ZOOM_MAX,
+        Math.max(1, zm.level * ZOOM_STEP ** (-e.deltaY / 100)),
+      );
       if (level === zm.level) return;
       if (level === 1) {
         // Fully out = exact fit framing again; any accumulated focus is discarded.
@@ -895,16 +1002,16 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
         oy: e.offsetY - (e.offsetY - zm.oy) * r,
       };
     };
-    canvas.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('mouseleave', onMouseLeave);
-    canvas.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener("mousemove", onMouseMove);
+    canvas.addEventListener("mouseleave", onMouseLeave);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
 
     rafId = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(rafId);
-      canvas.removeEventListener('mousemove', onMouseMove);
-      canvas.removeEventListener('mouseleave', onMouseLeave);
-      canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener("mousemove", onMouseMove);
+      canvas.removeEventListener("mouseleave", onMouseLeave);
+      canvas.removeEventListener("wheel", onWheel);
     };
   }, [mapData, telemetryRef, lapsRef, cutsRef, hoveredLapRef]);
 
@@ -914,24 +1021,38 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
         Track map
       </p>
       <div className="absolute top-3 right-4 flex items-center gap-3 text-xs text-ink-muted">
-        {mapProbed && !mapData && <span>No map file — drawing your driving line</span>}
+        {mapProbed && !mapData && (
+          <span>No map file — drawing your driving line</span>
+        )}
         <span className="flex items-center gap-1">
-          <span className="inline-block size-2 rounded-full" style={{ background: 'rgb(18, 190, 60)' }} />
+          <span
+            className="inline-block size-2 rounded-full"
+            style={{ background: "rgb(18, 190, 60)" }}
+          />
           Throttle
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block size-2 rounded-full" style={{ background: 'rgb(250, 178, 25)' }} />
+          <span
+            className="inline-block size-2 rounded-full"
+            style={{ background: "rgb(250, 178, 25)" }}
+          />
           Coast
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block size-2 rounded-full" style={{ background: 'rgb(235, 55, 45)' }} />
+          <span
+            className="inline-block size-2 rounded-full"
+            style={{ background: "rgb(235, 55, 45)" }}
+          />
           Brake
         </span>
       </div>
       {legend.length > 0 && (
         <div className="pointer-events-none absolute right-4 bottom-3 flex flex-col gap-1 text-xs">
           {legend.map((entry) => (
-            <span key={entry.lap} className="flex items-center justify-end gap-1.5">
+            <span
+              key={entry.lap}
+              className="flex items-center justify-end gap-1.5"
+            >
               <span
                 className="inline-block size-2 rounded-full"
                 style={{ background: entry.color }}
@@ -939,7 +1060,7 @@ export const TrackMap = ({ session, telemetryRef, lapsRef, cutsRef, hoveredLapRe
               <span className="text-ink-muted">Lap {entry.lap}</span>
               {entry.timeMs != null && (
                 <span
-                  className={`tabular-nums ${entry.invalid ? 'text-critical' : 'text-ink-secondary'}`}
+                  className={`tabular-nums ${entry.invalid ? "text-critical" : "text-ink-secondary"}`}
                 >
                   {formatLapTime(entry.timeMs)}
                 </span>
