@@ -132,16 +132,19 @@ const listTrackConfigs = (track: string): string[] => {
 
 // Which of a track's layout folders is loaded, read from the static
 // shared-memory page's trackConfiguration field. AC stores the exact
-// subfolder name (e.g. "layout_int"), so a garbage-tolerant substring scan of
-// the page — the same philosophy as readWideString — picks it out without
-// depending on the field's struct offset. Longest-first so a longer folder
-// name wins over any shorter one it contains. Null when the page can't be
+// subfolder name (e.g. "layout_int"), so scanning the page — the same
+// garbage-tolerant, offset-independent philosophy as readWideString — finds
+// it. The page's wchar fields are null-terminated, so we split on non-id
+// characters and match a *whole token*, not a substring: the layout name
+// "nordschleife" lives inside the track id "ks_nordschleife", and a substring
+// scan would wrongly resolve it over the actually-loaded "endurance". Longest
+// name first only as a deterministic tie-break. Null when the page can't be
 // read (non-Windows, AC_SHM=0, remote host) or names no known layout.
 const resolveLoadedLayout = async (configs: string[]): Promise<string | null> => {
   const page = await readStaticPage();
   if (!page) return null;
-  const text = page.toString('utf16le');
-  return [...configs].sort((a, b) => b.length - a.length).find((name) => text.includes(name)) ?? null;
+  const tokens = new Set(page.toString('utf16le').split(/[^A-Za-z0-9_-]+/).filter(Boolean));
+  return [...configs].sort((a, b) => b.length - a.length).find((name) => tokens.has(name)) ?? null;
 };
 
 // Full session resolution: the handshake config first (correct for
