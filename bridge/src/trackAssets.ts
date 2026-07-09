@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveTrackEdges } from './aiSpline.js';
+import { readStaticPage } from './sharedMemory.js';
 import type { MapMeta, TrackEdges } from './types.js';
 
 const DEFAULT_AC_PATH = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\assettocorsa';
@@ -105,4 +106,68 @@ export const resolveTrackAssets = (track: string, trackConfig: string): TrackAss
     return null;
   }
   return { meta, mapImagePath, edges };
+};
+
+// Layout subfolders that actually carry map assets. Multi-layout tracks
+// (ks_highlands, ks_nurburgring, …) keep nothing at the track root — every
+// map.ini / fast_lane.ai lives under a per-layout folder — so this is how we
+// discover the candidate configs when the handshake didn't name one.
+const listTrackConfigs = (track: string): string[] => {
+  const trackRoot = path.join(AC_PATH, 'content', 'tracks', track);
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(trackRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .filter(
+      (name) =>
+        fs.existsSync(path.join(trackRoot, name, 'data', 'map.ini')) ||
+        fs.existsSync(path.join(trackRoot, name, 'ai', 'fast_lane.ai')),
+    );
+};
+
+// Which of a track's layout folders is loaded, read from the static
+// shared-memory page's trackConfiguration field. AC stores the exact
+// subfolder name (e.g. "layout_int"), so a garbage-tolerant substring scan of
+// the page — the same philosophy as readWideString — picks it out without
+// depending on the field's struct offset. Longest-first so a longer folder
+// name wins over any shorter one it contains. Null when the page can't be
+// read (non-Windows, AC_SHM=0, remote host) or names no known layout.
+const resolveLoadedLayout = async (configs: string[]): Promise<string | null> => {
+  const page = await readStaticPage();
+  if (!page) return null;
+  const text = page.toString('utf16le');
+  return [...configs].sort((a, b) => b.length - a.length).find((name) => text.includes(name)) ?? null;
+};
+
+// Full session resolution: the handshake config first (correct for
+// single-layout tracks and any track that reports its subfolder), then the
+// multi-layout fallback that discovers the layout folders and asks shared
+// memory which one is loaded. Kept separate from the sync resolveTrackAssets
+// so the pure file lookup stays testable and side-effect free.
+export const resolveTrackAssetsForSession = async (
+  track: string,
+  handshakeConfig: string,
+): Promise<TrackAssets | null> => {
+  const direct = resolveTrackAssets(track, handshakeConfig);
+  if (direct) return direct;
+
+  const configs = listTrackConfigs(track);
+  if (configs.length === 0) return null;
+  if (configs.length === 1) return resolveTrackAssets(track, configs[0]);
+
+  const layout = await resolveLoadedLayout(configs);
+  if (!layout) {
+    console.warn(
+      `[map] track ${JSON.stringify(track)} has ${configs.length} layouts (${configs.join(', ')}) ` +
+        `and the loaded one couldn't be read from shared memory — drawing the driven line`,
+    );
+    return null;
+  }
+  console.log(`[map] resolved layout ${JSON.stringify(layout)} for ${JSON.stringify(track)} via shared memory`);
+  return resolveTrackAssets(track, layout);
 };

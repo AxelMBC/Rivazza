@@ -3,7 +3,7 @@ import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ACClient } from './acClient.js';
 import { startCutDetection } from './sharedMemory.js';
-import { resolveTrackAssets, type TrackAssets } from './trackAssets.js';
+import { resolveTrackAssetsForSession, type TrackAssets } from './trackAssets.js';
 import { resolveCarTopSpeed } from './carAssets.js';
 import type { BridgeMessage, SessionInfo, TelemetryFrame } from './types.js';
 
@@ -82,8 +82,15 @@ wss.on('connection', (socket) => {
 
 const ac = new ACClient();
 
-ac.on('session', (handshake) => {
-  trackAssets = resolveTrackAssets(handshake.trackName, handshake.trackConfig);
+ac.on('session', async (handshake) => {
+  // Layout resolution can touch shared memory; a failure there must never
+  // take down the session (and the UDP path) — fall back to no map assets.
+  try {
+    trackAssets = await resolveTrackAssetsForSession(handshake.trackName, handshake.trackConfig);
+  } catch (err) {
+    console.warn('[map] track asset resolution failed:', (err as Error).message);
+    trackAssets = null;
+  }
   session = {
     track: handshake.trackName,
     trackConfig: handshake.trackConfig,

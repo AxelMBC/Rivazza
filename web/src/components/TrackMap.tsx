@@ -76,6 +76,33 @@ const ZOOM_MAX = 40;
 const ZOOM_STEP = 1.2;
 const ZOOM_RESET: Zoom = { level: 1, ox: 0, oy: 0 };
 
+// Follow cam: hover-dwell armed (never a click — clicks would focus the
+// browser and steal controller input from the game). 'following' tracks the
+// car, 'detached' is manual wheel zoom after interrupting a follow (the exit
+// button stays), 'exiting' animates back to the 1× fit view.
+type FollowState = "off" | "following" | "detached" | "exiting";
+const FOLLOW_DWELL_MS = 3000;
+// Comfortable tracking zoom: this many world meters across the smaller
+// canvas dimension, regardless of track size or projection mode.
+const FOLLOW_WINDOW_M = 250;
+// Time-based smoothing (seconds to close ~63% of the remaining gap) so the
+// camera moves at the same speed on any display refresh rate and glides
+// straight through dropped frames.
+const FOLLOW_TAU_S = 0.3; // camera glide — entry animation and tracking lag alike
+// The tracked point renders a fixed delay in the past, linearly interpolated
+// between buffered raw frames. Frames arrive unevenly (Windows timer
+// quantization at the bridge, burst delivery in demo replay — recorded gaps
+// reach 40 ms), and interpolating across a delay longer than the worst gap
+// turns that into constant-velocity motion. Exponential smoothing can't do
+// this: it inherits the target's unevenness at every step.
+const FOLLOW_DELAY_MS = 120;
+const ANCHOR_SNAP_M = 100; // a jump this large is a teleport — snap, don't glide
+// The current-lap line must never poke out ahead of the (delayed) dot, so
+// this many newest samples stay out of the cached layer and are drawn each
+// frame only up to the dot. Sized for the delay at top speed (~100 m/s ×
+// 120 ms ≈ 12 m at 1 m sample spacing).
+const TIP_HOLDBACK = 16;
+
 const SURFACE = "#1a1a19";
 // Track-limits ribbon: asphalt just above the panel surface, edge strokes
 // muted so the pedal-colored lines stay visually dominant.
@@ -110,9 +137,22 @@ const lerpColor = (
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 };
 
-const segmentColor = (gas: number, brake: number): string => {
-  if (brake > DEAD_ZONE && brake >= gas) return lerpColor(COAST, BRAKE, brake);
-  if (gas > DEAD_ZONE) return lerpColor(COAST, THROTTLE, gas);
+// Pedal colors quantized into a small set of buckets so the current lap's
+// line batches into one native path stroke per bucket instead of a canvas
+// stroke per segment — the difference between a flat and a linearly growing
+// per-frame cost while the camera moves. 12 steps per ramp is visually
+// indistinguishable from the continuous lerp at 3 px line width.
+// Key: 0 = coast, positive = throttle bucket, negative = brake bucket.
+const COLOR_QUANT = 12;
+const bucketKey = (gas: number, brake: number): number => {
+  if (brake > DEAD_ZONE && brake >= gas)
+    return -Math.max(1, Math.round(brake * COLOR_QUANT));
+  if (gas > DEAD_ZONE) return Math.max(1, Math.round(gas * COLOR_QUANT));
+  return 0;
+};
+const bucketColor = (key: number): string => {
+  if (key < 0) return lerpColor(COAST, BRAKE, -key / COLOR_QUANT);
+  if (key > 0) return lerpColor(COAST, THROTTLE, key / COLOR_QUANT);
   return `rgb(${COAST[0]}, ${COAST[1]}, ${COAST[2]})`;
 };
 
@@ -136,8 +176,10 @@ export const TrackMap = ({
   // Current lap's driving line (pedal-colored) and every completed lap
   // (drawn grey underneath so the session history never disappears).
   const currentRef = useRef<Sample[]>([]);
+  // `path` is a lazily built world-space Path2D of the lap line — projection
+  // independent, so it survives zoom, camera motion, and effect re-creation.
   const previousLapsRef = useRef<
-    { lap: number; samples: Sample[]; cuts: CutMarker[] }[]
+    { lap: number; samples: Sample[]; cuts: CutMarker[]; path?: Path2D }[]
   >([]);
   // Cut markers for the in-progress lap; completed laps carry theirs in
   // previousLapsRef. The session cut list is consumed incrementally and the
@@ -161,6 +203,50 @@ export const TrackMap = ({
   const anchorRef = useRef<{ x: number; z: number } | null>(null);
   // User wheel zoom — survives lap completion, resets with the session.
   const zoomRef = useRef<Zoom>(ZOOM_RESET);
+  // Follow cam: the ref is the source of truth for the rAF loop and event
+  // handlers; the mirrored state only drives which overlay button renders.
+  const followRef = useRef<FollowState>("off");
+  const [followUi, setFollowUi] = useState<FollowState>("off");
+  const setFollow = (state: FollowState) => {
+    followRef.current = state;
+    setFollowUi(state);
+  };
+  // Dwell bookkeeping. `armReadyRef` guards against the button swap that
+  // follows a completed dwell: the replacement button appears under the
+  // still-parked cursor, and without the guard a browser that re-fires
+  // mouseenter on DOM mutation would immediately start the opposite dwell,
+  // toggling forever. The cursor must leave the button once to re-arm.
+  const dwellTimerRef = useRef<number | null>(null);
+  const armReadyRef = useRef(true);
+  const [dwelling, setDwelling] = useState(false);
+  const cancelDwell = () => {
+    if (dwellTimerRef.current !== null) {
+      clearTimeout(dwellTimerRef.current);
+      dwellTimerRef.current = null;
+    }
+    setDwelling(false);
+  };
+  const startDwell = (next: FollowState) => {
+    if (!armReadyRef.current) return;
+    cancelDwell();
+    setDwelling(true);
+    dwellTimerRef.current = window.setTimeout(() => {
+      dwellTimerRef.current = null;
+      armReadyRef.current = false;
+      setDwelling(false);
+      // The car may have vanished mid-dwell (game closed) — nothing to follow.
+      if (next === "following" && !telemetryRef.current) return;
+      setFollow(next);
+    }, FOLLOW_DWELL_MS);
+  };
+  const leaveDwell = () => {
+    armReadyRef.current = true;
+    cancelDwell();
+  };
+  // Follow button only renders while there is a car to follow; flipped from
+  // the draw loop (telemetryRef nulls out when the bridge loses the game).
+  const [hasFrame, setHasFrame] = useState(false);
+  const hasFrameRef = useRef(false);
   // DOM legend for the colored laps; the key ref gates setState from the rAF loop.
   const [legend, setLegend] = useState<LegendEntry[]>([]);
   const legendKeyRef = useRef("");
@@ -175,7 +261,13 @@ export const TrackMap = ({
     viewRef.current = null;
     anchorRef.current = null;
     zoomRef.current = ZOOM_RESET;
+    // Session change / restart ends follow mode with everything else.
+    cancelDwell();
+    setFollow("off");
   };
+
+  // The dwell timeout must not fire into an unmounted component.
+  useEffect(() => cancelDwell, []);
 
   useEffect(() => {
     resetLines();
@@ -261,6 +353,44 @@ export const TrackMap = ({
       };
     }
 
+    // Static world-space ribbon geometry, built once for the effect's life.
+    const traceInto = (
+      path: Path2D,
+      line: [number, number][],
+      reverse: boolean,
+      move: boolean,
+    ) => {
+      for (let i = 0; i < line.length; i++) {
+        const [x, z] = line[reverse ? line.length - 1 - i : i];
+        if (i === 0 && move) path.moveTo(x, z);
+        else path.lineTo(x, z);
+      }
+    };
+    let edgesFill: Path2D | null = null;
+    let edgeLines: Path2D[] = [];
+    if (edges) {
+      // Closed circuits fill as an annulus: the two edge rings run in
+      // opposite directions, so the nonzero rule leaves the infield empty.
+      // Open splines (hillclimbs) fill as a single strip.
+      edgesFill = new Path2D();
+      if (edges.closed) {
+        traceInto(edgesFill, edges.left, false, true);
+        edgesFill.closePath();
+        traceInto(edgesFill, edges.right, true, true);
+        edgesFill.closePath();
+      } else {
+        traceInto(edgesFill, edges.left, false, true);
+        traceInto(edgesFill, edges.right, true, false);
+        edgesFill.closePath();
+      }
+      edgeLines = [edges.left, edges.right].map((line) => {
+        const p = new Path2D();
+        traceInto(p, line, false, true);
+        if (edges.closed) p.closePath();
+        return p;
+      });
+    }
+
     type Projected = { px: number; py: number };
     type Project = (p: { x: number; z: number }) => Projected;
 
@@ -275,52 +405,48 @@ export const TrackMap = ({
         return { px: px * zm.level + zm.ox, py: py * zm.level + zm.oy };
       };
 
-    // Per-segment colored polyline. `from` lets the current-lap layer append
-    // only the segments added since its last draw.
-    const drawPath = (
-      target: CanvasRenderingContext2D,
-      samples: Sample[],
-      project: Project,
-      colorFor: (s: Sample) => string,
-      lineWidth: number,
-      from = 1,
-    ) => {
-      if (samples.length < 2) return;
-      target.lineWidth = lineWidth;
-      target.lineCap = "round";
-      for (let i = Math.max(1, from); i < samples.length; i++) {
-        if (samples[i].jump) continue;
-        const a = project(samples[i - 1]);
-        const b = project(samples[i]);
-        target.strokeStyle = colorFor(samples[i]);
-        target.beginPath();
-        target.moveTo(a.px, a.py);
-        target.lineTo(b.px, b.py);
-        target.stroke();
-      }
+    // Every projection here is a uniform-scale, axis-aligned affine map
+    // (px = k·x + tx, py = k·z + ty), so world-space Path2D geometry renders
+    // in one native stroke under the canvas transform instead of a JS loop
+    // per point — the flat per-frame cost that keeps a moving camera at
+    // 60 fps. The coefficients are read off the live projection numerically
+    // so this works identically in all three modes at any zoom state.
+    type Affine = { k: number; tx: number; ty: number };
+    const affineOf = (project: Project): Affine => {
+      const o = project({ x: 0, z: 0 });
+      const u = project({ x: 1, z: 0 });
+      return { k: u.px - o.px, tx: o.px, ty: o.py };
     };
 
-    // Uniform-color laps batch into a single stroke, so re-rendering the
-    // cached lap layer stays cheap even with a full session of laps.
-    const drawUniformPath = (
+    // Stroke widths divide by the scale so they stay constant in screen
+    // pixels at every zoom level — same guarantee as point-space rendering.
+    const strokeWorldPath = (
       target: CanvasRenderingContext2D,
-      samples: Sample[],
-      project: Project,
+      path: Path2D,
+      { k, tx, ty }: Affine,
+      dpr: number,
       color: string,
-      lineWidth: number,
+      widthPx: number,
     ) => {
-      if (samples.length < 2) return;
+      target.save();
+      target.setTransform(dpr * k, 0, 0, dpr * k, dpr * tx, dpr * ty);
       target.strokeStyle = color;
-      target.lineWidth = lineWidth;
+      target.lineWidth = widthPx / k;
       target.lineCap = "round";
       target.lineJoin = "round";
-      target.beginPath();
+      target.stroke(path);
+      target.restore();
+    };
+
+    // World-space lap line, jumps as subpath breaks. Built once per lap and
+    // reused at every zoom and camera state.
+    const buildLapPath = (samples: Sample[]): Path2D => {
+      const path = new Path2D();
       samples.forEach((s, i) => {
-        const { px, py } = project(s);
-        if (i === 0 || s.jump) target.moveTo(px, py);
-        else target.lineTo(px, py);
+        if (i === 0 || s.jump) path.moveTo(s.x, s.z);
+        else path.lineTo(s.x, s.z);
       });
-      target.stroke();
+      return path;
     };
 
     const sizeLayer = (layer: HTMLCanvasElement, w: number, h: number) => {
@@ -359,52 +485,37 @@ export const TrackMap = ({
       height: number,
       dpr: number,
     ) => {
-      if (!edges) return;
+      if (!edges || !edgesFill) return;
       if (projKey !== trackLayerKey) {
         trackLayerKey = projKey;
         sizeLayer(trackLayer, canvas.width, canvas.height);
         trackLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         trackLayerCtx.clearRect(0, 0, width, height);
 
-        const trace = (
-          line: [number, number][],
-          reverse: boolean,
-          move: boolean,
-        ) => {
-          for (let i = 0; i < line.length; i++) {
-            const [x, z] = line[reverse ? line.length - 1 - i : i];
-            const { px, py } = project({ x, z });
-            if (i === 0 && move) trackLayerCtx.moveTo(px, py);
-            else trackLayerCtx.lineTo(px, py);
-          }
-        };
-        // Closed circuits fill as an annulus: the two edge rings run in
-        // opposite directions, so the nonzero rule leaves the infield empty.
-        // Open splines (hillclimbs) fill as a single strip.
-        trackLayerCtx.beginPath();
-        if (edges.closed) {
-          trace(edges.left, false, true);
-          trackLayerCtx.closePath();
-          trace(edges.right, true, true);
-          trackLayerCtx.closePath();
-        } else {
-          trace(edges.left, false, true);
-          trace(edges.right, true, false);
-          trackLayerCtx.closePath();
-        }
+        const aff = affineOf(project);
+        trackLayerCtx.save();
+        trackLayerCtx.setTransform(
+          dpr * aff.k,
+          0,
+          0,
+          dpr * aff.k,
+          dpr * aff.tx,
+          dpr * aff.ty,
+        );
         trackLayerCtx.fillStyle = TRACK_FILL;
-        trackLayerCtx.fill();
+        trackLayerCtx.fill(edgesFill);
+        trackLayerCtx.restore();
 
         // The edge strokes are the actual track limits.
-        trackLayerCtx.strokeStyle = TRACK_EDGE;
-        trackLayerCtx.lineWidth = TRACK_EDGE_WIDTH;
-        trackLayerCtx.lineJoin = "round";
-        for (const line of [edges.left, edges.right]) {
-          trackLayerCtx.beginPath();
-          trace(line, false, true);
-          if (edges.closed) trackLayerCtx.closePath();
-          trackLayerCtx.stroke();
-        }
+        for (const line of edgeLines)
+          strokeWorldPath(
+            trackLayerCtx,
+            line,
+            aff,
+            dpr,
+            TRACK_EDGE,
+            TRACK_EDGE_WIDTH,
+          );
       }
       blitLayer(trackLayer);
     };
@@ -428,21 +539,33 @@ export const TrackMap = ({
       lapsLayerCtx.clearRect(0, 0, width, height);
       // The most recent laps carry stable identity colors; older ones stay grey.
       const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
-      laps.forEach(({ lap, samples }, index) => {
+      const aff = affineOf(project);
+      laps.forEach((entry, index) => {
         if (index === hoveredIndex) return;
-        const color = index >= coloredFrom ? lapColor(lap) : PREVIOUS_LAP;
-        drawUniformPath(
+        const color = index >= coloredFrom ? lapColor(entry.lap) : PREVIOUS_LAP;
+        entry.path ??= buildLapPath(entry.samples);
+        strokeWorldPath(
           lapsLayerCtx,
-          samples,
-          project,
+          entry.path,
+          aff,
+          dpr,
           color,
           LINE_WIDTH - 0.5,
         );
       });
     };
 
-    // Current lap accumulates incrementally; any projection change (zoom,
-    // resize, fallback view movement) or shrink (rollover/reset) redraws it.
+    // Current-lap geometry batched into one world-space Path2D per pedal
+    // color bucket — projection independent and append-only, so a moving
+    // camera restrokes a couple dozen cached paths instead of re-projecting
+    // and stroking every segment. `currentPathCount` is how many samples the
+    // buckets already contain.
+    const currentPaths = new Map<number, Path2D>();
+    let currentPathCount = 0;
+
+    // Current lap accumulates incrementally; a projection change (zoom,
+    // camera motion, resize) or shrink (rollover/reset) restrokes the cached
+    // bucket paths, while a same-projection frame appends only new segments.
     const renderCurrentLayer = (
       project: Project,
       projKey: string,
@@ -451,25 +574,110 @@ export const TrackMap = ({
       dpr: number,
     ) => {
       const samples = currentRef.current;
-      if (projKey !== currentLayerKey || samples.length < appendedCount) {
+      // The newest TIP_HOLDBACK samples stay out of the layer — the live tip
+      // is drawn per frame by drawCurrentTail, clipped at the dot.
+      const layerLen = Math.max(0, samples.length - TIP_HOLDBACK);
+      if (layerLen < currentPathCount) {
+        currentPaths.clear();
+        currentPathCount = 0;
+      }
+      for (let i = Math.max(1, currentPathCount); i < layerLen; i++) {
+        const s = samples[i];
+        if (s.jump) continue;
+        const key = bucketKey(s.gas, s.brake);
+        let path = currentPaths.get(key);
+        if (!path) {
+          path = new Path2D();
+          currentPaths.set(key, path);
+        }
+        path.moveTo(samples[i - 1].x, samples[i - 1].z);
+        path.lineTo(s.x, s.z);
+      }
+      currentPathCount = Math.max(currentPathCount, layerLen);
+
+      if (projKey !== currentLayerKey || layerLen < appendedCount) {
         currentLayerKey = projKey;
         sizeLayer(currentLayer, canvas.width, canvas.height);
         currentLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         currentLayerCtx.clearRect(0, 0, width, height);
         appendedCount = 0;
       }
-      if (samples.length > appendedCount) {
+      if (layerLen < 2 || layerLen === appendedCount) return;
+      if (appendedCount === 0) {
+        const aff = affineOf(project);
+        for (const [key, path] of currentPaths)
+          strokeWorldPath(
+            currentLayerCtx,
+            path,
+            aff,
+            dpr,
+            bucketColor(key),
+            LINE_WIDTH,
+          );
+      } else {
+        // Tail append onto the already-stroked layer: a handful of segments.
         currentLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        drawPath(
-          currentLayerCtx,
-          samples,
-          project,
-          (s) => segmentColor(s.gas, s.brake),
-          LINE_WIDTH,
-          Math.max(1, appendedCount),
-        );
-        appendedCount = samples.length;
+        currentLayerCtx.lineWidth = LINE_WIDTH;
+        currentLayerCtx.lineCap = "round";
+        for (let i = appendedCount; i < layerLen; i++) {
+          if (samples[i].jump) continue;
+          const a = project(samples[i - 1]);
+          const b = project(samples[i]);
+          currentLayerCtx.strokeStyle = bucketColor(
+            bucketKey(samples[i].gas, samples[i].brake),
+          );
+          currentLayerCtx.beginPath();
+          currentLayerCtx.moveTo(a.px, a.py);
+          currentLayerCtx.lineTo(b.px, b.py);
+          currentLayerCtx.stroke();
+        }
       }
+      appendedCount = layerLen;
+    };
+
+    // The live tip of the current lap, drawn directly on the main canvas
+    // every repaint: the held-back samples, ending exactly at the dot. While
+    // following, the dot runs FOLLOW_DELAY_MS behind the raw stream, and
+    // without this clip the line pokes out ahead of it.
+    const drawCurrentTail = (project: Project) => {
+      const samples = currentRef.current;
+      const frame = telemetryRef.current;
+      if (!frame || samples.length === 0) return;
+      const tip = dotWorld(frame);
+      const from = Math.max(1, samples.length - TIP_HOLDBACK);
+      // Nearest held-back sample to the dot: segments beyond it are ahead of
+      // the dot and stay hidden (samples are ~1 m apart, so this is faithful).
+      let end = samples.length - 1;
+      let bestD = Infinity;
+      for (let i = from - 1; i < samples.length; i++) {
+        const d = (samples[i].x - tip.x) ** 2 + (samples[i].z - tip.z) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          end = i;
+        }
+      }
+      ctx.lineWidth = LINE_WIDTH;
+      ctx.lineCap = "round";
+      for (let i = from; i <= end; i++) {
+        if (samples[i].jump) continue;
+        const a = project(samples[i - 1]);
+        const b = project(samples[i]);
+        ctx.strokeStyle = bucketColor(
+          bucketKey(samples[i].gas, samples[i].brake),
+        );
+        ctx.beginPath();
+        ctx.moveTo(a.px, a.py);
+        ctx.lineTo(b.px, b.py);
+        ctx.stroke();
+      }
+      // Partial segment from the last on-line sample to the dot itself.
+      const a = project(samples[end]);
+      const b = project(tip);
+      ctx.strokeStyle = bucketColor(bucketKey(frame.gas, frame.brake));
+      ctx.beginPath();
+      ctx.moveTo(a.px, a.py);
+      ctx.lineTo(b.px, b.py);
+      ctx.stroke();
     };
 
     // Hover pick: the nearest stored lap line within HOVER_RADIUS of the
@@ -593,15 +801,24 @@ export const TrackMap = ({
       blitLayer(lapsLayer);
       renderCurrentLayer(project, projKey, width, height, dpr);
       blitLayer(currentLayer);
+      drawCurrentTail(project);
       if (hit.nearest >= 0) {
         // Emphasis keeps the lap's identity color: thicker + full opacity
         // (grey laps brighten to solid white) instead of a separate hue.
         const laps = previousLapsRef.current;
         const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
-        const { lap, samples } = laps[hit.nearest];
+        const entry = laps[hit.nearest];
         const color =
-          hit.nearest >= coloredFrom ? lapColor(lap) : HOVERED_GREY_LAP;
-        drawUniformPath(ctx, samples, project, color, LINE_WIDTH + 1);
+          hit.nearest >= coloredFrom ? lapColor(entry.lap) : HOVERED_GREY_LAP;
+        entry.path ??= buildLapPath(entry.samples);
+        strokeWorldPath(
+          ctx,
+          entry.path,
+          affineOf(project),
+          dpr,
+          color,
+          LINE_WIDTH + 1,
+        );
       }
       drawCutMarkers(project, hit.nearest);
       if (hit.nearest >= 0) drawHoverReadout(hit);
@@ -674,22 +891,159 @@ export const TrackMap = ({
     let firstDraw = true;
     // Fallback mode keeps repainting while the auto-fit viewport eases.
     let easing = false;
+    // Follow cam keeps repainting while its camera is unsettled ('following'
+    // mid-glide or 'exiting'); a settled camera over a stationary car writes
+    // no new zoom object and the map idles exactly as before.
+    let followAnimating = false;
+    let lastFollow: FollowState = followRef.current;
+    // Smoothed world position the follow cam tracks (and the dot renders at
+    // while following) — absorbs the uneven arrival of raw frames.
+    let followPos: { x: number; z: number } | null = null;
+    // Recent raw frames with arrival times, the interpolation source.
+    let trail: { x: number; z: number; at: number }[] = [];
+    let lastTrailFrame: TelemetryFrame | null = null;
 
+    // Ease zoomRef toward the follow target (car centered at a comfortable
+    // zoom) or back toward the fit view. Runs against the *base* projection
+    // of the active mode, before zoomed() reads zoomRef for the frame — the
+    // whole follow cam is just this mutation; every mode composes it for free.
+    const followCamera = (
+      base: Project,
+      width: number,
+      height: number,
+      dt: number,
+    ) => {
+      followAnimating = false;
+      const st = followRef.current;
+      if (st !== "following") {
+        // Stale buffer times would make a later re-entry interpolate across
+        // the idle gap; restart cleanly instead.
+        trail.length = 0;
+        lastTrailFrame = null;
+        followPos = null;
+        if (st !== "exiting") return;
+      }
+      const zm = zoomRef.current;
+      let target: Zoom;
+      if (st === "following") {
+        const frame = telemetryRef.current;
+        if (!frame) return;
+        // Record raw frame arrivals, then render FOLLOW_DELAY_MS in the past
+        // by interpolating between the two buffered frames straddling that
+        // instant. A teleport (restart, pit) restarts the buffer — snap.
+        if (frame !== lastTrailFrame) {
+          lastTrailFrame = frame;
+          const newest = trail[trail.length - 1];
+          if (
+            newest &&
+            Math.hypot(frame.x - newest.x, frame.z - newest.z) > ANCHOR_SNAP_M
+          )
+            trail.length = 0;
+          trail.push({ x: frame.x, z: frame.z, at: performance.now() });
+          if (trail.length > 32) trail.shift();
+        }
+        const wanted = performance.now() - FOLLOW_DELAY_MS;
+        let pos: { x: number; z: number } = trail[trail.length - 1];
+        if (wanted <= trail[0].at) {
+          pos = trail[0];
+        } else {
+          for (let i = 1; i < trail.length; i++) {
+            if (trail[i].at >= wanted) {
+              const a = trail[i - 1];
+              const b = trail[i];
+              const f = b.at === a.at ? 1 : (wanted - a.at) / (b.at - a.at);
+              pos = { x: a.x + (b.x - a.x) * f, z: a.z + (b.z - a.z) * f };
+              break;
+            }
+          }
+        }
+        // Keep animating while the delayed point is still traversing the
+        // buffer, so motion continues between (and after) frame arrivals.
+        if (
+          !followPos ||
+          Math.hypot(pos.x - followPos.x, pos.z - followPos.z) > 0.01
+        )
+          followAnimating = true;
+        followPos = pos;
+        const car = base(followPos);
+        // Base px-per-meter (uniform, unrotated projections) sizes the
+        // comfortable zoom as a fixed world window, not a fixed multiplier.
+        const unit = base({ x: followPos.x + 1, z: followPos.z });
+        const pxPerMeter = Math.hypot(unit.px - car.px, unit.py - car.py);
+        if (pxPerMeter <= 0) return;
+        const level = Math.min(
+          ZOOM_MAX,
+          Math.max(1, Math.min(width, height) / (FOLLOW_WINDOW_M * pxPerMeter)),
+        );
+        target = {
+          level,
+          ox: width / 2 - car.px * level,
+          oy: height / 2 - car.py * level,
+        };
+      } else {
+        target = ZOOM_RESET;
+      }
+      const blend = 1 - Math.exp(-dt / FOLLOW_TAU_S);
+      const level = zm.level + (target.level - zm.level) * blend;
+      const ox = zm.ox + (target.ox - zm.ox) * blend;
+      const oy = zm.oy + (target.oy - zm.oy) * blend;
+      // Asymptotic easing — snap inside a sub-pixel epsilon so it terminates.
+      const settled =
+        Math.abs(target.level - level) < 0.001 &&
+        Math.abs(target.ox - ox) < 0.5 &&
+        Math.abs(target.oy - oy) < 0.5;
+      if (settled) {
+        if (st === "exiting") {
+          zoomRef.current = ZOOM_RESET; // exact fit framing, as if never followed
+          setFollow("off");
+        } else if (
+          zm.level !== target.level ||
+          zm.ox !== target.ox ||
+          zm.oy !== target.oy
+        ) {
+          zoomRef.current = target;
+        }
+        return;
+      }
+      zoomRef.current = { level, ox, oy };
+      followAnimating = true;
+    };
+
+    // While following, the dot renders at the smoothed tracked point so it
+    // moves in lockstep with the camera instead of stepping with raw frames.
+    const dotWorld = (frame: TelemetryFrame): { x: number; z: number } =>
+      followRef.current === "following" && followPos
+        ? followPos
+        : { x: frame.x, z: frame.z };
+
+    let lastTickAt = performance.now();
     const draw = () => {
       rafId = requestAnimationFrame(draw);
+      // Wall-clock step for the time-based camera easing; capped so a
+      // background tab doesn't turn into one giant leap on return.
+      const tickAt = performance.now();
+      const dt = Math.min(0.1, (tickAt - lastTickAt) / 1000);
+      lastTickAt = tickAt;
       const dpr = window.devicePixelRatio || 1;
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       if (width === 0 || height === 0) return;
 
       const frame = telemetryRef.current;
+      if ((frame !== null) !== hasFrameRef.current) {
+        hasFrameRef.current = frame !== null;
+        setHasFrame(frame !== null);
+      }
       const mouse = mouseRef.current;
       const zoom = zoomRef.current;
       const cutList = cutsRef.current;
       const hoveredLap = hoveredLapRef.current;
+      const followState = followRef.current;
       const dirty =
         firstDraw ||
         easing ||
+        followAnimating ||
+        followState !== lastFollow ||
         frame !== lastFrame ||
         mouse !== lastMouse ||
         zoom !== lastZoom ||
@@ -701,6 +1055,7 @@ export const TrackMap = ({
         dpr !== lastDpr;
       if (!dirty) return;
       firstDraw = false;
+      lastFollow = followState;
       lastFrame = frame;
       lastMouse = mouse;
       lastZoom = zoom;
@@ -835,24 +1190,26 @@ export const TrackMap = ({
         const drawnH = meta.height * scale;
         const offsetX = (width - drawnW) / 2;
         const offsetY = (height - drawnH) / 2;
-        const zm = zoomRef.current;
 
         // World (x, z) -> map.ini pixel space -> normalized -> canvas.
-        const project: Project = zoomed((p) => ({
+        const base: Project = (p) => ({
           px:
             offsetX +
             ((p.x + meta.xOffset) / meta.scaleFactor / meta.width) * drawnW,
           py:
             offsetY +
             ((p.z + meta.zOffset) / meta.scaleFactor / meta.height) * drawnH,
-        }));
+        });
+        followCamera(base, width, height, dt);
+        const project: Project = zoomed(base);
+        const zm = zoomRef.current;
 
         // Everything the projection depends on — a change invalidates layers.
         const projKey = `m|${width}x${height}@${dpr}|${zm.level},${zm.ox},${zm.oy}`;
         renderTrackLayer(project, projKey, width, height, dpr);
         drawLaps(project, projKey, width, height, dpr);
         if (frame) {
-          const { px, py } = project({ x: frame.x, z: frame.z });
+          const { px, py } = project(dotWorld(frame));
           drawDot(px, py);
         }
         return;
@@ -867,16 +1224,18 @@ export const TrackMap = ({
           (height - PADDING * 2) / view.ez,
         );
         // Same handedness as the map.ini projection (world +Z down-screen).
-        const project: Project = zoomed((p) => ({
+        const base: Project = (p) => ({
           px: width / 2 + (p.x - view.cx) * scale,
           py: height / 2 + (p.z - view.cz) * scale,
-        }));
+        });
+        followCamera(base, width, height, dt);
+        const project: Project = zoomed(base);
         const zm = zoomRef.current;
         const projKey = `e|${width}x${height}@${dpr}|${zm.level},${zm.ox},${zm.oy}`;
         renderTrackLayer(project, projKey, width, height, dpr);
         drawLaps(project, projKey, width, height, dpr);
         if (frame) {
-          const { px, py } = project({ x: frame.x, z: frame.z });
+          const { px, py } = project(dotWorld(frame));
           drawDot(px, py);
         }
         return;
@@ -960,15 +1319,17 @@ export const TrackMap = ({
       // map.png projection, so turn direction is never mirrored between modes.
       // User zoom multiplies the eased auto-fit view; at 1× the automatic
       // camera behaves exactly as before.
-      const project: Project = zoomed((p) => ({
+      const base: Project = (p) => ({
         px: width / 2 + (p.x - view.cx) * scale,
         py: height / 2 + (p.z - view.cz) * scale,
-      }));
+      });
+      followCamera(base, width, height, dt);
+      const project: Project = zoomed(base);
 
       const zm = zoomRef.current;
       const projKey = `f|${width}x${height}@${dpr}|${zm.level},${zm.ox},${zm.oy}|${view.cx},${view.cz},${view.ex},${view.ez}`;
       drawLaps(project, projKey, width, height, dpr);
-      const { px, py } = project({ x: frame.x, z: frame.z });
+      const { px, py } = project(dotWorld(frame));
       drawDot(px, py);
     };
 
@@ -982,6 +1343,11 @@ export const TrackMap = ({
     // so the game keeps receiving controller input while the map is used.
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      // Any wheel input interrupts the follow cam in place: manual zoom
+      // seeds from the current follow transform (zoomRef already holds it)
+      // and the exit button stays available for the animated return.
+      const st = followRef.current;
+      if (st === "following" || st === "exiting") setFollow("detached");
       const zm = zoomRef.current;
       const level = Math.min(
         ZOOM_MAX,
@@ -989,8 +1355,10 @@ export const TrackMap = ({
       );
       if (level === zm.level) return;
       if (level === 1) {
-        // Fully out = exact fit framing again; any accumulated focus is discarded.
+        // Fully out = exact fit framing again; any accumulated focus is
+        // discarded and a detached follow is dismissed with it.
         zoomRef.current = ZOOM_RESET;
+        if (followRef.current === "detached") setFollow("off");
         return;
       }
       // Anchor the world point under the cursor: base = (m - o) / level must
@@ -1068,6 +1436,30 @@ export const TrackMap = ({
             </span>
           ))}
         </div>
+      )}
+      {/* Follow-cam control: hover-armed (3 s dwell), never clicked — a click
+          would focus the browser and steal controller input from the game.
+          One persistent element swaps between the two roles so the button
+          replacement under a parked cursor never fires boundary events. */}
+      {(followUi === "off" ? hasFrame : followUi !== "exiting") && (
+        <button
+          type="button"
+          onMouseEnter={() =>
+            startDwell(followUi === "off" ? "following" : "exiting")
+          }
+          onMouseLeave={leaveDwell}
+          title="Rest the cursor here for 3 seconds — no click needed"
+          className="absolute bottom-3 left-4 overflow-hidden rounded border border-edge bg-surface px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink-secondary"
+        >
+          {followUi === "off" ? "Follow car" : "Exit follow"}
+          <span
+            className={`absolute inset-x-0 bottom-0 h-0.5 bg-accent ${
+              dwelling
+                ? "w-full transition-[width] duration-[3000ms] ease-linear"
+                : "w-0"
+            }`}
+          />
+        </button>
       )}
       <canvas ref={canvasRef} className="size-full" />
     </section>
