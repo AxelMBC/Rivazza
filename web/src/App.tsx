@@ -1,35 +1,42 @@
-import { useRef } from 'react';
-import { useTelemetry } from './hooks/useTelemetry';
-import { useInputHistory } from './hooks/useInputHistory';
-import { useLapDelta } from './hooks/useLapDelta';
-import { useLapHistory } from './hooks/useLapHistory';
-import { SessionHeader } from './components/SessionHeader';
-import { LapTimes } from './components/LapTimes';
-import { InstrumentCluster } from './components/InstrumentCluster';
-import { PedalTrace } from './components/PedalTrace';
-import { GForceMeter } from './components/GForceMeter';
-import { SteeringBar } from './components/SteeringBar';
-import { TrackMap } from './components/TrackMap';
-import type { ConnectionStatus } from './types';
+import { useRef } from "react";
+import { useTelemetry } from "./hooks/useTelemetry";
+import { useInputHistory } from "./hooks/useInputHistory";
+import { useLapDelta } from "./hooks/useLapDelta";
+import { useLapHistory } from "./hooks/useLapHistory";
+import { SessionHeader } from "./components/SessionHeader";
+import { LapTimes } from "./components/LapTimes";
+import { InstrumentCluster } from "./components/InstrumentCluster";
+import { PedalTrace } from "./components/PedalTrace";
+import { GForceMeter } from "./components/GForceMeter";
+import { SteeringBar } from "./components/SteeringBar";
+import { TrackMap } from "./components/TrackMap";
+import type { ConnectionStatus } from "./types";
 
 const WaitingScreen = ({ status }: { status: ConnectionStatus }) => (
   <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
     <p className="text-2xl font-semibold text-ink-secondary">
-      {status === 'connecting' ? 'Connecting to telemetry bridge…' : 'Waiting for Assetto Corsa'}
+      {status === "connecting"
+        ? "Connecting to telemetry bridge…"
+        : "Waiting for Assetto Corsa"}
     </p>
     <p className="max-w-md text-sm text-ink-muted">
-      {status === 'connecting'
-        ? 'Make sure the bridge is running (npm run dev starts it alongside this app).'
-        : 'Start Assetto Corsa and enter a session — the dashboard will light up automatically.'}
+      {status === "connecting"
+        ? "Make sure the bridge is running (npm run dev starts it alongside this app)."
+        : "Start Assetto Corsa and enter a session — the dashboard will light up automatically."}
     </p>
   </div>
 );
 
 const App = () => {
-  const { status, session, telemetry, telemetryRef, cutsRef, cutSeq } = useTelemetry();
+  const { status, session, telemetry, telemetryRef, cutsRef, cutSeq } =
+    useTelemetry();
   const historyRef = useInputHistory(telemetry);
   const deltaMs = useLapDelta(telemetry);
-  const { lapsRef: lapHistoryRef, currentLapInvalidRef } = useLapHistory(telemetry, cutsRef, cutSeq);
+  const { lapsRef: lapHistoryRef, currentLapInvalidRef } = useLapHistory(
+    telemetry,
+    cutsRef,
+    cutSeq,
+  );
   // Display lap number hovered in the session-lap list; the track map reveals
   // that lap's cut markers. A ref, not state — the map's rAF loop reads it.
   const hoveredLapRef = useRef<number | null>(null);
@@ -38,7 +45,7 @@ const App = () => {
     <div className="flex h-full flex-col overflow-hidden">
       <SessionHeader session={session} status={status} />
       {session ? (
-        <main className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[24rem_1fr]">
+        <main className="grid min-h-0 flex-1 grid-rows-[35fr_65fr] gap-4 p-4 lg:grid-cols-[24rem_1fr] lg:grid-rows-none">
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
             <InstrumentCluster telemetry={telemetry} session={session} />
             <LapTimes
