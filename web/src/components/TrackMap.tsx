@@ -12,6 +12,7 @@ import { COLORED_LAPS, lapColor } from "../lib/lapColors";
 import type { ScrubPoint } from "../lib/lapAnalysis";
 import { BRIDGE_HTTP } from "../hooks/useTelemetry";
 import { IS_DEMO, DEMO_MAP_URL } from "../lib/demo";
+import { TAP_SLOP_PX, SYNTHETIC_MOUSE_WINDOW_MS } from "../lib/touch";
 
 type Props = {
   session: SessionInfo;
@@ -97,6 +98,9 @@ const FIRST_LAP_EXTENT = 1500;
 const ZOOM_MAX = 40;
 const ZOOM_STEP = 1.2;
 const ZOOM_RESET: Zoom = { level: 1, ox: 0, oy: 0 };
+// A pinch ending this close to 1× snaps to the exact fit framing — the touch
+// counterpart of the wheel path's exact-1 reset (fingers can't land on 1.0).
+const ZOOM_SNAP_LEVEL = 1.02;
 
 // Follow cam: hover-dwell armed (never a click — clicks would focus the
 // browser and steal controller input from the game). 'following' tracks the
@@ -274,6 +278,10 @@ export const TrackMap = ({
   // toggling forever. The cursor must leave the button once to re-arm.
   const dwellTimerRef = useRef<number | null>(null);
   const armReadyRef = useRef(true);
+  // When a tap last toggled follow mode: the browser fires compatibility
+  // mouse events after a tap, and the swapped-in opposite button would catch
+  // that mouseenter and start a phantom dwell without this window.
+  const touchToggleAtRef = useRef(-SYNTHETIC_MOUSE_WINDOW_MS);
   const [dwelling, setDwelling] = useState(false);
   const cancelDwell = () => {
     if (dwellTimerRef.current !== null) {
@@ -283,6 +291,11 @@ export const TrackMap = ({
     setDwelling(false);
   };
   const startDwell = (next: FollowState) => {
+    if (
+      performance.now() - touchToggleAtRef.current <
+      SYNTHETIC_MOUSE_WINDOW_MS
+    )
+      return;
     if (!armReadyRef.current) return;
     cancelDwell();
     setDwelling(true);
@@ -298,6 +311,21 @@ export const TrackMap = ({
   const leaveDwell = () => {
     armReadyRef.current = true;
     cancelDwell();
+  };
+  // Touch path: a tap toggles instantly — the dwell only exists to keep
+  // desktop interaction click-free, and a tap on a separate touch device
+  // steals nothing from the game. Bypasses the re-arm guard (that protects
+  // against the button swap under a parked cursor, which touch has none of).
+  const onFollowTap = (e: React.PointerEvent) => {
+    if (e.pointerType !== "touch") return;
+    touchToggleAtRef.current = performance.now();
+    leaveDwell();
+    const st = followRef.current;
+    if (st === "off") {
+      if (telemetryRef.current) setFollow("following");
+    } else if (st !== "exiting") {
+      setFollow("exiting");
+    }
   };
   // Follow button only renders while there is a car to follow; flipped from
   // the draw loop (telemetryRef nulls out when the bridge loses the game).
@@ -1534,9 +1562,141 @@ export const TrackMap = ({
         oy: e.offsetY - (e.offsetY - zm.oy) * r,
       };
     };
+    // Touch gestures (the desktop mouse/wheel path above is untouched): two
+    // fingers pinch-zoom anchored at the midpoint, one finger pans while
+    // zoomed, and a contact that never leaves the tap slop is a tap driving
+    // the same mouseRef hover pick as a parked cursor. Everything writes the
+    // same fresh Zoom objects the wheel writes, so the dirty-gated rAF loop
+    // repaints exactly when a gesture actually changed something.
+    let tapStart: { x: number; y: number } | null = null;
+    let touchMoved = false; // gesture left the tap slop (pan/pinch happened)
+    let lastSingle: { x: number; y: number } | null = null;
+    let lastPinch: { dist: number; mx: number; my: number } | null = null;
+
+    const touchPoint = (t: Touch) => {
+      const rect = canvas.getBoundingClientRect();
+      return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+    };
+    // Pinch or pan during follow hands the view to manual zoom in place,
+    // exactly like wheel input (zoomRef already holds the follow transform).
+    const detachFollow = () => {
+      const st = followRef.current;
+      if (st === "following" || st === "exiting") setFollow("detached");
+    };
+    // Fingers lifted or added mid-gesture: re-seed so deltas never span the
+    // finger-count change.
+    const seedTouches = (touches: TouchList) => {
+      lastSingle = touches.length === 1 ? touchPoint(touches[0]) : null;
+      if (touches.length === 2) {
+        const a = touchPoint(touches[0]);
+        const b = touchPoint(touches[1]);
+        lastPinch = {
+          dist: Math.hypot(b.x - a.x, b.y - a.y),
+          mx: (a.x + b.x) / 2,
+          my: (a.y + b.y) / 2,
+        };
+      } else {
+        lastPinch = null;
+      }
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault(); // no page scroll/zoom, no compatibility mouse events
+      if (e.touches.length === 1) {
+        tapStart = touchPoint(e.touches[0]);
+        touchMoved = false;
+      } else {
+        // Multi-finger is never a tap; a lingering readout leaves with it.
+        tapStart = null;
+        mouseRef.current = null;
+      }
+      seedTouches(e.touches);
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      if (e.touches.length === 2 && lastPinch) {
+        const a = touchPoint(e.touches[0]);
+        const b = touchPoint(e.touches[1]);
+        const prev = lastPinch;
+        lastPinch = {
+          dist: Math.hypot(b.x - a.x, b.y - a.y),
+          mx: (a.x + b.x) / 2,
+          my: (a.y + b.y) / 2,
+        };
+        if (prev.dist <= 0 || lastPinch.dist <= 0) return;
+        touchMoved = true;
+        detachFollow();
+        const zm = zoomRef.current;
+        const level = Math.min(
+          ZOOM_MAX,
+          Math.max(1, zm.level * (lastPinch.dist / prev.dist)),
+        );
+        if (level === 1) {
+          // Fully out = exact fit framing, same rule as the wheel path.
+          zoomRef.current = ZOOM_RESET;
+          if (followRef.current === "detached") setFollow("off");
+          return;
+        }
+        // Anchor the world point under the pinch midpoint (the wheel formula
+        // with the midpoint as the cursor), then pan by the midpoint's motion.
+        const r = level / zm.level;
+        zoomRef.current = {
+          level,
+          ox: prev.mx - (prev.mx - zm.ox) * r + (lastPinch.mx - prev.mx),
+          oy: prev.my - (prev.my - zm.oy) * r + (lastPinch.my - prev.my),
+        };
+        return;
+      }
+      if (e.touches.length === 1 && lastSingle) {
+        const p = touchPoint(e.touches[0]);
+        const prev = lastSingle;
+        lastSingle = p;
+        if (
+          tapStart &&
+          Math.hypot(p.x - tapStart.x, p.y - tapStart.y) > TAP_SLOP_PX
+        ) {
+          tapStart = null;
+          touchMoved = true;
+        }
+        if (!touchMoved) return; // still within the tap slop — don't jitter
+        const zm = zoomRef.current;
+        if (zm.level <= 1) return; // the fit view has nowhere to pan
+        detachFollow();
+        zoomRef.current = {
+          level: zm.level,
+          ox: zm.ox + (p.x - prev.x),
+          oy: zm.oy + (p.y - prev.y),
+        };
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+      seedTouches(e.touches);
+      if (e.touches.length > 0) return;
+      if (tapStart && !touchMoved) {
+        // A clean tap: park the "cursor" there — the ordinary hit test shows
+        // the readout on a line and clears it on empty track.
+        mouseRef.current = { x: tapStart.x, y: tapStart.y };
+      } else if (touchMoved) {
+        const zm = zoomRef.current;
+        if (zm.level !== 1 && zm.level < ZOOM_SNAP_LEVEL) {
+          zoomRef.current = ZOOM_RESET;
+          if (followRef.current === "detached") setFollow("off");
+        }
+      }
+      tapStart = null;
+      touchMoved = false;
+    };
+
     canvas.addEventListener("mousemove", onMouseMove);
     canvas.addEventListener("mouseleave", onMouseLeave);
     canvas.addEventListener("wheel", onWheel, { passive: false });
+    canvas.addEventListener("touchstart", onTouchStart, { passive: false });
+    canvas.addEventListener("touchmove", onTouchMove, { passive: false });
+    canvas.addEventListener("touchend", onTouchEnd, { passive: false });
+    canvas.addEventListener("touchcancel", onTouchEnd, { passive: false });
 
     rafId = requestAnimationFrame(draw);
     return () => {
@@ -1544,6 +1704,10 @@ export const TrackMap = ({
       canvas.removeEventListener("mousemove", onMouseMove);
       canvas.removeEventListener("mouseleave", onMouseLeave);
       canvas.removeEventListener("wheel", onWheel);
+      canvas.removeEventListener("touchstart", onTouchStart);
+      canvas.removeEventListener("touchmove", onTouchMove);
+      canvas.removeEventListener("touchend", onTouchEnd);
+      canvas.removeEventListener("touchcancel", onTouchEnd);
     };
   }, [mapData, telemetryRef, lapsRef, cutsRef, hoveredLapRef, scrubRef, analysisLapRef]);
 
@@ -1612,6 +1776,11 @@ export const TrackMap = ({
             startDwell(followUi === "off" ? "following" : "exiting")
           }
           onMouseLeave={leaveDwell}
+          onPointerDown={(e) => {
+            // Suppress the compatibility mouse events a tap would synthesize.
+            if (e.pointerType === "touch") e.preventDefault();
+          }}
+          onPointerUp={onFollowTap}
           title="Rest the cursor here for 3 seconds — no click needed"
           className="absolute bottom-3 left-4 overflow-hidden rounded border border-edge bg-surface px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink-secondary"
         >
@@ -1625,7 +1794,7 @@ export const TrackMap = ({
           />
         </button>
       )}
-      <canvas ref={canvasRef} className="size-full" />
+      <canvas ref={canvasRef} className="size-full touch-none" />
     </section>
   );
 };

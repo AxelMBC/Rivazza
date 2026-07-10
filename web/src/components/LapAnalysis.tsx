@@ -56,10 +56,12 @@ const layoutStrips = (height: number): { speed: Strip; pedals: Strip; delta: Str
 // selected lap over the session reference, on a shared normalized-position
 // x-axis. Collapsed to a slim bar by default so the track map keeps the
 // screen; hovering the bar pops the panel out over the map (the Lap tile's
-// session-list pattern). Everything is hover-driven — hovering a lap chip
-// selects it (and the selection sticks when the pointer leaves), hovering the
-// strips scrubs a synced cursor — because clicks would focus the browser and
-// steal controller input from the game.
+// session-list pattern). Everything is hover-driven on desktop — hovering a
+// lap chip selects it (and the selection sticks when the pointer leaves),
+// hovering the strips scrubs a synced cursor — because clicks would focus the
+// browser and steal controller input from the game. On touch the same `open`
+// state is toggled by tapping the bar, chips select by tap, and a finger drag
+// scrubs the strips (touch steals nothing from the game).
 export const LapAnalysis = ({
   recordingsRef,
   version,
@@ -405,27 +407,44 @@ export const LapAnalysis = ({
       drawScrubOverlay(width, height);
     };
 
-    const onMouseMove = (e: MouseEvent) => {
+    const scrubAt = (offsetX: number) => {
       const width = canvas.clientWidth;
       if (width <= PAD_X * 2) return;
-      const pos = Math.min(1, Math.max(0, (e.offsetX - PAD_X) / (width - PAD_X * 2)));
+      const pos = Math.min(1, Math.max(0, (offsetX - PAD_X) / (width - PAD_X * 2)));
       mousePos = pos;
       const sel = selectedRef.current;
       const point = sel ? worldPointAt(sel.samples, pos) : null;
       scrubRef.current = sel && point ? { ...point, color: lapColor(sel.lap) } : null;
     };
-    const onMouseLeave = () => {
+    const clearScrub = () => {
       mousePos = null;
       scrubRef.current = null;
     };
+    const onMouseMove = (e: MouseEvent) => scrubAt(e.offsetX);
+    // Touch scrub: a finger drag moves the cursor exactly like mouse motion
+    // (preventDefault keeps the page from scrolling), lifting it clears like
+    // the mouse leaving.
+    const onTouchScrub = (e: TouchEvent) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      scrubAt(e.touches[0].clientX - rect.left);
+    };
     canvas.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('mouseleave', onMouseLeave);
+    canvas.addEventListener('mouseleave', clearScrub);
+    canvas.addEventListener('touchstart', onTouchScrub, { passive: false });
+    canvas.addEventListener('touchmove', onTouchScrub, { passive: false });
+    canvas.addEventListener('touchend', clearScrub);
+    canvas.addEventListener('touchcancel', clearScrub);
 
     rafId = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(rafId);
       canvas.removeEventListener('mousemove', onMouseMove);
-      canvas.removeEventListener('mouseleave', onMouseLeave);
+      canvas.removeEventListener('mouseleave', clearScrub);
+      canvas.removeEventListener('touchstart', onTouchScrub);
+      canvas.removeEventListener('touchmove', onTouchScrub);
+      canvas.removeEventListener('touchend', clearScrub);
+      canvas.removeEventListener('touchcancel', clearScrub);
       scrubRef.current = null;
     };
   }, [scrubRef]);
@@ -452,15 +471,25 @@ export const LapAnalysis = ({
   return (
     <div
       className="group relative shrink-0"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onPointerEnter={(e) => {
+        if (e.pointerType === 'mouse') setOpen(true);
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === 'mouse') setOpen(false);
+      }}
     >
       {/* Hover-revealed overlay floating above the bar (the Lap tile's
           session-list pattern): the map keeps its full height and the panel
           only occupies the screen while the pointer is inside the group.
           pb-2 bridges the gap so the cursor can travel bar → panel without
-          closing it — no clicks anywhere. */}
-      <div className="pointer-events-none absolute bottom-full left-0 z-10 w-full pb-2 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100">
+          closing it — no clicks anywhere on desktop. On touch, `open` is
+          toggled by tapping the bar (Tailwind v4 scopes group-hover to
+          hover-capable devices, so emulated hover never fights the state). */}
+      <div
+        className={`absolute bottom-full left-0 z-10 w-full pb-2 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 ${
+          open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+      >
         <section className="flex flex-col gap-3 rounded-lg border border-edge bg-page/95 p-4 shadow-xl backdrop-blur">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <p className="text-xs tracking-wide text-ink-muted uppercase">
@@ -499,10 +528,14 @@ export const LapAnalysis = ({
             const isSelected = selected === rec;
             return (
               // Hover selects (and sticks) — never a click, so the game keeps
-              // controller input while the browser stays unfocused.
+              // controller input while the browser stays unfocused. Touch
+              // selects by tap instead.
               <span
                 key={rec.lap}
                 onMouseEnter={() => setSelectedLap(rec.lap)}
+                onPointerUp={(e) => {
+                  if (e.pointerType === 'touch') setSelectedLap(rec.lap);
+                }}
                 className={`flex shrink-0 cursor-default items-center gap-1.5 rounded border px-2 py-0.5 text-xs transition-colors ${
                   isSelected ? 'border-accent/70 bg-page' : 'border-edge hover:border-accent/40'
                 }`}
@@ -530,7 +563,7 @@ export const LapAnalysis = ({
       )}
 
       <div className="relative h-36 lg:h-44">
-        <canvas ref={canvasRef} className="size-full" />
+        <canvas ref={canvasRef} className="size-full touch-none" />
         {!selected && (
           <p className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-ink-muted">
             Complete a valid lap to unlock analysis — speed, pedal and delta traces appear here
@@ -553,8 +586,13 @@ export const LapAnalysis = ({
         </section>
       </div>
 
-      {/* The always-visible collapsed bar. */}
-      <div className="flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60">
+      {/* The always-visible collapsed bar; a tap toggles the panel on touch. */}
+      <div
+        className="flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60"
+        onPointerUp={(e) => {
+          if (e.pointerType === 'touch') setOpen((o) => !o);
+        }}
+      >
         <span className="text-xs tracking-wide text-ink-muted uppercase">Lap analysis</span>
         <span className="text-xs text-ink-muted tabular-nums">
           {reviewableLaps.length === 0

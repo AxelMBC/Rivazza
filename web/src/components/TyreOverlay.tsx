@@ -18,10 +18,22 @@ const slipClass = (slip: number): string => {
 
 // Hover-revealed per-wheel detail layer for the instrument cluster. It is
 // pointer-events-none so it never affects hit-testing — the parent section's
-// group-hover drives visibility, keeping the reveal click/focus-free (a
-// click would steal input focus from the game).
-export const TyreOverlay = ({ telemetry }: { telemetry: TelemetryFrame | null }) => (
-  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-page/85 opacity-0 backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100">
+// group-hover drives visibility on desktop, keeping the reveal click/focus-
+// free (a click would steal input focus from the game). On touch the parent's
+// tap toggle drives `open` instead; staying pointer-events-none means the
+// dismissing tap lands on the parent section too.
+export const TyreOverlay = ({
+  telemetry,
+  open,
+}: {
+  telemetry: TelemetryFrame | null;
+  open: boolean;
+}) => (
+  <div
+    className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-page/85 backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100 ${
+      open ? 'opacity-100' : 'opacity-0'
+    }`}
+  >
     <div>
       <p className="mb-2 text-center text-xs tracking-wide text-ink-muted uppercase">
         Tyres · slip / load
