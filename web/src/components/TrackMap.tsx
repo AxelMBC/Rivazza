@@ -7,7 +7,9 @@ import type {
   TrackEdges,
 } from "../types";
 import type { LapRecord } from "../hooks/useLapHistory";
-import { formatLapTime } from "../lib/format";
+import { formatGearCompact, formatLapTime } from "../lib/format";
+import { COLORED_LAPS, lapColor } from "../lib/lapColors";
+import type { ScrubPoint } from "../lib/lapAnalysis";
 import { BRIDGE_HTTP } from "../hooks/useTelemetry";
 import { IS_DEMO, DEMO_MAP_URL } from "../lib/demo";
 
@@ -19,6 +21,12 @@ type Props = {
   // Display lap number hovered in the session-lap list (LapTimes writes it);
   // that lap's cut markers reveal while set.
   hoveredLapRef: React.RefObject<number | null>;
+  // Scrub position from the analysis panel (LapAnalysis writes it); a ring
+  // marks that point on the map while set.
+  scrubRef: React.RefObject<ScrubPoint | null>;
+  // Lap selected in the open analysis panel (LapAnalysis writes it); that
+  // lap's braking ticks reveal while set.
+  analysisLapRef: React.RefObject<number | null>;
 };
 
 // map.ini metadata fixes the viewport and projection; edges are the track
@@ -28,17 +36,21 @@ type Props = {
 // and the driven lines are the track. Null only when neither asset exists.
 type MapData = { meta: MapMeta | null; edges: TrackEdges | null };
 // `jump` marks a teleport (pits, restart) — no segment is drawn into it.
-// `speedKmh` is the raw frame speed, kept for the hover speed readout.
+// `speedKmh`, `gear`, and the pedals feed the hover readout.
 type Sample = {
   x: number;
   z: number;
   gas: number;
   brake: number;
   speedKmh: number;
+  gear: number;
   jump: boolean;
 };
 // Where a lap died: the world position of one 4-tyres-out onset.
 type CutMarker = { x: number; z: number };
+// Where a lap began braking: onset world position plus the unit travel
+// direction at that sample, so the tick renders perpendicular to the line.
+type BrakeTick = { x: number; z: number; dx: number; dz: number };
 type View = { cx: number; cz: number; ex: number; ez: number };
 // Screen-space zoom layered over the base fit projection: zoomed = base * level + (ox, oy).
 type Zoom = { level: number; ox: number; oy: number };
@@ -63,6 +75,16 @@ const LINE_WIDTH = 3;
 const CUT_ARM = 5;
 const CUT_WIDTH = 2.5;
 const CUT_HALO_WIDTH = 5;
+// Braking-onset ticks: rising through BRAKE_ON marks a point, and the next
+// one first needs BRAKE_REARM_M meters of travel below BRAKE_OFF —
+// hysteresis plus a distance gate so trail-brake flutter doesn't spawn a
+// marker trail. Tick geometry is screen-px, zoom-invariant like the cuts.
+const BRAKE_ON = 0.2;
+const BRAKE_OFF = 0.1;
+const BRAKE_REARM_M = 25;
+const BRAKE_TICK_LEN = 10;
+const BRAKE_TICK_WIDTH = 2.5;
+const BRAKE_TICK_HALO = 5;
 const VIEW_MARGIN = 0.15; // extra space around the driven bounds (fallback mode)
 const VIEW_EASE = 0.06; // per-frame easing toward the target view (fallback mode)
 // Until a full lap exists the track's real size is unknown — assume at least
@@ -113,13 +135,6 @@ const PREVIOUS_LAP = "rgba(255, 255, 255, 0.45)";
 const HOVERED_GREY_LAP = "#ffffff"; // uncolored laps brighten to solid white on hover
 const INVALID_TIME = "#f0554b"; // theme critical, brightened for the small canvas label
 
-// Identity colors for the most recent completed laps, assigned by lap % size
-// so a lap keeps its color all session. Hues deliberately avoid the green /
-// red / yellow reserved for the current lap's pedal gradient.
-const LAP_PALETTE = ["#3f8efc", "#a06bf5", "#2fd0e0", "#f25fd0", "#8f9dff"];
-const COLORED_LAPS = LAP_PALETTE.length;
-const lapColor = (lap: number): string => LAP_PALETTE[lap % LAP_PALETTE.length];
-
 // Pedal-state colors: coast (yellow) blends toward throttle (green) or
 // brake (red) with pedal magnitude, so partial inputs read as softer tones.
 const COAST: [number, number, number] = [250, 178, 25];
@@ -156,6 +171,39 @@ const bucketColor = (key: number): string => {
   return `rgb(${COAST[0]}, ${COAST[1]}, ${COAST[2]})`;
 };
 
+// Braking onsets for a completed lap, computed once at lap completion and
+// cached with the stored entry. `clearDist` (meters traveled with the pedal
+// below BRAKE_OFF) starts unbounded so the first application always marks;
+// partial pressure between the thresholds resets the gate without marking.
+const computeBrakeTicks = (samples: Sample[]): BrakeTick[] => {
+  const ticks: BrakeTick[] = [];
+  let clearDist = Infinity;
+  for (let i = 1; i < samples.length; i++) {
+    const s = samples[i];
+    const prev = samples[i - 1];
+    if (s.jump) {
+      // A teleport isn't clean travel — require a fresh rearm after it.
+      clearDist = 0;
+      continue;
+    }
+    const step = Math.hypot(s.x - prev.x, s.z - prev.z);
+    if (s.brake < BRAKE_OFF) {
+      clearDist += step;
+      continue;
+    }
+    if (s.brake >= BRAKE_ON && clearDist >= BRAKE_REARM_M && step > 0) {
+      ticks.push({
+        x: s.x,
+        z: s.z,
+        dx: (s.x - prev.x) / step,
+        dz: (s.z - prev.z) / step,
+      });
+    }
+    clearDist = 0;
+  }
+  return ticks;
+};
+
 const freshBounds = () => ({
   minX: Infinity,
   maxX: -Infinity,
@@ -169,6 +217,8 @@ export const TrackMap = ({
   lapsRef,
   cutsRef,
   hoveredLapRef,
+  scrubRef,
+  analysisLapRef,
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [mapData, setMapData] = useState<MapData | null>(null);
@@ -179,7 +229,13 @@ export const TrackMap = ({
   // `path` is a lazily built world-space Path2D of the lap line — projection
   // independent, so it survives zoom, camera motion, and effect re-creation.
   const previousLapsRef = useRef<
-    { lap: number; samples: Sample[]; cuts: CutMarker[]; path?: Path2D }[]
+    {
+      lap: number;
+      samples: Sample[];
+      cuts: CutMarker[];
+      brakes: BrakeTick[];
+      path?: Path2D;
+    }[]
   >([]);
   // Cut markers for the in-progress lap; completed laps carry theirs in
   // previousLapsRef. The session cut list is consumed incrementally and the
@@ -686,7 +742,14 @@ export const TrackMap = ({
     // so the rows naturally narrow to the lines the cursor is actually near.
     // Samples are ~1 m apart so point distance is a faithful line distance;
     // stepping by 3 keeps the scan cheap even with a full session of laps.
-    type HoverRow = { lap: number; color: string; speedKmh: number };
+    type HoverRow = {
+      lap: number;
+      color: string;
+      speedKmh: number;
+      gas: number;
+      brake: number;
+      gear: number;
+    };
     type HitResult = { nearest: number; rows: HoverRow[] };
 
     const hitTestLaps = (project: Project): HitResult => {
@@ -699,33 +762,52 @@ export const TrackMap = ({
       const rows: HoverRow[] = [];
       laps.forEach(({ lap, samples }, index) => {
         let bestD = HOVER_RADIUS_SQ;
-        let bestSpeed = 0;
+        let bestIdx = -1;
         for (let i = 0; i < samples.length; i += 3) {
           const { px, py } = project(samples[i]);
           const d = (px - m.x) ** 2 + (py - m.y) ** 2;
           if (d < bestD) {
             bestD = d;
-            bestSpeed = samples[i].speedKmh;
+            bestIdx = i;
           }
         }
-        if (bestD >= HOVER_RADIUS_SQ) return;
+        if (bestD >= HOVER_RADIUS_SQ || bestIdx < 0) return;
         if (bestD < nearestD) {
           nearestD = bestD;
           nearest = index;
         }
-        if (index >= coloredFrom)
-          rows.push({ lap, color: lapColor(lap), speedKmh: bestSpeed });
+        if (index >= coloredFrom) {
+          const s = samples[bestIdx];
+          rows.push({
+            lap,
+            color: lapColor(lap),
+            speedKmh: s.speedKmh,
+            gas: s.gas,
+            brake: s.brake,
+            gear: s.gear,
+          });
+        }
       });
       rows.reverse(); // laps store oldest-first; the readout lists newest first
       return { nearest, rows };
     };
 
-    // Hover readout: one row per in-radius colored lap ("Lap N · 143 km/h" in
-    // the lap's color), with the nearest lap overall also carrying its
-    // recorded time (red when invalid; number-only when unrecorded, e.g. laps
-    // driven before the page connected). A nearest lap outside the colored
-    // set keeps the classic white "Lap N — time" row on top.
+    // Hover readout: one row per in-radius colored lap ("Lap N · 143 km/h ·
+    // G3 · THR 80%" in the lap's color, the pedal state tinted by the same
+    // coast→throttle/brake ramp as the line itself), with the nearest lap
+    // overall also carrying its recorded time (red when invalid; number-only
+    // when unrecorded, e.g. laps driven before the page connected). A nearest
+    // lap outside the colored set keeps the classic white "Lap N — time" row.
     type Seg = { text: string; color: string };
+
+    const pedalSeg = (gas: number, brake: number): Seg => {
+      const color = bucketColor(bucketKey(gas, brake));
+      if (brake > DEAD_ZONE && brake >= gas)
+        return { text: ` · BRK ${Math.round(brake * 100)}%`, color };
+      if (gas > DEAD_ZONE)
+        return { text: ` · THR ${Math.round(gas * 100)}%`, color };
+      return { text: " · coast", color };
+    };
 
     const drawHoverReadout = ({ nearest, rows }: HitResult) => {
       const m = mouseRef.current;
@@ -744,7 +826,11 @@ export const TrackMap = ({
       const lines: Seg[][] = rows.map((row) => [
         { text: `Lap ${row.lap}`, color: row.color },
         ...(row.lap === nearestLap ? timeSegs(row.lap) : []),
-        { text: ` · ${Math.round(row.speedKmh)} km/h`, color: row.color },
+        {
+          text: ` · ${Math.round(row.speedKmh)} km/h · ${formatGearCompact(row.gear)}`,
+          color: row.color,
+        },
+        pedalSeg(row.gas, row.brake),
       ]);
       if (!rows.some((row) => row.lap === nearestLap)) {
         lines.unshift([
@@ -795,21 +881,33 @@ export const TrackMap = ({
     ) => {
       const hit = hitTestLaps(project);
       setCursor(hit.nearest >= 0 ? "pointer" : "default");
+      // The focused lap: cursor on its line, else its row hovered in the
+      // session-lap list, else the open analysis panel's selection. Whatever
+      // focused it, the treatment is identical — the line leaves the cached
+      // layer and redraws ON TOP with the emphasis stroke (a lap being
+      // inspected must never sit buried under later laps), and its brake
+      // ticks and cut markers reveal.
+      const laps = previousLapsRef.current;
+      let focus = hit.nearest;
+      if (focus < 0) {
+        const externalLap = hoveredLapRef.current ?? analysisLapRef.current;
+        if (externalLap !== null)
+          focus = laps.findIndex((l) => l.lap === externalLap);
+      }
       // Draw order matches the pre-layer renderer exactly: previous laps
-      // (minus hovered) → current lap → hovered emphasis → readout.
-      renderLapsLayer(project, projKey, hit.nearest, width, height, dpr);
+      // (minus focused) → current lap → focused emphasis → markers → readout.
+      renderLapsLayer(project, projKey, focus, width, height, dpr);
       blitLayer(lapsLayer);
       renderCurrentLayer(project, projKey, width, height, dpr);
       blitLayer(currentLayer);
       drawCurrentTail(project);
-      if (hit.nearest >= 0) {
+      if (focus >= 0) {
         // Emphasis keeps the lap's identity color: thicker + full opacity
         // (grey laps brighten to solid white) instead of a separate hue.
-        const laps = previousLapsRef.current;
         const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
-        const entry = laps[hit.nearest];
+        const entry = laps[focus];
         const color =
-          hit.nearest >= coloredFrom ? lapColor(entry.lap) : HOVERED_GREY_LAP;
+          focus >= coloredFrom ? lapColor(entry.lap) : HOVERED_GREY_LAP;
         entry.path ??= buildLapPath(entry.samples);
         strokeWorldPath(
           ctx,
@@ -820,8 +918,65 @@ export const TrackMap = ({
           LINE_WIDTH + 1,
         );
       }
-      drawCutMarkers(project, hit.nearest);
+      drawBrakeTicks(project, focus);
+      drawCutMarkers(project, focus);
+      drawScrubMarker(project);
       if (hit.nearest >= 0) drawHoverReadout(hit);
+    };
+
+    // Braking-point ticks are revealed for the focused lap only, never
+    // ambient — every colored lap's ticks at once drowned the map. Ticks sit
+    // perpendicular to the driven line at a fixed screen length, haloed like
+    // the cut markers; one lap's handful is far cheaper to project per
+    // repaint than another layer.
+    const drawBrakeTicks = (project: Project, focusIndex: number) => {
+      const laps = previousLapsRef.current;
+      if (focusIndex < 0) return;
+      const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
+      {
+        const index = focusIndex;
+        const { lap, brakes } = laps[index];
+        const color = index >= coloredFrom ? lapColor(lap) : HOVERED_GREY_LAP;
+        for (const t of brakes) {
+          const a = project(t);
+          // 1 m along the world normal fixes the tick's screen direction.
+          const n = project({ x: t.x - t.dz, z: t.z + t.dx });
+          const len = Math.hypot(n.px - a.px, n.py - a.py);
+          if (len === 0) continue;
+          const ux = ((n.px - a.px) / len) * (BRAKE_TICK_LEN / 2);
+          const uy = ((n.py - a.py) / len) * (BRAKE_TICK_LEN / 2);
+          for (const [style, width] of [
+            [SURFACE, BRAKE_TICK_HALO],
+            [color, BRAKE_TICK_WIDTH],
+          ] as const) {
+            ctx.strokeStyle = style;
+            ctx.lineWidth = width;
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            ctx.moveTo(a.px - ux, a.py - uy);
+            ctx.lineTo(a.px + ux, a.py + uy);
+            ctx.stroke();
+          }
+        }
+      }
+    };
+
+    // Analysis-panel scrub echo: a ring at the hovered trace position on the
+    // selected lap's line, in that lap's identity color.
+    const drawScrubMarker = (project: Project) => {
+      const s = scrubRef.current;
+      if (!s) return;
+      const { px, py } = project(s);
+      for (const [style, width] of [
+        [SURFACE, 4.5],
+        [s.color, 2.5],
+      ] as const) {
+        ctx.strokeStyle = style;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.arc(px, py, 8, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     };
 
     // Cut markers are stroked directly on every repaint — a session holds at
@@ -849,12 +1004,11 @@ export const TrackMap = ({
     };
 
     // Only the in-progress lap's markers are ambient (they leave with the
-    // lap at the line). A stored lap reveals its markers on demand: hovering
-    // its line here, or its row in the session-lap list (hoveredLapRef).
-    const drawCutMarkers = (project: Project, hoveredIndex: number) => {
-      const listLap = hoveredLapRef.current;
-      previousLapsRef.current.forEach(({ lap, cuts }, index) => {
-        if (index !== hoveredIndex && lap !== listLap) return;
+    // lap at the line). A stored lap reveals its markers when focused — line
+    // hover, session-lap-list row, or the open analysis panel's selection.
+    const drawCutMarkers = (project: Project, focusIndex: number) => {
+      previousLapsRef.current.forEach(({ cuts }, index) => {
+        if (index !== focusIndex) return;
         for (const c of cuts) {
           const { px, py } = project(c);
           drawCutMarker(px, py);
@@ -885,6 +1039,8 @@ export const TrackMap = ({
     let lastCuts: CutEvent[] | null = null;
     let lastCutCount = 0;
     let lastHoveredLap: number | null = null;
+    let lastScrub: ScrubPoint | null = null;
+    let lastAnalysisLap: number | null = null;
     let lastW = 0;
     let lastH = 0;
     let lastDpr = 0;
@@ -1038,6 +1194,8 @@ export const TrackMap = ({
       const zoom = zoomRef.current;
       const cutList = cutsRef.current;
       const hoveredLap = hoveredLapRef.current;
+      const scrub = scrubRef.current;
+      const analysisLap = analysisLapRef.current;
       const followState = followRef.current;
       const dirty =
         firstDraw ||
@@ -1050,6 +1208,8 @@ export const TrackMap = ({
         cutList !== lastCuts ||
         cutList.length !== lastCutCount ||
         hoveredLap !== lastHoveredLap ||
+        scrub !== lastScrub ||
+        analysisLap !== lastAnalysisLap ||
         width !== lastW ||
         height !== lastH ||
         dpr !== lastDpr;
@@ -1062,6 +1222,8 @@ export const TrackMap = ({
       lastCuts = cutList;
       lastCutCount = cutList.length;
       lastHoveredLap = hoveredLap;
+      lastScrub = scrub;
+      lastAnalysisLap = analysisLap;
       lastW = width;
       lastH = height;
       lastDpr = dpr;
@@ -1094,6 +1256,7 @@ export const TrackMap = ({
             lap: prevLap + 1,
             samples: currentRef.current,
             cuts: currentCutsRef.current,
+            brakes: computeBrakeTicks(currentRef.current),
           });
           if (previousLapsRef.current.length > MAX_LAPS)
             previousLapsRef.current.shift();
@@ -1140,6 +1303,7 @@ export const TrackMap = ({
             gas: frame.gas,
             brake: frame.brake,
             speedKmh: frame.speedKmh,
+            gear: frame.gear,
             jump: !!last && moved > TELEPORT_DIST,
           });
           const b = boundsRef.current;
@@ -1381,10 +1545,10 @@ export const TrackMap = ({
       canvas.removeEventListener("mouseleave", onMouseLeave);
       canvas.removeEventListener("wheel", onWheel);
     };
-  }, [mapData, telemetryRef, lapsRef, cutsRef, hoveredLapRef]);
+  }, [mapData, telemetryRef, lapsRef, cutsRef, hoveredLapRef, scrubRef, analysisLapRef]);
 
   return (
-    <section className="relative flex min-h-0 flex-col rounded-lg border border-edge bg-surface">
+    <section className="relative flex min-h-0 flex-1 flex-col rounded-lg border border-edge bg-surface">
       <p className="absolute top-3 left-4 text-xs tracking-wide text-ink-muted uppercase">
         Track map
       </p>

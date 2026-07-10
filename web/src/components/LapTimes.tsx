@@ -106,7 +106,20 @@ export const LapTimes = ({
   lapsRef: React.RefObject<LapRecord[]>;
   currentLapInvalidRef: React.RefObject<boolean>;
   hoveredLapRef: React.RefObject<number | null>;
-}) => (
+}) => {
+  // Best lap trusts the game's bestLapMs unless the lap log knows that time
+  // belongs to an invalidated lap (AC adopts cut laps as "best" in some
+  // sessions) — then the fastest valid recorded lap is the best the driver
+  // actually owns, or a placeholder when no valid lap exists yet.
+  const laps = lapsRef.current;
+  const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
+  const validBest = validTimes.length > 0 ? Math.min(...validTimes) : null;
+  const gameBest = telemetry?.bestLapMs ?? 0;
+  const gameBestInvalid =
+    gameBest > 0 && laps.some((l) => l.invalid && l.timeMs === gameBest);
+  const bestLapMs = gameBestInvalid ? validBest : gameBest > 0 ? gameBest : validBest;
+
+  return (
   <section className="grid grid-cols-2 gap-2">
     <TimeTile
       label="Current lap"
@@ -121,7 +134,7 @@ export const LapTimes = ({
     <TimeTile label="Last lap" value={formatLapTime(telemetry?.lastLapMs)} />
     <TimeTile
       label="Best lap"
-      value={formatLapTime(telemetry?.bestLapMs)}
+      value={formatLapTime(bestLapMs)}
       accentClass="text-best"
     />
     <div className="group relative col-span-2 flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60">
@@ -132,4 +145,5 @@ export const LapTimes = ({
       </span>
     </div>
   </section>
-);
+  );
+};

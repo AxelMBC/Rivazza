@@ -10,6 +10,10 @@ export const formatLapTime = (ms: number | null | undefined): string => {
 export const formatGear = (gear: number): string =>
   gear === 0 ? 'R' : gear === 1 ? 'N' : String(gear - 1);
 
+// Compact hover-readout form: forward gears as G1..Gn, R/N unchanged.
+export const formatGearCompact = (gear: number): string =>
+  gear >= 2 ? `G${gear - 1}` : formatGear(gear);
+
 // "ks_brands_hatch" -> "Brands Hatch"
 export const prettifyName = (id: string): string =>
   id

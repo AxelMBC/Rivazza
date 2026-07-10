@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   BridgeMessage,
   ConnectionStatus,
@@ -35,6 +35,11 @@ export type Telemetry = {
   // bumps on every append and reset — the re-render/effect change signal.
   cutsRef: React.RefObject<CutEvent[]>;
   cutSeq: number;
+  // Full-rate frame subscription, invoked synchronously for every telemetry
+  // message alongside the telemetryRef update. For recorders that must not
+  // miss frames: the ~30 Hz state blurs sample spacing and rAF loops throttle
+  // when the (game-focused) browser window is occluded. Returns unsubscribe.
+  subscribeFrame: (cb: (frame: TelemetryFrame) => void) => () => void;
 };
 
 export const useTelemetry = (): Telemetry => {
@@ -44,6 +49,13 @@ export const useTelemetry = (): Telemetry => {
   const [cutSeq, setCutSeq] = useState(0);
   const telemetryRef = useRef<TelemetryFrame | null>(null);
   const cutsRef = useRef<CutEvent[]>([]);
+  const frameListenersRef = useRef<Set<(frame: TelemetryFrame) => void>>(new Set());
+  const subscribeFrame = useCallback((cb: (frame: TelemetryFrame) => void) => {
+    frameListenersRef.current.add(cb);
+    return () => {
+      frameListenersRef.current.delete(cb);
+    };
+  }, []);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -89,6 +101,7 @@ export const useTelemetry = (): Telemetry => {
           break;
         case 'telemetry': {
           telemetryRef.current = message;
+          for (const cb of frameListenersRef.current) cb(message);
           const elapsed = performance.now() - lastStateAt;
           if (elapsed >= STATE_INTERVAL_MS) {
             window.clearTimeout(flushTimer);
@@ -184,5 +197,5 @@ export const useTelemetry = (): Telemetry => {
     };
   }, []);
 
-  return { status, session, telemetry, telemetryRef, cutsRef, cutSeq };
+  return { status, session, telemetry, telemetryRef, cutsRef, cutSeq, subscribeFrame };
 };
