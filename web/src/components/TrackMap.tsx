@@ -778,15 +778,23 @@ export const TrackMap = ({
       brake: number;
       gear: number;
     };
-    type HitResult = { nearest: number; rows: HoverRow[] };
+    // `marker` is the point on the nearest line closest to the cursor, in that
+    // line's rendered color — the ring echo that mirrors the analysis scrub.
+    type HitResult = {
+      nearest: number;
+      rows: HoverRow[];
+      marker: { x: number; z: number; color: string } | null;
+    };
 
     const hitTestLaps = (project: Project): HitResult => {
       const m = mouseRef.current;
       const laps = previousLapsRef.current;
-      if (!m || laps.length === 0) return { nearest: -1, rows: [] };
+      if (!m || laps.length === 0)
+        return { nearest: -1, rows: [], marker: null };
       const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
       let nearest = -1;
       let nearestD = HOVER_RADIUS_SQ;
+      let marker: HitResult["marker"] = null;
       const rows: HoverRow[] = [];
       laps.forEach(({ lap, samples }, index) => {
         let bestD = HOVER_RADIUS_SQ;
@@ -803,6 +811,14 @@ export const TrackMap = ({
         if (bestD < nearestD) {
           nearestD = bestD;
           nearest = index;
+          // The ring keeps the same color the line takes when focused: its
+          // identity hue if colored, else the white grey-lap emphasis tone.
+          const s = samples[bestIdx];
+          marker = {
+            x: s.x,
+            z: s.z,
+            color: index >= coloredFrom ? lapColor(lap) : HOVERED_GREY_LAP,
+          };
         }
         if (index >= coloredFrom) {
           const s = samples[bestIdx];
@@ -817,7 +833,7 @@ export const TrackMap = ({
         }
       });
       rows.reverse(); // laps store oldest-first; the readout lists newest first
-      return { nearest, rows };
+      return { nearest, rows, marker };
     };
 
     // Hover readout: one row per in-radius colored lap ("Lap N · 143 km/h ·
@@ -949,6 +965,13 @@ export const TrackMap = ({
       drawBrakeTicks(project, focus);
       drawCutMarkers(project, focus);
       drawScrubMarker(project);
+      // Line-hover echo: a colored ring snapped to the nearest point on the
+      // hovered/tapped line — the direct-map twin of the scrub ring. Same
+      // pointer state on desktop (mouse) and mobile (a tap parks mouseRef).
+      if (hit.marker) {
+        const { px, py } = project(hit.marker);
+        drawRing(px, py, hit.marker.color);
+      }
       if (hit.nearest >= 0) drawHoverReadout(hit);
     };
 
@@ -989,15 +1012,13 @@ export const TrackMap = ({
       }
     };
 
-    // Analysis-panel scrub echo: a ring at the hovered trace position on the
-    // selected lap's line, in that lap's identity color.
-    const drawScrubMarker = (project: Project) => {
-      const s = scrubRef.current;
-      if (!s) return;
-      const { px, py } = project(s);
+    // A haloed ring in a lap's color, drawn at a projected world point. Shared
+    // by the analysis-panel scrub echo and the direct line-hover marker so the
+    // two read as the same cue everywhere.
+    const drawRing = (px: number, py: number, color: string) => {
       for (const [style, width] of [
         [SURFACE, 4.5],
-        [s.color, 2.5],
+        [color, 2.5],
       ] as const) {
         ctx.strokeStyle = style;
         ctx.lineWidth = width;
@@ -1005,6 +1026,15 @@ export const TrackMap = ({
         ctx.arc(px, py, 8, 0, Math.PI * 2);
         ctx.stroke();
       }
+    };
+
+    // Analysis-panel scrub echo: a ring at the hovered trace position on the
+    // selected lap's line, in that lap's identity color.
+    const drawScrubMarker = (project: Project) => {
+      const s = scrubRef.current;
+      if (!s) return;
+      const { px, py } = project(s);
+      drawRing(px, py, s.color);
     };
 
     // Cut markers are stroked directly on every repaint — a session holds at

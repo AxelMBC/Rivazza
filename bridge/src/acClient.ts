@@ -29,6 +29,7 @@ export class ACClient extends EventEmitter<ACClientEvents> {
   private state: 'handshaking' | 'subscribed' = 'handshaking';
   private retryTimer: NodeJS.Timeout | null = null;
   private staleTimer: NodeJS.Timeout | null = null;
+  private lastFrameLogAt = 0; // LEARNING LOG throttle; delete with the log below
 
   start = (): void => {
     this.socket.on('message', this.onMessage);
@@ -68,7 +69,14 @@ export class ACClient extends EventEmitter<ACClientEvents> {
     }
 
     if (this.state === 'subscribed' && msg.length === RT_CAR_INFO_SIZE) {
-      this.emit('telemetry', parseRTCarInfo(msg));
+      const frame = parseRTCarInfo(msg);
+      // LEARNING LOG: the same bytes you saw in hex, now decoded. Throttled to
+      // ~2/s so it's readable (the real stream is ~60/s). Delete when done.
+      const now = Date.now();
+      if (now - this.lastFrameLogAt > 500) {
+        this.lastFrameLogAt = now;
+      }
+      this.emit('telemetry', frame);
       this.touchStaleTimer();
     }
   };

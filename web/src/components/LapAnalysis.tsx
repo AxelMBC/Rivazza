@@ -481,16 +481,23 @@ export const LapAnalysis = ({
       {/* Hover-revealed overlay floating above the bar (the Lap tile's
           session-list pattern): the map keeps its full height and the panel
           only occupies the screen while the pointer is inside the group.
-          pb-2 bridges the gap so the cursor can travel bar → panel without
-          closing it — no clicks anywhere on desktop. On touch, `open` is
-          toggled by tapping the bar (Tailwind v4 scopes group-hover to
+          The surface is deliberately translucent with only a faint blur
+          (bg-page/40, backdrop-blur-sm) so the track lines and — critically —
+          the live car dot stay visible through the panel while a lap is being
+          inspected; the bright canvas traces keep full opacity on top. It is
+          also kept compact (short canvas) and height-capped (max-h-[42vh],
+          overflow-y-auto) so it covers as little of the map as possible and
+          scrolls rather than growing on short viewports.
+          pb-2 bridges the gap so the cursor can travel bar → panel
+          without closing it — no clicks anywhere on desktop. On touch, `open`
+          is toggled by tapping the bar (Tailwind v4 scopes group-hover to
           hover-capable devices, so emulated hover never fights the state). */}
       <div
         className={`absolute bottom-full left-0 z-10 w-full pb-2 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 ${
           open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
         }`}
       >
-        <section className="flex flex-col gap-3 rounded-lg border border-edge bg-page/95 p-4 shadow-xl backdrop-blur">
+        <section className="flex max-h-[42vh] flex-col gap-2 overflow-y-auto rounded-lg border border-edge bg-page/40 p-3 shadow-xl backdrop-blur-sm">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <p className="text-xs tracking-wide text-ink-muted uppercase">
               {selected && reference && reference !== selected ? (
@@ -562,7 +569,7 @@ export const LapAnalysis = ({
         </div>
       )}
 
-      <div className="relative h-36 lg:h-44">
+      <div className="relative h-24 lg:h-28">
         <canvas ref={canvasRef} className="size-full touch-none" />
         {!selected && (
           <p className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-ink-muted">

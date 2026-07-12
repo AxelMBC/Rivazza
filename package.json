@@ -14,6 +14,7 @@
   ],
   "scripts": {
     "dev": "concurrently -n bridge,web -c yellow,cyan \"npm run dev -w bridge\" \"npm run dev -w web\"",
+    "dev:demo": "npm run dev:demo -w web",
     "build": "npm run build -w bridge && npm run build -w web"
   },
   "devDependencies": {
