@@ -89,6 +89,7 @@ const carInfo = () => {
   b.writeFloatLE(0.5 + 0.5 * Math.sin(t * 2), 56); // gas
   b.writeFloatLE(Math.max(0, -Math.sin(t * 2)) * 0.8, 60); // brake
   b.writeFloatLE(5000 + 2500 * Math.sin(t * 3), 68); // rpm
+  b.writeFloatLE(25 + 20 * Math.sin(t * 2), 72); // steer deg (constant right-hand ellipse)
   b.writeInt32LE(4, 76); // gear (3rd)
   b.writeFloatLE((t / 30) % 1, 308); // normalized position
   b.writeFloatLE(-15.8 + 120 * Math.cos(t), 316); // world x

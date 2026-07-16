@@ -64,6 +64,14 @@ type LegendEntry = {
 
 const PADDING = 24;
 const DOT_RADIUS = 7;
+// Directional car marker: the protocol carries no yaw, so heading is derived
+// from motion — two world anchors of the rendered dot position at least this
+// far apart. The baseline makes the angle inherently stable (AC positions are
+// millimetric — no angular smoothing needed), and a stationary car simply
+// stops updating the anchors, holding the last heading.
+const HEADING_BASELINE_M = 0.75;
+const STEER_FULL_DEG = 90; // steering-wheel degrees at full tick deflection
+const STEER_TICK_LEN = 8; // screen px, zoom-invariant like DOT_RADIUS
 const SAMPLE_SPACING = 1; // meters between line samples — fine enough for exact corner shapes
 const MAX_SAMPLES = 25000; // hard cap so a stuck lap counter can't grow unbounded
 const MAX_LAPS = 40; // completed laps kept on the map (oldest dropped beyond this)
@@ -138,6 +146,7 @@ const TRACK_EDGE_WIDTH = 1;
 const PREVIOUS_LAP = "rgba(255, 255, 255, 0.45)";
 const HOVERED_GREY_LAP = "#ffffff"; // uncolored laps brighten to solid white on hover
 const INVALID_TIME = "#f0554b"; // theme critical, brightened for the small canvas label
+const STEER_TICK_COLOR = "#3987e5"; // theme accent, mirrors --color-accent
 
 // Pedal-state colors: coast (yellow) blends toward throttle (green) or
 // brake (red) with pedal magnitude, so partial inputs read as softer tones.
@@ -1078,14 +1087,99 @@ export const TrackMap = ({
       }
     };
 
-    const drawDot = (px: number, py: number) => {
+    // Heading anchors for the car marker: previous and newest rendered-dot
+    // world positions, at least HEADING_BASELINE_M apart. A teleport-sized
+    // jump discards them, so the marker never sweeps across a restart — it
+    // falls back to the circle until fresh motion re-establishes heading.
+    let headingFrom: { x: number; z: number } | null = null;
+    let headingTo: { x: number; z: number } | null = null;
+
+    const trackHeading = (pos: { x: number; z: number }) => {
+      if (!headingTo) {
+        headingTo = pos;
+        return;
+      }
+      const moved = Math.hypot(pos.x - headingTo.x, pos.z - headingTo.z);
+      if (moved > ANCHOR_SNAP_M) {
+        headingFrom = null;
+        headingTo = pos;
+      } else if (moved >= HEADING_BASELINE_M) {
+        headingFrom = headingTo;
+        headingTo = pos;
+      }
+    };
+
+    // Screen-space heading: both anchors go through the active projection and
+    // the angle is measured between the projected pixels, so it stays correct
+    // in every projection mode, at any zoom, and on X-mirrored tracks. Null
+    // until two anchors exist.
+    const markerAngle = (project: Project): number | null => {
+      if (!headingFrom || !headingTo) return null;
+      const a = project(headingFrom);
+      const b = project(headingTo);
+      return Math.atan2(b.py - a.py, b.px - a.px);
+    };
+
+    // The car marker: a wedge pointing along the direction of travel with a
+    // steering tick pivoting at its nose — or the plain circle while no
+    // heading exists (fresh session, never moved, just teleported).
+    const drawDot = (project: Project, frame: TelemetryFrame) => {
+      const pos = dotWorld(frame);
+      trackHeading(pos);
+      const { px, py } = project(pos);
+      const angle = markerAngle(project);
+      if (angle === null) {
+        ctx.beginPath();
+        ctx.arc(px, py, DOT_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = SURFACE;
+        ctx.stroke();
+        return;
+      }
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(angle);
+      // Wedge in local screen px, nose along +x (rotation puts +x on the
+      // heading); footprint matches the old circle.
+      const nose = DOT_RADIUS + 2;
       ctx.beginPath();
-      ctx.arc(px, py, DOT_RADIUS, 0, Math.PI * 2);
+      ctx.moveTo(nose, 0);
+      ctx.lineTo(-DOT_RADIUS, DOT_RADIUS - 1);
+      ctx.lineTo(-DOT_RADIUS * 0.45, 0);
+      ctx.lineTo(-DOT_RADIUS, -(DOT_RADIUS - 1));
+      ctx.closePath();
       ctx.fillStyle = "#ffffff";
       ctx.fill();
       ctx.lineWidth = 2;
+      ctx.lineJoin = "round";
       ctx.strokeStyle = SURFACE;
       ctx.stroke();
+      // Steering tick. Positive steerAngle (right input) rotates clockwise
+      // in the canvas's down-positive-y frame — right of the nose on screen —
+      // unless the projection is mirrored (negative handedness), which flips
+      // the visual turn direction, so the tick flips with it.
+      const ux = project({ x: pos.x + 1, z: pos.z });
+      const uz = project({ x: pos.x, z: pos.z + 1 });
+      const handed =
+        (ux.px - px) * (uz.py - py) - (ux.py - py) * (uz.px - px) < 0 ? -1 : 1;
+      const frac = Math.max(
+        -1,
+        Math.min(1, frame.steerAngle / STEER_FULL_DEG),
+      );
+      const tick = frac * (Math.PI / 2) * handed;
+      ctx.beginPath();
+      ctx.moveTo(nose, 0);
+      ctx.lineTo(
+        nose + Math.cos(tick) * STEER_TICK_LEN,
+        Math.sin(tick) * STEER_TICK_LEN,
+      );
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = STEER_TICK_COLOR;
+      ctx.stroke();
+      ctx.restore();
     };
 
     // Dirty gating: repaint only when something rendered actually changed.
@@ -1430,10 +1524,7 @@ export const TrackMap = ({
         const projKey = `m|${width}x${height}@${dpr}|${zm.level},${zm.ox},${zm.oy}`;
         renderTrackLayer(project, projKey, width, height, dpr);
         drawLaps(project, projKey, width, height, dpr);
-        if (frame) {
-          const { px, py } = project(dotWorld(frame));
-          drawDot(px, py);
-        }
+        if (frame) drawDot(project, frame);
         return;
       }
 
@@ -1456,10 +1547,7 @@ export const TrackMap = ({
         const projKey = `e|${width}x${height}@${dpr}|${zm.level},${zm.ox},${zm.oy}`;
         renderTrackLayer(project, projKey, width, height, dpr);
         drawLaps(project, projKey, width, height, dpr);
-        if (frame) {
-          const { px, py } = project(dotWorld(frame));
-          drawDot(px, py);
-        }
+        if (frame) drawDot(project, frame);
         return;
       }
 
@@ -1551,8 +1639,7 @@ export const TrackMap = ({
       const zm = zoomRef.current;
       const projKey = `f|${width}x${height}@${dpr}|${zm.level},${zm.ox},${zm.oy}|${view.cx},${view.cz},${view.ex},${view.ez}`;
       drawLaps(project, projKey, width, height, dpr);
-      const { px, py } = project(dotWorld(frame));
-      drawDot(px, py);
+      drawDot(project, frame);
     };
 
     const onMouseMove = (e: MouseEvent) => {
