@@ -13,6 +13,7 @@ import type { ScrubPoint } from "../lib/lapAnalysis";
 import { BRIDGE_HTTP } from "../hooks/useTelemetry";
 import { IS_DEMO, DEMO_MAP_URL } from "../lib/demo";
 import { TAP_SLOP_PX, SYNTHETIC_MOUSE_WINDOW_MS } from "../lib/touch";
+import { CLICK_MODE, isImmediateActivation } from "../lib/interaction";
 
 type Props = {
   session: SessionInfo;
@@ -103,6 +104,8 @@ const FIRST_LAP_EXTENT = 1500;
 
 // Cursor-anchored wheel zoom: exponential per notch, clamped so 1× is exactly
 // the fit view (scrolling fully out is the reset gesture — no reset control).
+// While the follow cam is tracking, the same per-notch factor scales its world
+// window instead, so one notch feels identical in both modes.
 const ZOOM_MAX = 40;
 const ZOOM_STEP = 1.2;
 const ZOOM_RESET: Zoom = { level: 1, ox: 0, oy: 0 };
@@ -112,62 +115,26 @@ const ZOOM_SNAP_LEVEL = 1.02;
 
 // Follow cam: hover-dwell armed (never a click — clicks would focus the
 // browser and steal controller input from the game). 'following' tracks the
-// car, 'detached' is manual wheel zoom after interrupting a follow (the exit
-// button stays), 'exiting' animates back to the 1× fit view.
+// car, 'detached' is manual zoom/pan after a touch drag interrupted a follow
+// (the exit button stays), 'exiting' animates back to the 1× fit view.
 type FollowState = "off" | "following" | "detached" | "exiting";
-// Which hover-armed button a dwell belongs to. Several are on screen at once
-// while following (exit + the two zoom steps), so dwell progress and the
-// fired-already guard are both keyed by target rather than global.
-type DwellTarget = "follow" | "exit" | "zoomIn" | "zoomOut";
-const FOLLOW_DWELL_MS = 3000;
-// The zoom steps arm faster than follow/exit: a mis-armed step is a nudge the
-// opposite button undoes, while a mis-armed follow/exit throws the view away.
-const ZOOM_DWELL_MS = 1500;
-const DWELL_MS: Record<DwellTarget, number> = {
-  follow: FOLLOW_DWELL_MS,
-  exit: FOLLOW_DWELL_MS,
-  zoomIn: ZOOM_DWELL_MS,
-  zoomOut: ZOOM_DWELL_MS,
-};
-// Progress-bar fill duration, matched to DWELL_MS. Written as whole literal
-// class strings because Tailwind scans source text — an interpolated
+// One second: long enough that brushing past the button on the way to the
+// canvas never arms it, short enough not to feel like a wait.
+const FOLLOW_DWELL_MS = 1000;
+// Progress-bar fill duration, matched to FOLLOW_DWELL_MS. A whole literal class
+// string because Tailwind scans source text — an interpolated
 // `duration-[${ms}ms]` would never be generated.
-const DWELL_FILL_CLASS: Record<DwellTarget, string> = {
-  follow: "duration-[3000ms]",
-  exit: "duration-[3000ms]",
-  zoomIn: "duration-[1500ms]",
-  zoomOut: "duration-[1500ms]",
-};
-// The two zoom-step buttons, in render order. Minus sign (U+2212), not a
-// hyphen, to sit level with the plus at the same optical weight.
-const ZOOM_STEP_BUTTONS = [
-  {
-    target: "zoomIn",
-    direction: "in",
-    glyph: "+",
-    label: "Zoom in",
-  },
-  {
-    target: "zoomOut",
-    direction: "out",
-    glyph: "−",
-    label: "Zoom out",
-  },
-] as const satisfies readonly {
-  target: DwellTarget;
-  direction: "in" | "out";
-  glyph: string;
-  label: string;
-}[];
+const DWELL_FILL_CLASS = "duration-[1000ms]";
 // Comfortable tracking zoom: this many world meters across the smaller
-// canvas dimension, regardless of track size or projection mode. The default
-// the zoom-step buttons start from and the session reset returns to.
+// canvas dimension, regardless of track size or projection mode. Where the
+// wheel starts from and what the session reset returns to.
 const FOLLOW_WINDOW_M = 250;
-// One zoom step scales the window by this much. Multiplicative like the
-// wheel's ZOOM_STEP so the increment feels the same at every zoom, and a
-// little coarser than a wheel notch because a step costs a full dwell.
-const FOLLOW_WINDOW_STEP = 1.35;
-// How far the widest stepped window stays inside the window that would render
+// Tightest framing follow mode allows, whatever ZOOM_MAX would permit. Below
+// roughly this the canvas holds little but the car and the line it just drove:
+// the corner ahead is off-screen, so the map stops telling you anything the
+// pedal traces don't. Keeping a floor keeps some track in view.
+const FOLLOW_MIN_WINDOW_M = 100;
+// How far the widest follow window stays inside the window that would render
 // at exactly 1×. The gap is what makes the degenerate framing (1× scale, but
 // panned to centre the car — a combination nothing else in the map can
 // produce, and a contradiction of the fit view 1× denotes) unreachable rather
@@ -327,13 +294,20 @@ export const TrackMap = ({
   // User wheel zoom — survives lap completion, resets with the session.
   const zoomRef = useRef<Zoom>(ZOOM_RESET);
   // The follow camera's target framing, in world meters across the smaller
-  // canvas dimension. The zoom-step buttons write it freely and out of range;
+  // canvas dimension. The wheel and pinch write it freely and out of range;
   // `followCamera` clamps it against the live projection each frame and writes
-  // the clamped value back, so it is the camera — not the buttons — that knows
-  // the bounds. A step landing between frames is simply clamped on the next
-  // one. This is why a step never detaches follow: the buttons retarget the
-  // camera instead of fighting it for ownership of `zoomRef`.
+  // the clamped value back, so it is the camera — not the handlers — that knows
+  // the bounds. A retarget landing between frames is simply clamped on the next
+  // one. This is why the wheel never detaches follow: it retargets the camera
+  // instead of fighting it for ownership of `zoomRef`.
   const followWindowRef = useRef(FOLLOW_WINDOW_M);
+  // The window bounds the camera derives from the live projection, published
+  // for the input handlers: widening past `max` is the escape out of follow
+  // mode, and only the camera holds the two terms (px-per-meter, canvas size)
+  // that bound depends on. Unbounded until the first tracking frame writes it,
+  // so a notch arriving before then can never read a bound that doesn't exist
+  // yet and exit follow the moment it was armed.
+  const followLimitsRef = useRef({ min: 0, max: Infinity });
   // Follow cam: the ref is the source of truth for the rAF loop and event
   // handlers; the mirrored state only drives which overlay button renders.
   const followRef = useRef<FollowState>("off");
@@ -342,52 +316,57 @@ export const TrackMap = ({
     followRef.current = state;
     setFollowUi(state);
   };
-  // Dwell bookkeeping. `armReadyRef` goes false the moment any dwell fires and
-  // only re-arms when the cursor leaves the button, which serves two buttons'
-  // worth of purpose: for follow/exit it guards the swap that follows a
-  // completed dwell (both roles are the same element, so the replacement
-  // appears under the still-parked cursor, and a browser that re-fires
-  // mouseenter on DOM mutation would start the opposite dwell and toggle
-  // forever); for the zoom steps it is what makes one dwell fire exactly one
-  // step. It stays a single global flag rather than a per-button one because
-  // reaching any other button necessarily fires mouseleave on this one, so it
-  // can never block a button the cursor has actually travelled to — whereas a
-  // per-button flag would not stop the swapped-in role from self-firing.
+  // Dwell bookkeeping. `armReadyRef` goes false the moment a dwell fires and
+  // only re-arms when the cursor leaves the button, which guards the swap that
+  // follows a completed dwell: follow and exit are the same element, so the
+  // replacement appears under the still-parked cursor, and a browser that
+  // re-fires mouseenter on DOM mutation would start the opposite dwell and
+  // toggle forever.
   const dwellTimerRef = useRef<number | null>(null);
   const armReadyRef = useRef(true);
-  // When a tap last drove a button: the browser fires compatibility mouse
+  // When a tap last drove the button: the browser fires compatibility mouse
   // events after a tap, and a button sitting under the finger would catch that
   // mouseenter and start a phantom dwell without this window.
   const touchToggleAtRef = useRef(-SYNTHETIC_MOUSE_WINDOW_MS);
-  // Which button is currently filling its progress bar, so the indicator
-  // renders on that button alone.
-  const [dwelling, setDwelling] = useState<DwellTarget | null>(null);
+  // Whether the button is filling its progress bar. A single flag suffices:
+  // follow and exit are two roles of one element, never on screen together.
+  const [dwelling, setDwelling] = useState(false);
   const cancelDwell = () => {
     if (dwellTimerRef.current !== null) {
       clearTimeout(dwellTimerRef.current);
       dwellTimerRef.current = null;
     }
-    setDwelling(null);
+    setDwelling(false);
   };
-  // Retarget the follow camera one step tighter or wider. Deliberately
-  // unbounded here: `followCamera` owns the clamp, because the bounds depend on
-  // the live projection and canvas size, which only it has.
-  const stepFollowZoom = (direction: "in" | "out") => {
-    followWindowRef.current *=
-      direction === "in" ? 1 / FOLLOW_WINDOW_STEP : FOLLOW_WINDOW_STEP;
+  // Whether the follow camera — not the cursor — is driving the view right now.
+  // Two things follow from it: input handlers must not write `zoomRef` (it is
+  // mid-glide toward the camera's own target, so any write is a tug of war the
+  // next frame silently wins), and the cursor stops picking lap lines.
+  const cameraDrivesView = () =>
+    followRef.current === "following" || followRef.current === "exiting";
+  // Scale the follow camera's target window by `factor` (< 1 tightens the
+  // framing, > 1 widens it). Returns false — writing nothing — when the request
+  // is wider than follow mode allows, which is the caller's cue to leave follow
+  // mode instead of clamping. Otherwise deliberately unbounded: `followCamera`
+  // owns the clamp, because the bounds depend on the live projection and canvas
+  // size, which only it has.
+  const retargetFollow = (factor: number) => {
+    const wanted = followWindowRef.current * factor;
+    if (wanted > followLimitsRef.current.max) return false;
+    followWindowRef.current = wanted;
+    return true;
   };
-  // What a completed dwell (or a tap) actually does.
-  const fireDwell = (target: DwellTarget) => {
-    if (target === "follow") {
-      // The car may have vanished mid-dwell (game closed) — nothing to follow.
-      if (telemetryRef.current) setFollow("following");
-    } else if (target === "exit") {
+  // What a completed dwell (or a tap) actually does: arm follow, or leave it.
+  const fireDwell = () => {
+    if (followRef.current !== "off") {
       setFollow("exiting");
-    } else {
-      stepFollowZoom(target === "zoomIn" ? "in" : "out");
+      // The car may have vanished mid-dwell (game closed) — nothing to follow.
+    } else if (telemetryRef.current) {
+      setFollow("following");
     }
   };
-  const startDwell = (target: DwellTarget) => {
+  const startDwell = () => {
+    if (CLICK_MODE) return;
     if (
       performance.now() - touchToggleAtRef.current <
       SYNTHETIC_MOUSE_WINDOW_MS
@@ -395,24 +374,20 @@ export const TrackMap = ({
       return;
     if (!armReadyRef.current) return;
     cancelDwell();
-    setDwelling(target);
+    setDwelling(true);
     dwellTimerRef.current = window.setTimeout(() => {
       dwellTimerRef.current = null;
       armReadyRef.current = false;
-      setDwelling(null);
-      fireDwell(target);
-    }, DWELL_MS[target]);
+      setDwelling(false);
+      fireDwell();
+    }, FOLLOW_DWELL_MS);
   };
   const leaveDwell = () => {
     armReadyRef.current = true;
     cancelDwell();
   };
-  // Touch path: a tap toggles instantly — the dwell only exists to keep
-  // desktop interaction click-free, and a tap on a separate touch device
-  // steals nothing from the game. Bypasses the re-arm guard (that protects
-  // against the button swap under a parked cursor, which touch has none of).
-  const onFollowTap = (e: React.PointerEvent) => {
-    if (e.pointerType !== "touch") return;
+  const onFollowActivate = (e: React.PointerEvent) => {
+    if (!isImmediateActivation(e)) return;
     touchToggleAtRef.current = performance.now();
     leaveDwell();
     const st = followRef.current;
@@ -421,16 +396,6 @@ export const TrackMap = ({
     } else if (st !== "exiting") {
       setFollow("exiting");
     }
-  };
-  // Touch path for the zoom steps. The synthetic-mouse window matters more
-  // here than for follow/exit: these buttons do not swap on activation, so the
-  // compatibility mouseenter lands on the same still-mounted button and would
-  // dwell into a phantom second step.
-  const onZoomTap = (e: React.PointerEvent, direction: "in" | "out") => {
-    if (e.pointerType !== "touch") return;
-    touchToggleAtRef.current = performance.now();
-    leaveDwell();
-    stepFollowZoom(direction);
   };
   // Follow button only renders while there is a car to follow; flipped from
   // the draw loop (telemetryRef nulls out when the bridge loses the game).
@@ -451,9 +416,12 @@ export const TrackMap = ({
     anchorRef.current = null;
     zoomRef.current = ZOOM_RESET;
     // Session change / restart ends follow mode with everything else, and any
-    // stepped framing goes with it — the next follow starts comfortable again.
+    // adjusted framing goes with it — the next follow starts comfortable again.
+    // The published bounds go too: the new session may be a different track, so
+    // "not known until the camera says so" is exactly true again.
     cancelDwell();
     followWindowRef.current = FOLLOW_WINDOW_M;
+    followLimitsRef.current = { min: 0, max: Infinity };
     setFollow("off");
   };
 
@@ -896,7 +864,13 @@ export const TrackMap = ({
     const hitTestLaps = (project: Project): HitResult => {
       const m = mouseRef.current;
       const laps = previousLapsRef.current;
-      if (!m || laps.length === 0)
+      // Follow mode picks nothing. The map sweeps under a parked cursor there,
+      // so lines pick *themselves* as the car drives past, and with more than
+      // one stored lap the readout, ring and emphasis thrash on every frame.
+      // Inspection while following goes through the analysis panel and the
+      // session lap list instead — their selections still reveal below, since
+      // they name a lap deliberately rather than catching whatever swept past.
+      if (!m || laps.length === 0 || cameraDrivesView())
         return { nearest: -1, rows: [], marker: null };
       const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
       let nearest = -1;
@@ -1302,9 +1276,17 @@ export const TrackMap = ({
     // no new zoom object and the map idles exactly as before.
     let followAnimating = false;
     let lastFollow: FollowState = followRef.current;
+    // A wheel/pinch retarget changes only the target window — nothing else the
+    // gate watches — and the gate runs *before* followCamera, so without this
+    // term the camera wouldn't run and the retarget would sit inert on an
+    // otherwise-idle frame (stationary car, no new telemetry, parked cursor).
+    let lastFollowWindow = followWindowRef.current;
     // Smoothed world position the follow cam tracks (and the dot renders at
     // while following) — absorbs the uneven arrival of raw frames.
     let followPos: { x: number; z: number } | null = null;
+    // Where the camera sits relative to the car, in base-projection px. Null
+    // until the first tracking frame seeds it from the view being left behind.
+    let camOffPx: { x: number; y: number } | null = null;
     // Recent raw frames with arrival times, the interpolation source.
     let trail: { x: number; z: number; at: number }[] = [];
     let lastTrailFrame: TelemetryFrame | null = null;
@@ -1327,10 +1309,10 @@ export const TrackMap = ({
         trail.length = 0;
         lastTrailFrame = null;
         followPos = null;
+        camOffPx = null;
         if (st !== "exiting") return;
       }
       const zm = zoomRef.current;
-      let target: Zoom;
       if (st === "following") {
         const frame = telemetryRef.current;
         if (!frame) return;
@@ -1343,8 +1325,10 @@ export const TrackMap = ({
           if (
             newest &&
             Math.hypot(frame.x - newest.x, frame.z - newest.z) > ANCHOR_SNAP_M
-          )
+          ) {
             trail.length = 0;
+            camOffPx = { x: 0, y: 0 }; // snap with the car, don't sweep after it
+          }
           trail.push({ x: frame.x, z: frame.z, at: performance.now() });
           if (trail.length > 32) trail.shift();
         }
@@ -1377,7 +1361,7 @@ export const TrackMap = ({
         const unit = base({ x: followPos.x + 1, z: followPos.z });
         const pxPerMeter = Math.hypot(unit.px - car.px, unit.py - car.py);
         if (pxPerMeter <= 0) return;
-        // Bounds for the stepped window, derived here because only the camera
+        // Bounds for the target window, derived here because only the camera
         // holds the two terms they depend on. They are the exact inverses of
         // the level limits, so the level below needs no clamp of its own:
         // `maxWindow` is the window that would render at 1× — pulled in by
@@ -1385,44 +1369,80 @@ export const TrackMap = ({
         // contradicts what 1× means everywhere else (the fit framing).
         const span = Math.min(width, height);
         const maxWindow = (span / pxPerMeter) * FOLLOW_WINDOW_HEADROOM;
-        const minWindow = span / (ZOOM_MAX * pxPerMeter);
-        // Write the clamp back so steps beyond a limit cannot accumulate — an
-        // unbounded ref would swallow the first several steps back. Settled,
+        const minWindow = Math.max(
+          FOLLOW_MIN_WINDOW_M,
+          span / (ZOOM_MAX * pxPerMeter),
+        );
+        // Publish them for the wheel/pinch handlers, which cannot derive them:
+        // a request past `maxWindow` is what they read as "leave follow mode".
+        followLimitsRef.current = { min: minWindow, max: maxWindow };
+        // Write the clamp back so input beyond a limit cannot accumulate — an
+        // unbounded ref would swallow the first several notches back. Settled,
         // this rewrites an identical value and never re-dirties the frame.
         const window_ = Math.min(
           maxWindow,
           Math.max(minWindow, followWindowRef.current),
         );
         followWindowRef.current = window_;
-        const level = span / (window_ * pxPerMeter);
-        target = {
-          level,
-          ox: width / 2 - car.px * level,
-          oy: height / 2 - car.py * level,
-        };
-      } else {
-        target = ZOOM_RESET;
-      }
-      const blend = 1 - Math.exp(-dt / FOLLOW_TAU_S);
-      const level = zm.level + (target.level - zm.level) * blend;
-      const ox = zm.ox + (target.ox - zm.ox) * blend;
-      const oy = zm.oy + (target.oy - zm.oy) * blend;
-      // Asymptotic easing — snap inside a sub-pixel epsilon so it terminates.
-      const settled =
-        Math.abs(target.level - level) < 0.001 &&
-        Math.abs(target.ox - ox) < 0.5 &&
-        Math.abs(target.oy - oy) < 0.5;
-      if (settled) {
-        if (st === "exiting") {
-          zoomRef.current = ZOOM_RESET; // exact fit framing, as if never followed
-          setFollow("off");
-        } else if (
-          zm.level !== target.level ||
-          zm.ox !== target.ox ||
-          zm.oy !== target.oy
+        const targetLevel = span / (window_ * pxPerMeter);
+        // Where the camera sits relative to the car, decayed toward zero on its
+        // own clock. Easing the camera *toward* the car instead — a target that
+        // has moved again by the next frame — settles at an error of roughly
+        // speed × FOLLOW_TAU_S rather than at zero: ~18 m at racing speed,
+        // which is nothing across the fit view but is the entire canvas at a
+        // tight follow window, and the car leaves the screen. Decaying the
+        // offset cancels that term, so the car is pinned at the centre at any
+        // speed and any zoom, while entry is still one eased glide — it simply
+        // starts as one large offset.
+        if (!camOffPx)
+          camOffPx = {
+            x: (width / 2 - zm.ox) / zm.level - car.px,
+            y: (height / 2 - zm.oy) / zm.level - car.py,
+          };
+        const decay = Math.exp(-dt / FOLLOW_TAU_S);
+        camOffPx = { x: camOffPx.x * decay, y: camOffPx.y * decay };
+        const level = zm.level + (targetLevel - zm.level) * (1 - decay);
+        // Asymptotic easing — snap inside a sub-pixel epsilon so it terminates.
+        if (
+          Math.hypot(camOffPx.x, camOffPx.y) * level < 0.5 &&
+          Math.abs(targetLevel - level) < 0.001
         ) {
-          zoomRef.current = target;
+          camOffPx = { x: 0, y: 0 };
+          const pinned = {
+            level: targetLevel,
+            ox: width / 2 - car.px * targetLevel,
+            oy: height / 2 - car.py * targetLevel,
+          };
+          // A stationary car rewrites identical values, so the map still idles.
+          if (
+            zm.level !== pinned.level ||
+            zm.ox !== pinned.ox ||
+            zm.oy !== pinned.oy
+          )
+            zoomRef.current = pinned;
+          return;
         }
+        zoomRef.current = {
+          level,
+          ox: width / 2 - (car.px + camOffPx.x) * level,
+          oy: height / 2 - (car.py + camOffPx.y) * level,
+        };
+        followAnimating = true;
+        return;
+      }
+      // Exiting: the fit view is a static target, so there is no lag term to
+      // cancel — ease straight at it.
+      const blend = 1 - Math.exp(-dt / FOLLOW_TAU_S);
+      const level = zm.level + (ZOOM_RESET.level - zm.level) * blend;
+      const ox = zm.ox + (ZOOM_RESET.ox - zm.ox) * blend;
+      const oy = zm.oy + (ZOOM_RESET.oy - zm.oy) * blend;
+      if (
+        Math.abs(ZOOM_RESET.level - level) < 0.001 &&
+        Math.abs(ox) < 0.5 &&
+        Math.abs(oy) < 0.5
+      ) {
+        zoomRef.current = ZOOM_RESET; // exact fit framing, as if never followed
+        setFollow("off");
         return;
       }
       zoomRef.current = { level, ox, oy };
@@ -1461,11 +1481,13 @@ export const TrackMap = ({
       const scrub = scrubRef.current;
       const analysisLap = analysisLapRef.current;
       const followState = followRef.current;
+      const followWindow = followWindowRef.current;
       const dirty =
         firstDraw ||
         easing ||
         followAnimating ||
         followState !== lastFollow ||
+        followWindow !== lastFollowWindow ||
         frame !== lastFrame ||
         mouse !== lastMouse ||
         zoom !== lastZoom ||
@@ -1480,6 +1502,7 @@ export const TrackMap = ({
       if (!dirty) return;
       firstDraw = false;
       lastFollow = followState;
+      lastFollowWindow = followWindow;
       lastFrame = frame;
       lastMouse = mouse;
       lastZoom = zoom;
@@ -1764,11 +1787,31 @@ export const TrackMap = ({
     // so the game keeps receiving controller input while the map is used.
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      // Any wheel input interrupts the follow cam in place: manual zoom
-      // seeds from the current follow transform (zoomRef already holds it)
-      // and the exit button stays available for the animated return.
       const st = followRef.current;
-      if (st === "following" || st === "exiting") setFollow("detached");
+      // While tracking, the wheel retargets the camera instead of taking the
+      // view off it — scrolling adjusts how tightly the car is framed, and the
+      // car stays centred, so the cursor contributes nothing here. The exponent
+      // is the free-zoom one with the sign flipped: a *smaller* window is a
+      // *higher* zoom, and reusing the same factor makes a notch feel identical
+      // in both modes.
+      if (st === "following") {
+        if (retargetFollow(ZOOM_STEP ** (e.deltaY / 100))) return;
+        // Past the widest follow framing: rather than dead-stop, keep the zoom
+        // axis continuous and hand the rest of the way out to the exit
+        // animation, which lands on exactly the fit view.
+        setFollow("exiting");
+        return;
+      }
+      // Mid-exit the wheel would otherwise scroll into an inert handler for the
+      // length of the glide. Scrolling back in resumes tracking from where the
+      // exit began (the widest framing); scrolling further out is already what
+      // the animation is doing.
+      if (st === "exiting") {
+        if (e.deltaY >= 0) return;
+        followWindowRef.current = followLimitsRef.current.max;
+        setFollow("following");
+        return;
+      }
       const zm = zoomRef.current;
       const level = Math.min(
         ZOOM_MAX,
@@ -1806,8 +1849,10 @@ export const TrackMap = ({
       const rect = canvas.getBoundingClientRect();
       return { x: t.clientX - rect.left, y: t.clientY - rect.top };
     };
-    // Pinch or pan during follow hands the view to manual zoom in place,
-    // exactly like wheel input (zoomRef already holds the follow transform).
+    // A one-finger pan hands the view to manual zoom/pan in place (zoomRef
+    // already holds the follow transform). Follow mode has no pan of its own,
+    // so a drag is the user asking to look somewhere else — unlike a pinch,
+    // which only ever means "frame the car tighter/wider".
     const detachFollow = () => {
       const st = followRef.current;
       if (st === "following" || st === "exiting") setFollow("detached");
@@ -1855,7 +1900,24 @@ export const TrackMap = ({
         };
         if (prev.dist <= 0 || lastPinch.dist <= 0) return;
         touchMoved = true;
-        detachFollow();
+        // Pinch is the touch twin of the wheel: while tracking it resizes the
+        // follow framing and keeps the camera on the car, so midpoint drift has
+        // nothing to pan. Past the widest framing it exits, same as the wheel.
+        if (followRef.current === "following") {
+          if (!retargetFollow(prev.dist / lastPinch.dist)) setFollow("exiting");
+          return;
+        }
+        // Mid-exit, the wheel's interruption rule again: spreading the fingers
+        // (zoom in) resumes tracking from where the exit began, pinching further
+        // out lets it finish. Handing zoomRef to the gesture here instead would
+        // put it and the still-animating camera in a tug of war.
+        if (followRef.current === "exiting") {
+          if (lastPinch.dist > prev.dist) {
+            followWindowRef.current = followLimitsRef.current.max;
+            setFollow("following");
+          }
+          return;
+        }
         const zm = zoomRef.current;
         const level = Math.min(
           ZOOM_MAX,
@@ -1908,7 +1970,10 @@ export const TrackMap = ({
         // A clean tap: park the "cursor" there — the ordinary hit test shows
         // the readout on a line and clears it on empty track.
         mouseRef.current = { x: tapStart.x, y: tapStart.y };
-      } else if (touchMoved) {
+      } else if (touchMoved && !cameraDrivesView()) {
+        // Only meaningful when the gesture was writing zoomRef itself: a
+        // retargeting pinch leaves the transform to the camera, which is
+        // mid-glide toward a level this snap has no business rounding off.
         const zm = zoomRef.current;
         if (zm.level !== 1 && zm.level < ZOOM_SNAP_LEVEL) {
           zoomRef.current = ZOOM_RESET;
@@ -1994,66 +2059,37 @@ export const TrackMap = ({
           ))}
         </div>
       )}
-      {/* Follow-cam controls: hover-armed, never clicked — a click would focus
-          the browser and steal controller input from the game. The row is
-          inert so it never eats the canvas hover between the buttons. */}
       <div className="pointer-events-none absolute bottom-3 left-4 flex items-center gap-1.5">
-        {/* One persistent element swaps between the two roles so the button
-            replacement under a parked cursor never fires boundary events. */}
         {(followUi === "off" ? hasFrame : followUi !== "exiting") && (
           <button
             type="button"
-            onMouseEnter={() =>
-              startDwell(followUi === "off" ? "follow" : "exit")
-            }
+            onMouseEnter={startDwell}
             onMouseLeave={leaveDwell}
             onPointerDown={(e) => {
-              // Suppress the compatibility mouse events a tap would synthesize.
               if (e.pointerType === "touch") e.preventDefault();
             }}
-            onPointerUp={onFollowTap}
-            title="Rest the cursor here for 3 seconds — no click needed"
-            className="pointer-events-auto relative overflow-hidden rounded border border-edge bg-surface px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink-secondary"
+            onPointerUp={onFollowActivate}
+            title={
+              CLICK_MODE
+                ? followUi === "off"
+                  ? "Click to follow the car"
+                  : "Click to leave follow mode"
+                : "Rest the cursor here for 1 second — no click needed"
+            }
+            className={`pointer-events-auto relative overflow-hidden rounded border border-edge bg-surface px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink-secondary ${
+              CLICK_MODE ? "cursor-pointer" : ""
+            }`}
           >
             {followUi === "off" ? "Follow car" : "Exit follow"}
             <span
               className={`absolute inset-x-0 bottom-0 h-0.5 bg-accent ${
-                dwelling === (followUi === "off" ? "follow" : "exit")
-                  ? `w-full transition-[width] ease-linear ${
-                      DWELL_FILL_CLASS[followUi === "off" ? "follow" : "exit"]
-                    }`
+                dwelling
+                  ? `w-full transition-[width] ease-linear ${DWELL_FILL_CLASS}`
                   : "w-0"
               }`}
             />
           </button>
         )}
-        {/* Zoom steps: only while actually tracking. Off and detached leave
-            zoom to the wheel; exiting is already animating to the fit view. */}
-        {followUi === "following" &&
-          ZOOM_STEP_BUTTONS.map(({ target, direction, glyph, label }) => (
-            <button
-              key={target}
-              type="button"
-              onMouseEnter={() => startDwell(target)}
-              onMouseLeave={leaveDwell}
-              onPointerDown={(e) => {
-                if (e.pointerType === "touch") e.preventDefault();
-              }}
-              onPointerUp={(e) => onZoomTap(e, direction)}
-              title={`${label} — rest the cursor here for 1.5 seconds, no click needed`}
-              aria-label={label}
-              className="pointer-events-auto relative size-6 overflow-hidden rounded border border-edge bg-surface text-xs leading-none text-ink-muted transition-colors hover:text-ink-secondary"
-            >
-              {glyph}
-              <span
-                className={`absolute inset-x-0 bottom-0 h-0.5 bg-accent ${
-                  dwelling === target
-                    ? `w-full transition-[width] ease-linear ${DWELL_FILL_CLASS[target]}`
-                    : "w-0"
-                }`}
-              />
-            </button>
-          ))}
       </div>
       <canvas ref={canvasRef} className="size-full touch-none" />
     </section>

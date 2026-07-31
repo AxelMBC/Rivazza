@@ -16,12 +16,6 @@ const slipClass = (slip: number): string => {
   return 'text-ink';
 };
 
-// Hover-revealed per-wheel detail layer for the instrument cluster. It is
-// pointer-events-none so it never affects hit-testing — the parent section's
-// group-hover drives visibility on desktop, keeping the reveal click/focus-
-// free (a click would steal input focus from the game). On touch the parent's
-// tap toggle drives `open` instead; staying pointer-events-none means the
-// dismissing tap lands on the parent section too.
 export const TyreOverlay = ({
   telemetry,
   open,

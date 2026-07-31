@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { TelemetryFrame } from '../types';
 import type { LapRecord } from '../hooks/useLapHistory';
 import { formatLapTime } from '../lib/format';
+import { HOVER_GROUP_CLASS, isImmediateActivation } from '../lib/interaction';
 
 const TimeTile = ({
   label,
@@ -30,15 +31,6 @@ const formatDelta = (deltaMs: number): string => {
   return `${deltaMs <= 0 ? '−' : '+'}${seconds.toFixed(2)}`;
 };
 
-// Hover-revealed session lap log. The outer wrapper uses padding (not margin)
-// to bridge the gap above the Lap tile, so the cursor can travel from tile to
-// panel without leaving the hover group — required to wheel-scroll the list
-// without ever clicking (clicks would steal focus from the game). On touch
-// the tile's tap toggle drives `open` instead (Tailwind v4 scopes group-hover
-// to hover-capable devices, so emulated hover never fights the state).
-// Hovering a row writes its lap number into hoveredLapRef so the track map
-// reveals that lap's cut markers — a ref, read by the map's rAF loop, so the
-// hover costs no re-renders. Rows do the same on tap.
 const LapListPanel = ({
   laps,
   hoveredLapRef,
@@ -63,9 +55,7 @@ const LapListPanel = ({
           hoveredLapRef.current = null;
         }}
         onPointerUp={(e) => {
-          // In-panel taps (rows, list scrolling) must not bubble to the Lap
-          // tile's open/close toggle.
-          if (e.pointerType === 'touch') e.stopPropagation();
+          if (isImmediateActivation(e)) e.stopPropagation();
         }}
       >
         <p className="mb-2 text-xs tracking-wide text-ink-muted uppercase">Session laps</p>
@@ -135,7 +125,6 @@ export const LapTimes = ({
   const gameBestInvalid =
     gameBest > 0 && laps.some((l) => l.invalid && l.timeMs === gameBest);
   const bestLapMs = gameBestInvalid ? validBest : gameBest > 0 ? gameBest : validBest;
-  // Touch-only reveal state for the lap list; desktop stays pure group-hover.
   const [listOpen, setListOpen] = useState(false);
 
   return (
@@ -157,11 +146,10 @@ export const LapTimes = ({
       accentClass="text-best"
     />
     <div
-      className="group relative col-span-2 flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60"
+      className={`${HOVER_GROUP_CLASS} relative col-span-2 flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60`}
       onPointerUp={(e) => {
-        if (e.pointerType !== 'touch') return;
+        if (!isImmediateActivation(e)) return;
         setListOpen((o) => {
-          // Closing drops any row focus so the map doesn't keep a stale lap lit.
           if (o) hoveredLapRef.current = null;
           return !o;
         });

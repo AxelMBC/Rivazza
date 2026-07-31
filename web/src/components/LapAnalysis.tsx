@@ -3,6 +3,7 @@ import type { LapRecord } from '../hooks/useLapHistory';
 import type { LapRecording, LapTelemetrySample } from '../hooks/useLapRecordings';
 import { formatGearCompact, formatLapTime } from '../lib/format';
 import { lapColor } from '../lib/lapColors';
+import { CLICK_MODE, HOVER_GROUP_CLASS, isImmediateActivation } from '../lib/interaction';
 import {
   SECTOR_COUNT,
   SECTOR_TOLERANCE_MS,
@@ -470,28 +471,14 @@ export const LapAnalysis = ({
 
   return (
     <div
-      className="group relative shrink-0"
+      className={`${HOVER_GROUP_CLASS} relative shrink-0`}
       onPointerEnter={(e) => {
-        if (e.pointerType === 'mouse') setOpen(true);
+        if (!CLICK_MODE && e.pointerType === 'mouse') setOpen(true);
       }}
       onPointerLeave={(e) => {
-        if (e.pointerType === 'mouse') setOpen(false);
+        if (!CLICK_MODE && e.pointerType === 'mouse') setOpen(false);
       }}
     >
-      {/* Hover-revealed overlay floating above the bar (the Lap tile's
-          session-list pattern): the map keeps its full height and the panel
-          only occupies the screen while the pointer is inside the group.
-          The surface is deliberately translucent with only a faint blur
-          (bg-page/40, backdrop-blur-sm) so the track lines and — critically —
-          the live car dot stay visible through the panel while a lap is being
-          inspected; the bright canvas traces keep full opacity on top. It is
-          also kept compact (short canvas) and height-capped (max-h-[42vh],
-          overflow-y-auto) so it covers as little of the map as possible and
-          scrolls rather than growing on short viewports.
-          pb-2 bridges the gap so the cursor can travel bar → panel
-          without closing it — no clicks anywhere on desktop. On touch, `open`
-          is toggled by tapping the bar (Tailwind v4 scopes group-hover to
-          hover-capable devices, so emulated hover never fights the state). */}
       <div
         className={`absolute bottom-full left-0 z-10 w-full pb-2 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 ${
           open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
@@ -534,9 +521,6 @@ export const LapAnalysis = ({
             const record = laps.find((l) => l.lap === rec.lap);
             const isSelected = selected === rec;
             return (
-              // Hover selects (and sticks) — never a click, so the game keeps
-              // controller input while the browser stays unfocused. Touch
-              // selects by tap instead.
               <span
                 key={rec.lap}
                 onMouseEnter={() => setSelectedLap(rec.lap)}
@@ -593,11 +577,10 @@ export const LapAnalysis = ({
         </section>
       </div>
 
-      {/* The always-visible collapsed bar; a tap toggles the panel on touch. */}
       <div
         className="flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60"
         onPointerUp={(e) => {
-          if (e.pointerType === 'touch') setOpen((o) => !o);
+          if (isImmediateActivation(e)) setOpen((o) => !o);
         }}
       >
         <span className="text-xs tracking-wide text-ink-muted uppercase">Lap analysis</span>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { SessionInfo, TelemetryFrame } from '../types';
 import { formatGear } from '../lib/format';
 import { speedScale } from '../lib/speedScale';
+import { HOVER_GROUP_CLASS, isImmediateActivation } from '../lib/interaction';
 import { AnalogGauge } from './AnalogGauge';
 import { TyreOverlay } from './TyreOverlay';
 
@@ -41,14 +42,13 @@ export const InstrumentCluster = ({
 }) => {
   const limiter = telemetry?.engineLimiterOn ?? false;
   const speed = speedScale(session.topSpeedKmh);
-  // Touch-only reveal state for the tyre overlay; desktop stays group-hover.
   const [tyresOpen, setTyresOpen] = useState(false);
 
   return (
     <section
-      className="group relative rounded-lg border border-edge bg-surface p-4"
+      className={`${HOVER_GROUP_CLASS} relative rounded-lg border border-edge bg-surface p-4`}
       onPointerUp={(e) => {
-        if (e.pointerType === 'touch') setTyresOpen((o) => !o);
+        if (isImmediateActivation(e)) setTyresOpen((o) => !o);
       }}
     >
       <TyreOverlay telemetry={telemetry} open={tyresOpen} />
