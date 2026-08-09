@@ -48,7 +48,8 @@ type Sample = {
   gear: number;
   jump: boolean;
 };
-// Where a lap died: the world position of one 4-tyres-out onset.
+// Where a lap died: the world position of the cut that invalidated it. A lap
+// dies once, so a lap holds one of these or none — never a list.
 type CutMarker = { x: number; z: number };
 // Where a lap began braking: onset world position plus the unit travel
 // direction at that sample, so the tick renders perpendicular to the line.
@@ -266,17 +267,17 @@ export const TrackMap = ({
     {
       lap: number;
       samples: Sample[];
-      cuts: CutMarker[];
+      cut: CutMarker | null;
       brakes: BrakeTick[];
       path?: Path2D;
     }[]
   >([]);
-  // Cut markers for the in-progress lap; completed laps carry theirs in
+  // Cut marker for the in-progress lap; completed laps carry theirs in
   // previousLapsRef. The session cut list is consumed incrementally and the
   // bookkeeping lives outside the draw effect so re-creating it (map data
   // changes) never re-attaches already-consumed cuts; a replaced list (new
   // session) restarts consumption via the identity check in the loop.
-  const currentCutsRef = useRef<CutMarker[]>([]);
+  const currentCutRef = useRef<CutMarker | null>(null);
   const consumedCutsRef = useRef(0);
   const seenCutsRef = useRef<CutEvent[] | null>(null);
   // Cursor position in canvas CSS pixels, null when not hovering.
@@ -408,7 +409,7 @@ export const TrackMap = ({
   const resetLines = () => {
     currentRef.current = [];
     previousLapsRef.current = [];
-    currentCutsRef.current = [];
+    currentCutRef.current = null;
     lapRef.current = null;
     lapTimeRef.current = 0;
     boundsRef.current = freshBounds();
@@ -1142,18 +1143,13 @@ export const TrackMap = ({
       strokeCross(px, py, INVALID_TIME, CUT_WIDTH);
     };
 
-    // Only the in-progress lap's markers are ambient (they leave with the
-    // lap at the line). A stored lap reveals its markers when focused — line
-    // hover, session-lap-list row, or the open analysis panel's selection.
+    // Only the in-progress lap's marker is ambient (it leaves with the lap at
+    // the line). A stored lap reveals its marker when focused — line hover,
+    // session-lap-list row, or the open analysis panel's selection.
     const drawCutMarkers = (project: Project, focusIndex: number) => {
-      previousLapsRef.current.forEach(({ cuts }, index) => {
-        if (index !== focusIndex) return;
-        for (const c of cuts) {
-          const { px, py } = project(c);
-          drawCutMarker(px, py);
-        }
-      });
-      for (const c of currentCutsRef.current) {
+      const focused = previousLapsRef.current[focusIndex]?.cut;
+      for (const c of [focused, currentCutRef.current]) {
+        if (!c) continue;
         const { px, py } = project(c);
         drawCutMarker(px, py);
       }
@@ -1542,21 +1538,23 @@ export const TrackMap = ({
           previousLapsRef.current.push({
             lap: prevLap + 1,
             samples: currentRef.current,
-            cuts: currentCutsRef.current,
+            cut: currentCutRef.current,
             brakes: computeBrakeTicks(currentRef.current),
           });
           if (previousLapsRef.current.length > MAX_LAPS)
             previousLapsRef.current.shift();
           currentRef.current = [];
-          currentCutsRef.current = [];
+          currentCutRef.current = null;
           lapsVersion++;
         }
         lapRef.current = frame.lapCount;
         lapTimeRef.current = frame.lapTimeMs;
 
-        // Attach newly arrived cuts: the in-progress lap collects them live,
+        // Attach newly arrived cuts: the in-progress lap takes the first one,
         // a just-completed stored lap picks up a boundary straggler, and
-        // anything else (pre-restart leftovers) is dropped.
+        // everything else is dropped — a later cut for a lap that already died
+        // (the tyres-out counter chatters across one excursion), or a
+        // pre-restart leftover matching no lap at all.
         if (cutList !== seenCutsRef.current) {
           seenCutsRef.current = cutList;
           consumedCutsRef.current = 0;
@@ -1568,11 +1566,12 @@ export const TrackMap = ({
         ) {
           const cut = cutList[consumedCutsRef.current];
           if (cut.lapCount === frame.lapCount) {
-            currentCutsRef.current.push({ x: cut.x, z: cut.z });
+            currentCutRef.current ??= { x: cut.x, z: cut.z };
           } else {
-            previousLapsRef.current
-              .find((l) => l.lap === cut.lapCount + 1)
-              ?.cuts.push({ x: cut.x, z: cut.z });
+            const stored = previousLapsRef.current.find(
+              (l) => l.lap === cut.lapCount + 1,
+            );
+            if (stored) stored.cut ??= { x: cut.x, z: cut.z };
           }
         }
 

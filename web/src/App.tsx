@@ -12,8 +12,31 @@ import { GForceMeter } from "./components/GForceMeter";
 import { SteeringBar } from "./components/SteeringBar";
 import { TrackMap } from "./components/TrackMap";
 import { LapAnalysis } from "./components/LapAnalysis";
+import { IS_DEMO } from "./lib/demo";
 import type { ScrubPoint } from "./lib/lapAnalysis";
 import type { ConnectionStatus } from "./types";
+
+// A demo viewer has no bridge and no copy of the game, so the live screens
+// below would ask them for something they cannot do — the same reason the
+// connection badge is suppressed during replay. These two stand in instead:
+// one while the recording is in flight, one when it never arrives.
+const DemoLoadingScreen = () => (
+  <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+    <span className="size-8 animate-spin rounded-full border-2 border-edge border-t-accent" />
+    <p className="text-sm text-ink-muted">Loading the recorded session…</p>
+  </div>
+);
+
+const DemoUnavailableScreen = () => (
+  <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+    <p className="text-2xl font-semibold text-ink-secondary">
+      Recorded session unavailable
+    </p>
+    <p className="max-w-md text-sm text-ink-muted">
+      The demo recording could not be loaded. Reload the page to try again.
+    </p>
+  </div>
+);
 
 const WaitingScreen = ({ status }: { status: ConnectionStatus }) => (
   <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
@@ -105,6 +128,14 @@ const App = () => {
             />
           </div>
         </main>
+      ) : IS_DEMO ? (
+        // The demo replay path reaches `waiting` only when the recording fetch
+        // failed or came back empty; until then it is still `connecting`.
+        status === "waiting" ? (
+          <DemoUnavailableScreen />
+        ) : (
+          <DemoLoadingScreen />
+        )
       ) : (
         <WaitingScreen status={status} />
       )}
