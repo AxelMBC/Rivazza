@@ -1,10 +1,13 @@
-import { useState } from 'react';
-import type { SessionInfo, TelemetryFrame } from '../types';
-import { formatGear } from '../lib/format';
-import { speedScale } from '../lib/speedScale';
-import { HOVER_GROUP_CLASS, isImmediateActivation } from '../lib/interaction';
-import { AnalogGauge } from './AnalogGauge';
-import { TyreOverlay } from './TyreOverlay';
+import type { SessionInfo, TelemetryFrame } from "../types";
+
+import { useState } from "react";
+
+import { AnalogGauge } from "./AnalogGauge";
+import { TyreOverlay } from "./TyreOverlay";
+
+import { formatGear } from "../lib/format";
+import { speedScale } from "../lib/speedScale";
+import { HOVER_GROUP_CLASS, isImmediateActivation } from "../lib/interaction";
 
 const RPM_MAX = 10000;
 const REDLINE_FROM_RPM = 8500;
@@ -25,8 +28,8 @@ const StatusLight = ({
       active
         ? `${activeClass} text-page`
         : enabled
-          ? 'bg-hairline text-ink-secondary'
-          : 'bg-hairline text-ink-muted opacity-40'
+          ? "bg-hairline text-ink-secondary"
+          : "bg-hairline text-ink-muted opacity-40"
     }`}
   >
     {label}
@@ -42,6 +45,7 @@ export const InstrumentCluster = ({
 }) => {
   const limiter = telemetry?.engineLimiterOn ?? false;
   const speed = speedScale(session.topSpeedKmh);
+
   const [tyresOpen, setTyresOpen] = useState(false);
 
   return (
@@ -52,6 +56,7 @@ export const InstrumentCluster = ({
       }}
     >
       <TyreOverlay telemetry={telemetry} open={tyresOpen} />
+
       <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
         <AnalogGauge
           min={0}
@@ -61,8 +66,10 @@ export const InstrumentCluster = ({
           label="km/h"
         >
           <p className="rounded border border-hairline bg-page px-2 py-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">
-            {telemetry ? Math.round(telemetry.speedKmh) : '–'}
-            <span className="ml-1 text-[0.65rem] font-normal text-ink-muted">km/h</span>
+            {telemetry ? Math.round(telemetry.speedKmh) : "–"}
+            <span className="ml-1 text-[0.65rem] font-normal text-ink-muted">
+              km/h
+            </span>
           </p>
         </AnalogGauge>
 
@@ -78,10 +85,10 @@ export const InstrumentCluster = ({
         >
           <p
             className={`text-3xl font-bold tabular-nums ${
-              limiter ? 'animate-pulse text-redline' : 'text-accent'
+              limiter ? "animate-pulse text-redline" : "text-accent"
             }`}
           >
-            {telemetry ? formatGear(telemetry.gear) : '–'}
+            {telemetry ? formatGear(telemetry.gear) : "–"}
           </p>
         </AnalogGauge>
       </div>

@@ -1,9 +1,14 @@
+import type { ConnectionStatus } from "./types";
+import type { ScrubPoint } from "./lib/lapAnalysis";
+
 import { useRef } from "react";
+
 import { useTelemetry } from "./hooks/useTelemetry";
 import { useInputHistory } from "./hooks/useInputHistory";
 import { useLapDelta } from "./hooks/useLapDelta";
 import { useLapHistory } from "./hooks/useLapHistory";
 import { useLapRecordings } from "./hooks/useLapRecordings";
+
 import { SessionHeader } from "./components/SessionHeader";
 import { LapTimes } from "./components/LapTimes";
 import { InstrumentCluster } from "./components/InstrumentCluster";
@@ -12,14 +17,9 @@ import { GForceMeter } from "./components/GForceMeter";
 import { SteeringBar } from "./components/SteeringBar";
 import { TrackMap } from "./components/TrackMap";
 import { LapAnalysis } from "./components/LapAnalysis";
-import { IS_DEMO } from "./lib/demo";
-import type { ScrubPoint } from "./lib/lapAnalysis";
-import type { ConnectionStatus } from "./types";
 
-// A demo viewer has no bridge and no copy of the game, so the live screens
-// below would ask them for something they cannot do — the same reason the
-// connection badge is suppressed during replay. These two stand in instead:
-// one while the recording is in flight, one when it never arrives.
+import { IS_DEMO } from "./lib/demo";
+
 const DemoLoadingScreen = () => (
   <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
     <span className="size-8 animate-spin rounded-full border-2 border-edge border-t-accent" />
@@ -54,6 +54,10 @@ const WaitingScreen = ({ status }: { status: ConnectionStatus }) => (
 );
 
 const App = () => {
+  const hoveredLapRef = useRef<number | null>(null);
+  const scrubRef = useRef<ScrubPoint | null>(null);
+  const analysisLapRef = useRef<number | null>(null);
+
   const {
     status,
     session,
@@ -63,37 +67,30 @@ const App = () => {
     cutSeq,
     subscribeFrame,
   } = useTelemetry();
+
   const historyRef = useInputHistory(telemetry);
   const deltaMs = useLapDelta(telemetry);
+
   const { lapsRef: lapHistoryRef, currentLapInvalidRef } = useLapHistory(
     telemetry,
     cutsRef,
     cutSeq,
   );
-  // Full-rate per-lap telemetry recordings; validity stays a consumer-side
-  // join against the lap history by lap number.
   const { recordingsRef, version: recVersion } = useLapRecordings(
     subscribeFrame,
     session,
     lapHistoryRef,
   );
-  // Display lap number hovered in the session-lap list; the track map reveals
-  // that lap's cut markers. A ref, not state — the map's rAF loop reads it.
-  const hoveredLapRef = useRef<number | null>(null);
-  // Scrub position hovered in the analysis panel's traces; the track map
-  // echoes it as a ring on the lap line. Same ref pattern as hoveredLapRef.
-  const scrubRef = useRef<ScrubPoint | null>(null);
-  // Lap selected in the open analysis panel; the track map reveals that
-  // lap's braking ticks while set. Same ref pattern as hoveredLapRef.
-  const analysisLapRef = useRef<number | null>(null);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <SessionHeader session={session} status={status} />
+
       {session ? (
         <main className="grid min-h-0 flex-1 grid-rows-[35fr_65fr] gap-4 p-4 lg:grid-cols-[24rem_1fr] lg:grid-rows-none">
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
             <InstrumentCluster telemetry={telemetry} session={session} />
+
             <LapTimes
               telemetry={telemetry}
               deltaMs={deltaMs}
@@ -101,7 +98,10 @@ const App = () => {
               currentLapInvalidRef={currentLapInvalidRef}
               hoveredLapRef={hoveredLapRef}
             />
+
+            {/* TODO: aqui me quede */}
             <PedalTrace historyRef={historyRef} />
+
             <div className="grid grid-cols-[10rem_1fr] items-start gap-3">
               <GForceMeter historyRef={historyRef} />
               <div className="rounded-lg border border-edge bg-surface p-4">
@@ -109,6 +109,7 @@ const App = () => {
               </div>
             </div>
           </div>
+
           <div className="flex min-h-0 flex-col gap-4">
             <TrackMap
               session={session}
@@ -119,6 +120,7 @@ const App = () => {
               scrubRef={scrubRef}
               analysisLapRef={analysisLapRef}
             />
+
             <LapAnalysis
               recordingsRef={recordingsRef}
               version={recVersion}
@@ -129,8 +131,6 @@ const App = () => {
           </div>
         </main>
       ) : IS_DEMO ? (
-        // The demo replay path reaches `waiting` only when the recording fetch
-        // failed or came back empty; until then it is still `connecting`.
         status === "waiting" ? (
           <DemoUnavailableScreen />
         ) : (

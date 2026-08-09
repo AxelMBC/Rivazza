@@ -1,13 +1,16 @@
-import { useState } from 'react';
-import type { TelemetryFrame } from '../types';
-import type { LapRecord } from '../hooks/useLapHistory';
-import { formatLapTime } from '../lib/format';
-import { HOVER_GROUP_CLASS, isImmediateActivation } from '../lib/interaction';
+import type { TelemetryFrame } from "../types";
+
+import { useState } from "react";
+
+import type { LapRecord } from "../hooks/useLapHistory";
+
+import { formatLapTime } from "../lib/format";
+import { HOVER_GROUP_CLASS, isImmediateActivation } from "../lib/interaction";
 
 const TimeTile = ({
   label,
   value,
-  accentClass = 'text-ink',
+  accentClass = "text-ink",
   invalid = false,
 }: {
   label: string;
@@ -18,9 +21,14 @@ const TimeTile = ({
   <div className="rounded-lg border border-edge bg-surface px-4 py-3">
     <p className="text-xs tracking-wide text-ink-muted uppercase">
       {label}
-      {invalid && <span className="ml-2 text-[0.65rem] uppercase text-critical">inv</span>}
+      {invalid && (
+        <span className="ml-2 text-[0.65rem] uppercase text-critical">inv</span>
+      )}
     </p>
-    <p className={`mt-1 text-2xl font-semibold tabular-nums ${invalid ? 'text-critical' : accentClass}`}>
+
+    <p
+      className={`mt-1 text-2xl font-semibold tabular-nums ${invalid ? "text-critical" : accentClass}`}
+    >
       {value}
     </p>
   </div>
@@ -28,7 +36,7 @@ const TimeTile = ({
 
 const formatDelta = (deltaMs: number): string => {
   const seconds = Math.abs(deltaMs) / 1000;
-  return `${deltaMs <= 0 ? '−' : '+'}${seconds.toFixed(2)}`;
+  return `${deltaMs <= 0 ? "-" : "+"}${seconds.toFixed(2)}`;
 };
 
 const LapListPanel = ({
@@ -46,7 +54,9 @@ const LapListPanel = ({
   return (
     <div
       className={`absolute bottom-full left-0 z-10 w-full pb-2 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 ${
-        open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+        open
+          ? "pointer-events-auto opacity-100"
+          : "pointer-events-none opacity-0"
       }`}
     >
       <div
@@ -58,7 +68,10 @@ const LapListPanel = ({
           if (isImmediateActivation(e)) e.stopPropagation();
         }}
       >
-        <p className="mb-2 text-xs tracking-wide text-ink-muted uppercase">Session laps</p>
+        <p className="mb-2 text-xs tracking-wide text-ink-muted uppercase">
+          Session laps
+        </p>
+
         {laps.length === 0 ? (
           <p className="text-sm text-ink-muted">No laps completed yet</p>
         ) : (
@@ -74,20 +87,25 @@ const LapListPanel = ({
                   hoveredLapRef.current = null;
                 }}
                 onPointerUp={(e) => {
-                  if (e.pointerType === 'touch') hoveredLapRef.current = l.lap;
+                  if (e.pointerType === "touch") hoveredLapRef.current = l.lap;
                 }}
               >
                 <span className="text-ink-muted">
                   Lap {l.lap}
-                  {l.invalid && <span className="ml-2 text-[0.65rem] uppercase text-critical">inv</span>}
+                  {l.invalid && (
+                    <span className="ml-2 text-[0.65rem] uppercase text-critical">
+                      inv
+                    </span>
+                  )}
                 </span>
+
                 <span
                   className={`font-semibold tabular-nums ${
                     l.invalid
-                      ? 'text-critical'
+                      ? "text-critical"
                       : l.timeMs === bestValid
-                        ? 'text-best'
-                        : 'text-ink'
+                        ? "text-best"
+                        : "text-ink"
                   }`}
                 >
                   {formatLapTime(l.timeMs)}
@@ -114,53 +132,71 @@ export const LapTimes = ({
   currentLapInvalidRef: React.RefObject<boolean>;
   hoveredLapRef: React.RefObject<number | null>;
 }) => {
-  // Best lap trusts the game's bestLapMs unless the lap log knows that time
-  // belongs to an invalidated lap (AC adopts cut laps as "best" in some
-  // sessions) — then the fastest valid recorded lap is the best the driver
-  // actually owns, or a placeholder when no valid lap exists yet.
   const laps = lapsRef.current;
   const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
   const validBest = validTimes.length > 0 ? Math.min(...validTimes) : null;
   const gameBest = telemetry?.bestLapMs ?? 0;
+
   const gameBestInvalid =
     gameBest > 0 && laps.some((l) => l.invalid && l.timeMs === gameBest);
-  const bestLapMs = gameBestInvalid ? validBest : gameBest > 0 ? gameBest : validBest;
+
+  const bestLapMs = gameBestInvalid
+    ? validBest
+    : gameBest > 0
+      ? gameBest
+      : validBest;
+
   const [listOpen, setListOpen] = useState(false);
 
   return (
-  <section className="grid grid-cols-2 gap-2">
-    <TimeTile
-      label="Current lap"
-      value={formatLapTime(telemetry?.lapTimeMs)}
-      invalid={currentLapInvalidRef.current}
-    />
-    <TimeTile
-      label="Delta"
-      value={deltaMs === null ? '––.––' : formatDelta(deltaMs)}
-      accentClass={deltaMs === null ? 'text-ink-muted' : deltaMs <= 0 ? 'text-good' : 'text-warning'}
-    />
-    <TimeTile label="Last lap" value={formatLapTime(telemetry?.lastLapMs)} />
-    <TimeTile
-      label="Best lap"
-      value={formatLapTime(bestLapMs)}
-      accentClass="text-best"
-    />
-    <div
-      className={`${HOVER_GROUP_CLASS} relative col-span-2 flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60`}
-      onPointerUp={(e) => {
-        if (!isImmediateActivation(e)) return;
-        setListOpen((o) => {
-          if (o) hoveredLapRef.current = null;
-          return !o;
-        });
-      }}
-    >
-      <LapListPanel laps={lapsRef.current} hoveredLapRef={hoveredLapRef} open={listOpen} />
-      <span className="text-xs tracking-wide text-ink-muted uppercase">Lap</span>
-      <span className="text-lg font-semibold tabular-nums">
-        {telemetry ? telemetry.lapCount + 1 : '–'}
-      </span>
-    </div>
-  </section>
+    <section className="grid grid-cols-2 gap-2">
+      <TimeTile
+        label="Current lap"
+        value={formatLapTime(telemetry?.lapTimeMs)}
+        invalid={currentLapInvalidRef.current}
+      />
+      <TimeTile
+        label="Delta"
+        value={deltaMs === null ? "--.--" : formatDelta(deltaMs)}
+        accentClass={
+          deltaMs === null
+            ? "text-ink-muted"
+            : deltaMs <= 0
+              ? "text-good"
+              : "text-warning"
+        }
+      />
+      <TimeTile label="Last lap" value={formatLapTime(telemetry?.lastLapMs)} />
+
+      <TimeTile
+        label="Best lap"
+        value={formatLapTime(bestLapMs)}
+        accentClass="text-best"
+      />
+
+      <div
+        className={`${HOVER_GROUP_CLASS} relative col-span-2 flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60`}
+        onPointerUp={(e) => {
+          if (!isImmediateActivation(e)) return;
+          setListOpen((o) => {
+            if (o) hoveredLapRef.current = null;
+            return !o;
+          });
+        }}
+      >
+        <LapListPanel
+          laps={lapsRef.current}
+          hoveredLapRef={hoveredLapRef}
+          open={listOpen}
+        />
+
+        <span className="text-xs tracking-wide text-ink-muted uppercase">
+          Lap
+        </span>
+        <span className="text-lg font-semibold tabular-nums">
+          {telemetry ? telemetry.lapCount + 1 : "-"}
+        </span>
+      </div>
+    </section>
   );
 };
