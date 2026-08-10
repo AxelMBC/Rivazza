@@ -1,5 +1,8 @@
-import type { LapRecord } from '../hooks/useLapHistory';
-import type { LapRecording, LapTelemetrySample } from '../hooks/useLapRecordings';
+import type { LapRecord } from "../hooks/useLapHistory";
+import type {
+  LapRecording,
+  LapTelemetrySample,
+} from "../hooks/useLapRecordings";
 
 // A recording must span the lap to count as complete or become the delta
 // reference — rejects out-laps and sessions joined mid-lap.
@@ -14,18 +17,17 @@ export const SECTOR_COUNT = 24;
 // A sector this close to the session best reads as "matched", not "slower".
 export const SECTOR_TOLERANCE_MS = 50;
 
-// Scrub handoff from the analysis panel to the track map: world point on the
-// selected lap's line plus that lap's identity color. Shared as a ref (the
-// hoveredLapRef pattern) so neither side render-couples to the other.
 export type ScrubPoint = { x: number; z: number; color: string };
 
 type PosTimed = { pos: number; timeMs: number };
 
-// Bracketing index for `pos`: the largest i with samples[i].pos <= pos,
-// requiring samples[i + 1] to exist. Samples are sorted by pos (appends are
-// monotonic-guarded). Returns -1 when pos falls outside the sampled span.
+// -1 when pos falls outside the sampled span.
 const bracket = (samples: readonly PosTimed[], pos: number): number => {
-  if (samples.length < 2 || pos < samples[0].pos || pos > samples[samples.length - 1].pos)
+  if (
+    samples.length < 2 ||
+    pos < samples[0].pos ||
+    pos > samples[samples.length - 1].pos
+  )
     return -1;
   let lo = 0;
   let hi = samples.length - 1;
@@ -37,9 +39,10 @@ const bracket = (samples: readonly PosTimed[], pos: number): number => {
   return lo;
 };
 
-// Elapsed lap time at `pos`, linearly interpolated between the two bracketing
-// samples, or null when the recording doesn't cover that position.
-export const interpolateTimeAt = (samples: readonly PosTimed[], pos: number): number | null => {
+export const interpolateTimeAt = (
+  samples: readonly PosTimed[],
+  pos: number,
+): number | null => {
   const lo = bracket(samples, pos);
   if (lo < 0) return null;
   const a = samples[lo];
@@ -49,8 +52,7 @@ export const interpolateTimeAt = (samples: readonly PosTimed[], pos: number): nu
   return a.timeMs + ((pos - a.pos) / span) * (b.timeMs - a.timeMs);
 };
 
-// Nearest recorded sample to `pos` — for readouts of stepwise fields (gear,
-// pedal state) that must never be blended between samples.
+// Stepwise fields (gear, pedal state) must never be blended between samples.
 export const sampleNear = (
   samples: readonly LapTelemetrySample[],
   pos: number,
@@ -62,8 +64,6 @@ export const sampleNear = (
   return pos - a.pos <= b.pos - pos ? a : b;
 };
 
-// World point on the lap line at `pos`, linearly interpolated — where the
-// track map draws the scrub marker.
 export const worldPointAt = (
   samples: readonly LapTelemetrySample[],
   pos: number,
@@ -91,7 +91,8 @@ export const resolveReference = (
   let bestValid: LapRecording | null = null;
   for (const rec of recordings) {
     if (!rec.complete || rec.timeMs === null || invalid.has(rec.lap)) continue;
-    if (bestValid === null || rec.timeMs < (bestValid.timeMs ?? Infinity)) bestValid = rec;
+    if (bestValid === null || rec.timeMs < (bestValid.timeMs ?? Infinity))
+      bestValid = rec;
   }
   return bestValid;
 };
@@ -101,14 +102,21 @@ export const resolveReference = (
 // starts (ends) at the line — sampling never lands exactly on the boundary,
 // and without the pin the first and last slices would never resolve. Slices
 // the recording doesn't cover yield null, never a fabricated time.
-export const sectorTimes = (rec: LapRecording, count: number): (number | null)[] => {
+export const sectorTimes = (
+  rec: LapRecording,
+  count: number,
+): (number | null)[] => {
   const samples = rec.samples;
   const bounds: (number | null)[] = [];
   for (let i = 0; i <= count; i++) {
     let t = interpolateTimeAt(samples, i / count);
     if (t === null && samples.length > 0) {
       if (i === 0 && samples[0].pos <= COVERAGE_START) t = 0;
-      else if (i === count && rec.timeMs !== null && samples[samples.length - 1].pos >= COVERAGE_END)
+      else if (
+        i === count &&
+        rec.timeMs !== null &&
+        samples[samples.length - 1].pos >= COVERAGE_END
+      )
         t = rec.timeMs;
     }
     bounds.push(t);
@@ -144,7 +152,9 @@ export const bestSectors = (
 
 // Sum of the per-slice bests — only once every slice has a valid time, so a
 // partial table never shows a fabricated optimal lap.
-export const theoreticalBestMs = (best: readonly (number | null)[]): number | null => {
+export const theoreticalBestMs = (
+  best: readonly (number | null)[],
+): number | null => {
   let sum = 0;
   for (const t of best) {
     if (t === null) return null;

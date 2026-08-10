@@ -1,11 +1,11 @@
+import { IS_DEMO } from "../lib/demo";
+import { prettifyName } from "../lib/format";
 import type { ConnectionStatus, SessionInfo } from "../types";
 
-import { prettifyName } from "../lib/format";
-import { IS_DEMO } from "../lib/demo";
 import { ConnectionBadge } from "./ConnectionBadge";
 import { DemoBadge } from "./DemoBadge";
-import { InteractionModeBadge } from "./InteractionModeBadge";
 import { GitHubLink } from "./GitHubLink";
+import { InteractionModeBadge } from "./InteractionModeBadge";
 
 type Props = {
   session: SessionInfo | null;

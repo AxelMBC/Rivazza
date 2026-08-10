@@ -1,19 +1,18 @@
-import type { TelemetryFrame } from '../types';
+import type { TelemetryFrame } from "../types";
 
-// Car layout: front row then rear row — matches the tyreSlip/wheelLoad
-// array order (FL, FR, RL, RR).
-const WHEEL_LABELS = ['FL', 'FR', 'RL', 'RR'] as const;
+// Index order must match the tyreSlip / wheelLoad arrays.
+const WHEEL_LABELS = ["FL", "FR", "RL", "RR"] as const;
 
-// tyreSlip sits near 0 while gripping and spikes during wheelspin or
-// lock-up; thresholds grade the readout without needing exact units.
+// tyreSlip sits near 0 while gripping and spikes during wheelspin or lock-up;
+// these grade the readout without needing exact units.
 const SLIP_WARNING = 1;
 const SLIP_CRITICAL = 3;
 
 const slipClass = (slip: number): string => {
   const s = Math.abs(slip);
-  if (s >= SLIP_CRITICAL) return 'text-critical';
-  if (s >= SLIP_WARNING) return 'text-warning';
-  return 'text-ink';
+  if (s >= SLIP_CRITICAL) return "text-critical";
+  if (s >= SLIP_WARNING) return "text-warning";
+  return "text-ink";
 };
 
 export const TyreOverlay = ({
@@ -25,7 +24,7 @@ export const TyreOverlay = ({
 }) => (
   <div
     className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-page/85 backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100 ${
-      open ? 'opacity-100' : 'opacity-0'
+      open ? "opacity-100" : "opacity-0"
     }`}
   >
     <div>
@@ -34,8 +33,13 @@ export const TyreOverlay = ({
       </p>
       <div className="grid grid-cols-2 gap-2">
         {WHEEL_LABELS.map((label, i) => (
-          <div key={label} className="w-28 rounded-lg border border-edge bg-surface px-3 py-2">
-            <p className="text-[0.65rem] tracking-wide text-ink-muted uppercase">{label}</p>
+          <div
+            key={label}
+            className="w-28 rounded-lg border border-edge bg-surface px-3 py-2"
+          >
+            <p className="text-[0.65rem] tracking-wide text-ink-muted uppercase">
+              {label}
+            </p>
             <p
               className={`text-lg font-semibold tabular-nums ${slipClass(
                 telemetry?.tyreSlip[i] ?? 0,

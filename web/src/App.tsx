@@ -1,24 +1,21 @@
-import type { ConnectionStatus } from "./types";
-import type { ScrubPoint } from "./lib/lapAnalysis";
-
 import { useRef } from "react";
 
-import { useTelemetry } from "./hooks/useTelemetry";
+import { GForceMeter } from "./components/GForceMeter";
+import { InstrumentCluster } from "./components/InstrumentCluster";
+import { LapAnalysis } from "./components/LapAnalysis";
+import { LapTimes } from "./components/LapTimes";
+import { PedalTrace } from "./components/PedalTrace";
+import { SessionHeader } from "./components/SessionHeader";
+import { SteeringBar } from "./components/SteeringBar";
+import { TrackMap } from "./components/TrackMap";
 import { useInputHistory } from "./hooks/useInputHistory";
 import { useLapDelta } from "./hooks/useLapDelta";
 import { useLapHistory } from "./hooks/useLapHistory";
 import { useLapRecordings } from "./hooks/useLapRecordings";
-
-import { SessionHeader } from "./components/SessionHeader";
-import { LapTimes } from "./components/LapTimes";
-import { InstrumentCluster } from "./components/InstrumentCluster";
-import { PedalTrace } from "./components/PedalTrace";
-import { GForceMeter } from "./components/GForceMeter";
-import { SteeringBar } from "./components/SteeringBar";
-import { TrackMap } from "./components/TrackMap";
-import { LapAnalysis } from "./components/LapAnalysis";
-
+import { useTelemetry } from "./hooks/useTelemetry";
 import { IS_DEMO } from "./lib/demo";
+import type { ScrubPoint } from "./lib/lapAnalysis";
+import type { ConnectionStatus } from "./types";
 
 const DemoLoadingScreen = () => (
   <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
@@ -99,11 +96,11 @@ const App = () => {
               hoveredLapRef={hoveredLapRef}
             />
 
-            {/* TODO: aqui me quede */}
             <PedalTrace historyRef={historyRef} />
 
             <div className="grid grid-cols-[10rem_1fr] items-start gap-3">
               <GForceMeter historyRef={historyRef} />
+
               <div className="rounded-lg border border-edge bg-surface p-4">
                 <SteeringBar telemetry={telemetry} />
               </div>

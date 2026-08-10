@@ -1,4 +1,4 @@
-import type { HandshakerResponse, TelemetryFrame } from './types.js';
+import type { HandshakerResponse, TelemetryFrame } from "./types.js";
 
 export const HANDSHAKE_RESPONSE_SIZE = 408;
 export const RT_CAR_INFO_SIZE = 328;
@@ -14,11 +14,11 @@ export const OperationId = {
 // terminator (often a stray '%' or control bytes), so cut at the first control
 // character or '%'. Invisible garbage here silently breaks track-folder lookups.
 const readWideString = (buf: Buffer, offset: number, wchars = 50): string => {
-  const raw = buf.toString('utf16le', offset, offset + wchars * 2);
+  const raw = buf.toString("utf16le", offset, offset + wchars * 2);
   let end = raw.length;
   for (let i = 0; i < raw.length; i++) {
     const code = raw.charCodeAt(i);
-    if (code < 32 || raw[i] === '%') {
+    if (code < 32 || raw[i] === "%") {
       end = i;
       break;
     }
@@ -43,7 +43,8 @@ export const parseHandshakerResponse = (buf: Buffer): HandshakerResponse => ({
   trackConfig: readWideString(buf, 308),
 });
 
-const readBool = (buf: Buffer, offset: number): boolean => buf.readUInt8(offset) !== 0;
+const readBool = (buf: Buffer, offset: number): boolean =>
+  buf.readUInt8(offset) !== 0;
 
 // float[4] wheel block, ordered FL, FR, RL, RR.
 const readWheels = (buf: Buffer, offset: number): number[] => [

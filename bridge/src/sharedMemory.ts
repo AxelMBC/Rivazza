@@ -1,11 +1,11 @@
-import type { CutEvent, TelemetryFrame } from './types.js';
+import type { CutEvent, TelemetryFrame } from "./types.js";
 
 // AC publishes SPageFilePhysics as a memory-mapped page on the local machine
 // (#pragma pack(4), rewritten every physics tick at ~333 Hz) — the same
 // interface SimHub and Crew Chief read. Every struct member before the fields
 // read here is a 4-byte scalar or float array, so these offsets are stable
 // magic numbers in the parsers.ts tradition — do not "clean them up".
-const MAPPING_NAME = 'Local\\acpmf_physics';
+const MAPPING_NAME = "Local\\acpmf_physics";
 const OFF_PACKET_ID = 0; // int32 — frozen while paused / in menus / closed
 const OFF_SPEED_KMH = 28; // float32
 const OFF_TYRES_OUT = 244; // int32 — the game's own lap-invalidation counter
@@ -15,7 +15,7 @@ const READ_SIZE = 256; // covers every field above with headroom
 // doesn't report the layout subfolder for multi-layout tracks, so this is the
 // only reliable source (see resolveTrackAssetsForSession). ~800 B struct; a
 // 1 KB over-read stays inside the same committed page and is safe.
-const STATIC_MAPPING_NAME = 'Local\\acpmf_static';
+const STATIC_MAPPING_NAME = "Local\\acpmf_static";
 const STATIC_READ_SIZE = 1024;
 
 const FILE_MAP_READ = 0x0004;
@@ -39,17 +39,29 @@ type Kernel32 = {
   closeHandle: (handle: unknown) => void;
 };
 
-// koffi is this repo's only native dependency; if it fails to load, cut
-// detection simply stays off — nothing else depends on it.
 const loadKernel32 = async (): Promise<Kernel32 | null> => {
   try {
-    const koffi = (await import('koffi')).default;
-    const lib = koffi.load('kernel32.dll');
-    const openFileMapping = lib.func('OpenFileMappingW', 'void *', ['uint32', 'bool', 'str16']);
-    const mapViewOfFile = lib.func('MapViewOfFile', 'void *', ['void *', 'uint32', 'uint32', 'uint32', 'size_t']);
-    const rtlMoveMemory = lib.func('RtlMoveMemory', 'void', ['_Out_ uint8 *', 'void *', 'size_t']);
-    const unmapViewOfFile = lib.func('UnmapViewOfFile', 'bool', ['void *']);
-    const closeHandle = lib.func('CloseHandle', 'bool', ['void *']);
+    const koffi = (await import("koffi")).default;
+    const lib = koffi.load("kernel32.dll");
+    const openFileMapping = lib.func("OpenFileMappingW", "void *", [
+      "uint32",
+      "bool",
+      "str16",
+    ]);
+    const mapViewOfFile = lib.func("MapViewOfFile", "void *", [
+      "void *",
+      "uint32",
+      "uint32",
+      "uint32",
+      "size_t",
+    ]);
+    const rtlMoveMemory = lib.func("RtlMoveMemory", "void", [
+      "_Out_ uint8 *",
+      "void *",
+      "size_t",
+    ]);
+    const unmapViewOfFile = lib.func("UnmapViewOfFile", "bool", ["void *"]);
+    const closeHandle = lib.func("CloseHandle", "bool", ["void *"]);
     return {
       openMapping: (name) => openFileMapping(FILE_MAP_READ, false, name),
       mapView: (handle) => mapViewOfFile(handle, FILE_MAP_READ, 0, 0, 0),
@@ -58,23 +70,22 @@ const loadKernel32 = async (): Promise<Kernel32 | null> => {
       closeHandle: (handle) => closeHandle(handle),
     };
   } catch (err) {
-    console.log('[shm] koffi unavailable, cut detection off:', (err as Error).message);
+    console.log(
+      "[shm] koffi unavailable, cut detection off:",
+      (err as Error).message,
+    );
     return null;
   }
 };
 
-// kernel32 is loaded once and shared by cut detection and the static-page
-// reader — koffi's native binding needn't be paid for twice.
 let kernelPromise: Promise<Kernel32 | null> | null = null;
-const kernel32 = (): Promise<Kernel32 | null> => (kernelPromise ??= loadKernel32());
+const kernel32 = (): Promise<Kernel32 | null> =>
+  (kernelPromise ??= loadKernel32());
 
-// One-shot read of AC's static shared-memory page (track/layout/car metadata).
-// Windows/same-PC only; returns null anywhere the page can't be mapped
-// (non-Windows, AC_SHM=0, koffi failure, AC closed or on another host) so
-// callers degrade gracefully. Unlike the physics page this is read on demand,
-// not polled — its contents only change between sessions.
+// Read on demand rather than polled: the static page only changes between
+// sessions.
 export const readStaticPage = async (): Promise<Buffer | null> => {
-  if (process.platform !== 'win32' || process.env.AC_SHM === '0') return null;
+  if (process.platform !== "win32" || process.env.AC_SHM === "0") return null;
   const k32 = await kernel32();
   if (!k32) return null;
   const handle = k32.openMapping(STATIC_MAPPING_NAME);
@@ -94,15 +105,12 @@ export const readStaticPage = async (): Promise<Buffer | null> => {
   }
 };
 
-// Polls the physics page and turns "numberOfTyresOut reaches 4" onsets into
-// cut events stamped from the newest UDP frame (at 60 Hz+ packet arrival the
-// position is at most ~1 m stale — sub-pixel at map scale). Returns a stop
-// function. Anywhere the page can't be read (non-Windows, AC_SHM=0, koffi
-// failure, AC on another PC) this degrades to a no-op with one log line.
+// Cuts are stamped from the newest UDP frame: at 60 Hz+ packet arrival that
+// position is at most ~1 m stale, sub-pixel at map scale.
 export const startCutDetection = (detector: CutDetector): (() => void) => {
-  if (process.platform !== 'win32') return () => {};
-  if (process.env.AC_SHM === '0') {
-    console.log('[shm] cut detection disabled (AC_SHM=0)');
+  if (process.platform !== "win32") return () => {};
+  if (process.env.AC_SHM === "0") {
+    console.log("[shm] cut detection disabled (AC_SHM=0)");
     return () => {};
   }
 
@@ -135,7 +143,8 @@ export const startCutDetection = (detector: CutDetector): (() => void) => {
 
     const frame = detector.getFrame();
     const speedKmh = page.readFloatLE(OFF_SPEED_KMH);
-    if (!detector.isLive() || !frame || frame.inPit || speedKmh < MIN_SPEED_KMH) return;
+    if (!detector.isLive() || !frame || frame.inPit || speedKmh < MIN_SPEED_KMH)
+      return;
     detector.onCut({
       lapCount: frame.lapCount,
       lapTimeMs: frame.lapTimeMs,
@@ -158,7 +167,7 @@ export const startCutDetection = (detector: CutDetector): (() => void) => {
     }
     if (retryTimer) clearInterval(retryTimer);
     retryTimer = null;
-    console.log('[shm] physics page mapped, cut detection live');
+    console.log("[shm] physics page mapped, cut detection live");
     pollTimer = setInterval(poll, POLL_MS);
   };
 
@@ -167,7 +176,9 @@ export const startCutDetection = (detector: CutDetector): (() => void) => {
     k32 = lib;
     tryOpen();
     if (view == null) {
-      console.log('[shm] physics page not available (is AC running on this PC?), retrying quietly');
+      console.log(
+        "[shm] physics page not available (is AC running on this PC?), retrying quietly",
+      );
       retryTimer = setInterval(tryOpen, OPEN_RETRY_MS);
     }
   });

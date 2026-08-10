@@ -1,16 +1,19 @@
-import { useEffect, useRef } from 'react';
-import type { TelemetryFrame } from '../types';
-import { COVERAGE_START, COVERAGE_END, interpolateTimeAt } from '../lib/lapAnalysis';
+import { useEffect, useRef } from "react";
+
+import {
+  COVERAGE_END,
+  COVERAGE_START,
+  interpolateTimeAt,
+} from "../lib/lapAnalysis";
+import type { TelemetryFrame } from "../types";
 
 type LapSample = { pos: number; timeMs: number };
 
-// Records elapsed-time-vs-track-position for every lap driven while the app
-// is open; the fastest complete lap becomes the reference, and the return
-// value is the live delta to it (ms, negative = faster) or null before a
-// reference exists. Bookkeeping happens in an effect and the result is read
-// through a ref — the 30 Hz telemetry stream already re-renders consumers,
-// so a one-frame lag is invisible and costs no extra renders.
-export const useLapDelta = (telemetry: TelemetryFrame | null): number | null => {
+// Live delta to the fastest complete lap in milliseconds, negative = faster,
+// null until a reference lap exists.
+export const useLapDelta = (
+  telemetry: TelemetryFrame | null,
+): number | null => {
   const recordingRef = useRef<LapSample[]>([]);
   const referenceRef = useRef<LapSample[] | null>(null);
   const referenceTimeRef = useRef<number>(Infinity);
@@ -36,17 +39,19 @@ export const useLapDelta = (telemetry: TelemetryFrame | null): number | null => 
 
     const prevLap = lapCountRef.current;
     if (prevLap !== null && telemetry.lapCount > prevLap) {
-      // Lap boundary: decide whether the finished recording becomes the
-      // reference. When the recording already rolled over at the line
-      // (wrappedRef), the held one is the finished lap and the current
-      // recording is already the new lap — keep it accumulating.
+      // When the recording already rolled over at the line, the held one is
+      // the finished lap and the current recording is already the new lap.
       const finished = wrappedRef.current ?? recordingRef.current;
       wrappedRef.current = null;
       const covered =
         finished.length >= 2 &&
         finished[0].pos <= COVERAGE_START &&
         finished[finished.length - 1].pos >= COVERAGE_END;
-      if (covered && telemetry.lastLapMs > 0 && telemetry.lastLapMs < referenceTimeRef.current) {
+      if (
+        covered &&
+        telemetry.lastLapMs > 0 &&
+        telemetry.lastLapMs < referenceTimeRef.current
+      ) {
         referenceRef.current = finished;
         referenceTimeRef.current = telemetry.lastLapMs;
       }
@@ -54,7 +59,8 @@ export const useLapDelta = (telemetry: TelemetryFrame | null): number | null => 
     } else if (
       prevLap !== null &&
       (telemetry.lapCount < prevLap ||
-        (telemetry.lapCount === prevLap && telemetry.lapTimeMs + 1000 < lapTimeRef.current))
+        (telemetry.lapCount === prevLap &&
+          telemetry.lapTimeMs + 1000 < lapTimeRef.current))
     ) {
       // Session restart (lap counter or lap clock ran backwards): the
       // in-progress recording is garbage; the reference lap stays useful.
@@ -64,12 +70,11 @@ export const useLapDelta = (telemetry: TelemetryFrame | null): number | null => 
     lapCountRef.current = telemetry.lapCount;
     lapTimeRef.current = telemetry.lapTimeMs;
 
-    // A large backwards jump without a lap tick: either the finish-line
-    // crossing of a completed lap whose tick hasn't arrived yet (hold the
-    // full-lap recording for it), or an out-lap's first line crossing /
-    // teleport whose pre-line samples belong to no lap (discard — they'd
-    // otherwise block the whole first flying lap via the monotonic guard
-    // below). Either way the recording restarts at the line.
+    // A large backwards jump without a lap tick is either a finish-line
+    // crossing whose tick hasn't arrived yet (hold the recording for it), or
+    // an out-lap crossing / teleport whose pre-line samples belong to no lap
+    // (discard — they would otherwise block the whole first flying lap via
+    // the monotonic guard below).
     let recording = recordingRef.current;
     const newest = recording[recording.length - 1];
     if (newest && telemetry.normalizedPos < newest.pos - 0.5) {
@@ -85,7 +90,10 @@ export const useLapDelta = (telemetry: TelemetryFrame | null): number | null => 
     // Ignore position glitches — samples must stay monotonic within a lap.
     const last = recording[recording.length - 1];
     if (!last || telemetry.normalizedPos > last.pos) {
-      recording.push({ pos: telemetry.normalizedPos, timeMs: telemetry.lapTimeMs });
+      recording.push({
+        pos: telemetry.normalizedPos,
+        timeMs: telemetry.lapTimeMs,
+      });
     }
 
     const reference = referenceRef.current;

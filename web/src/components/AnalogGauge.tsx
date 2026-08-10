@@ -1,7 +1,6 @@
-import type { ReactNode } from 'react';
+import type { ReactNode } from "react";
 
-// Dial geometry: 200×200 viewBox, needle pivot at center, 240° sweep
-// starting at -120° from 12 o'clock (bottom-left) to +120° (bottom-right).
+// Angles are measured from 12 o'clock: the sweep runs bottom-left to bottom-right.
 const CX = 100;
 const CY = 100;
 const START_DEG = -120;
@@ -58,7 +57,8 @@ export const AnalogGauge = ({
 }) => {
   const range = max - min;
   const valueToAngle = (v: number) =>
-    START_DEG + (range > 0 ? Math.min(1, Math.max(0, (v - min) / range)) : 0) * SWEEP_DEG;
+    START_DEG +
+    (range > 0 ? Math.min(1, Math.max(0, (v - min) / range)) : 0) * SWEEP_DEG;
 
   const majorValues: number[] = [];
   for (let v = min; v <= max; v += majorTickStep) majorValues.push(v);
@@ -77,14 +77,39 @@ export const AnalogGauge = ({
     <div className="relative">
       <svg viewBox="0 0 200 200" className="h-auto w-full">
         {/* Bezel ring and dark face */}
-        <circle cx={CX} cy={CY} r={BEZEL_RADIUS} fill="none" stroke="var(--color-hairline)" strokeWidth={5} />
-        <circle cx={CX} cy={CY} r={BEZEL_RADIUS} fill="none" stroke="var(--color-edge)" strokeWidth={1.5} />
-        <circle cx={CX} cy={CY} r={FACE_RADIUS} fill="var(--color-page)" stroke="var(--color-edge)" strokeWidth={1} />
+        <circle
+          cx={CX}
+          cy={CY}
+          r={BEZEL_RADIUS}
+          fill="none"
+          stroke="var(--color-hairline)"
+          strokeWidth={5}
+        />
+        <circle
+          cx={CX}
+          cy={CY}
+          r={BEZEL_RADIUS}
+          fill="none"
+          stroke="var(--color-edge)"
+          strokeWidth={1.5}
+        />
+        <circle
+          cx={CX}
+          cy={CY}
+          r={FACE_RADIUS}
+          fill="var(--color-page)"
+          stroke="var(--color-edge)"
+          strokeWidth={1}
+        />
 
         {/* Redline arc */}
         {redlineFrom !== undefined && (
           <path
-            d={arcPath(valueToAngle(redlineFrom), valueToAngle(max), REDLINE_RADIUS)}
+            d={arcPath(
+              valueToAngle(redlineFrom),
+              valueToAngle(max),
+              REDLINE_RADIUS,
+            )}
             fill="none"
             stroke="var(--color-redline)"
             strokeWidth={6}
@@ -111,7 +136,7 @@ export const AnalogGauge = ({
             <g key={v}>
               <line
                 {...tickLine(angle, MAJOR_TICK_INNER)}
-                stroke={inRedline ? 'var(--color-redline)' : 'var(--color-ink)'}
+                stroke={inRedline ? "var(--color-redline)" : "var(--color-ink)"}
                 strokeWidth={3}
               />
               <text
@@ -119,7 +144,11 @@ export const AnalogGauge = ({
                 y={numeral.y}
                 textAnchor="middle"
                 dominantBaseline="central"
-                fill={inRedline ? 'var(--color-redline)' : 'var(--color-ink-secondary)'}
+                fill={
+                  inRedline
+                    ? "var(--color-redline)"
+                    : "var(--color-ink-secondary)"
+                }
                 fontSize={12}
                 fontWeight={600}
                 className="tabular-nums"
@@ -147,11 +176,11 @@ export const AnalogGauge = ({
 
         {/* Needle: CSS transform so transitions interpolate between frames */}
         <g
-          className={flash ? 'animate-pulse' : ''}
+          className={flash ? "animate-pulse" : ""}
           style={{
             transform: `rotate(${needleAngle}deg)`,
-            transformOrigin: '100px 100px',
-            transition: 'transform 100ms linear',
+            transformOrigin: "100px 100px",
+            transition: "transform 100ms linear",
           }}
         >
           <polygon
@@ -163,13 +192,22 @@ export const AnalogGauge = ({
         </g>
 
         {/* Center hub */}
-        <circle cx={CX} cy={CY} r={8} fill="var(--color-hairline)" stroke="var(--color-edge)" strokeWidth={1.5} />
+        <circle
+          cx={CX}
+          cy={CY}
+          r={8}
+          fill="var(--color-hairline)"
+          stroke="var(--color-edge)"
+          strokeWidth={1.5}
+        />
         <circle cx={CX} cy={CY} r={3} fill="var(--color-ink-muted)" />
       </svg>
 
       {/* Lower-face window (odometer position) */}
       {children && (
-        <div className="absolute left-1/2 top-[69%] -translate-x-1/2 -translate-y-1/2">{children}</div>
+        <div className="absolute left-1/2 top-[69%] -translate-x-1/2 -translate-y-1/2">
+          {children}
+        </div>
       )}
     </div>
   );

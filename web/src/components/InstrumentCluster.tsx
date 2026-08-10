@@ -1,13 +1,12 @@
-import type { SessionInfo, TelemetryFrame } from "../types";
-
 import { useState } from "react";
+
+import { formatGear } from "../lib/format";
+import { HOVER_GROUP_CLASS, isImmediateActivation } from "../lib/interaction";
+import { speedScale } from "../lib/speedScale";
+import type { SessionInfo, TelemetryFrame } from "../types";
 
 import { AnalogGauge } from "./AnalogGauge";
 import { TyreOverlay } from "./TyreOverlay";
-
-import { formatGear } from "../lib/format";
-import { speedScale } from "../lib/speedScale";
-import { HOVER_GROUP_CLASS, isImmediateActivation } from "../lib/interaction";
 
 const RPM_MAX = 10000;
 const REDLINE_FROM_RPM = 8500;

@@ -1,9 +1,20 @@
-import type { ConnectionStatus } from '../types';
+import type { ConnectionStatus } from "../types";
 
-const STYLES: Record<ConnectionStatus, { dot: string; text: string; label: string }> = {
-  connecting: { dot: 'bg-ink-muted', text: 'text-ink-muted', label: 'Connecting to bridge…' },
-  waiting: { dot: 'bg-warning animate-pulse', text: 'text-warning', label: 'Waiting for game' },
-  connected: { dot: 'bg-good', text: 'text-good', label: 'Live' },
+const STYLES: Record<
+  ConnectionStatus,
+  { dot: string; text: string; label: string }
+> = {
+  connecting: {
+    dot: "bg-ink-muted",
+    text: "text-ink-muted",
+    label: "Connecting to bridge…",
+  },
+  waiting: {
+    dot: "bg-warning animate-pulse",
+    text: "text-warning",
+    label: "Waiting for game",
+  },
+  connected: { dot: "bg-good", text: "text-good", label: "Live" },
 };
 
 export const ConnectionBadge = ({ status }: { status: ConnectionStatus }) => {

@@ -1,19 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
-import type { SessionInfo, TelemetryFrame } from '../types';
-import type { LapRecord } from './useLapHistory';
-import { COVERAGE_START, COVERAGE_END } from '../lib/lapAnalysis';
+import { useEffect, useRef, useState } from "react";
+
+import { COVERAGE_END, COVERAGE_START } from "../lib/lapAnalysis";
+import type { SessionInfo, TelemetryFrame } from "../types";
+
+import type { LapRecord } from "./useLapHistory";
 
 export type LapTelemetrySample = {
   // normalizedPos — strictly increasing within a lap (glitches are dropped).
   pos: number;
-  // lapTimeMs at capture.
   timeMs: number;
   speedKmh: number;
   gas: number;
   brake: number;
   gear: number;
   steerAngle: number;
-  // World position, so analysis consumers can point back at the track map.
   x: number;
   z: number;
 };
@@ -22,9 +22,8 @@ export type LapRecording = {
   // Display lap number — matches the LAP tile convention (lapCount N
   // completes "Lap N+1").
   lap: number;
-  // Completed lap time; null while the lap is in progress.
   timeMs: number | null;
-  // Samples span the lap (and the per-lap cap never tripped) — only complete
+  // Samples span the lap and the per-lap cap never tripped — only complete
   // recordings are comparable end to end.
   complete: boolean;
   samples: LapTelemetrySample[];
@@ -50,12 +49,10 @@ type PendingRecording = {
 };
 
 export type LapRecordings = {
-  // Completed recordings, oldest first — a ref, safe for rAF consumers.
+  // Oldest first.
   recordingsRef: React.RefObject<LapRecording[]>;
-  // The in-progress lap's recording (timeMs null, growing samples).
   currentRef: React.RefObject<LapRecording>;
-  // Bumps when recordings are stored or cleared (not per sample) — the
-  // re-render signal for React consumers, in the cutSeq tradition.
+  // Bumps when recordings are stored or cleared, never per sample.
   version: number;
 };
 
@@ -66,12 +63,9 @@ const freshLap = (lap: number): LapRecording => ({
   samples: [],
 });
 
-// Session-scoped, position-indexed telemetry recording for every lap driven
-// while the app is open. Capture rides the full-rate frame subscription from
-// useTelemetry — not the throttled state (blurs brake points by meters at
-// speed) and not a rAF loop (throttles while the game-focused browser window
-// is occluded). Validity is never re-derived here: consumers join against
-// useLapHistory by lap number; it is only consulted for eviction pinning.
+// Capture must ride the full-rate frame subscription from useTelemetry — not
+// the throttled state (blurs brake points by meters at speed) and not a rAF
+// loop (throttles while the game-focused browser window is occluded).
 export const useLapRecordings = (
   subscribeFrame: (cb: (frame: TelemetryFrame) => void) => () => void,
   session: SessionInfo | null,
@@ -88,10 +82,10 @@ export const useLapRecordings = (
   // A full-lap trace rolled over at the finish line while lapCount hadn't
   // incremented yet (AC reports the position wrap a frame or two before the
   // counter) — held here for the imminent tick.
-  const wrappedRef = useRef<{ rec: LapRecording; overflowed: boolean } | null>(null);
+  const wrappedRef = useRef<{ rec: LapRecording; overflowed: boolean } | null>(
+    null,
+  );
 
-  // Session change (a new session message, including each demo-replay loop)
-  // clears everything for the new session.
   useEffect(() => {
     recordingsRef.current = [];
     currentRef.current = freshLap(1);
@@ -113,7 +107,8 @@ export const useLapRecordings = (
       const restarted =
         prevLap !== null &&
         (frame.lapCount < prevLap ||
-          (frame.lapCount === prevLap && frame.lapTimeMs + 1000 < lapTimeRef.current));
+          (frame.lapCount === prevLap &&
+            frame.lapTimeMs + 1000 < lapTimeRef.current));
 
       if (restarted) {
         // The in-progress trace is garbage and pre-restart laps no longer exist.
@@ -124,11 +119,11 @@ export const useLapRecordings = (
         wrappedRef.current = null;
         setVersion((n) => n + 1);
       } else if (prevLap !== null && frame.lapCount > prevLap) {
-        // Lap boundary: hold the finished trace pending until lastLapMs
-        // visibly refreshes (or a few frames pass — back-to-back identical
-        // lap times never refresh the value). When the trace already rolled
-        // over at the line (wrappedRef), the held trace is the finished lap
-        // and the current one is already the new lap — keep it recording.
+        // Hold the finished trace pending until lastLapMs visibly refreshes,
+        // or a few frames pass — back-to-back identical lap times never
+        // refresh the value. When the trace already rolled over at the line,
+        // the held trace is the finished lap and the current one is already
+        // the new lap.
         const wrapped = wrappedRef.current;
         wrappedRef.current = null;
         if (wrapped) {
@@ -180,8 +175,10 @@ export const useLapRecordings = (
             );
             let best: LapRecording | null = null;
             for (const r of recordings) {
-              if (!r.complete || r.timeMs === null || invalid.has(r.lap)) continue;
-              if (best === null || r.timeMs < (best.timeMs ?? Infinity)) best = r;
+              if (!r.complete || r.timeMs === null || invalid.has(r.lap))
+                continue;
+              if (best === null || r.timeMs < (best.timeMs ?? Infinity))
+                best = r;
             }
             const idx = recordings.findIndex((r) => r !== best);
             recordings.splice(Math.max(0, idx), 1);
@@ -193,15 +190,12 @@ export const useLapRecordings = (
         }
       }
 
-      // A large backwards jump in track position without a lapCount tick.
-      // Two cases: (a) the finish-line crossing of a genuinely completed lap
-      // whose lapCount increment hasn't arrived yet (AC reports the wrap a
-      // frame or two early) — the trace spans the whole lap, hold it for the
-      // imminent tick; (b) an out-lap's first line crossing (lapCount stays
-      // 0 until a lap completes, so the "current lap" otherwise begins at
-      // the pit spawn and the monotonic guard would reject the entire first
-      // flying lap) or a teleport — pre-line samples belong to no lap,
-      // discard them. Either way a fresh trace starts at the line.
+      // A large backwards jump without a lapCount tick is either a finish-line
+      // crossing whose tick hasn't arrived yet (hold the full-lap trace for
+      // it), or an out-lap crossing / teleport whose pre-line samples belong
+      // to no lap. Discarding the latter matters: lapCount stays 0 until a lap
+      // completes, so the current lap would otherwise begin at the pit spawn
+      // and the monotonic guard would reject the entire first flying lap.
       {
         const cur = currentRef.current;
         const lastSample = cur.samples[cur.samples.length - 1];
@@ -218,8 +212,7 @@ export const useLapRecordings = (
         }
       }
 
-      // Append-only capture, monotonic in track position — a pos glitch
-      // (or a stationary car) adds nothing.
+      // Monotonic in track position — a pos glitch or a stationary car adds nothing.
       const samples = currentRef.current.samples;
       const last = samples[samples.length - 1];
       if (!last || frame.normalizedPos > last.pos) {

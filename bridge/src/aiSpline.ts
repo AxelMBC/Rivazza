@@ -1,5 +1,6 @@
-import fs from 'node:fs';
-import type { MapMeta, TrackEdges } from './types.js';
+import fs from "node:fs";
+
+import type { MapMeta, TrackEdges } from "./types.js";
 
 // ai/fast_lane.ai is AC's AI spline: little-endian, header of four int32s
 // (version == 7, point count, lap time, sample count), then count 20-byte
@@ -24,7 +25,12 @@ const BOUNDS_MARGIN = 0.1; // slack around the map.ini rect for the cross-check
 const CLOSED_GAP = 30; // m — endpoints closer than this make a closed loop
 const MIN_WIDTH = 0.5; // m — below this a point counts as width-less
 
-type SplinePoint = { x: number; z: number; sideLeft: number; sideRight: number };
+type SplinePoint = {
+  x: number;
+  z: number;
+  sideLeft: number;
+  sideRight: number;
+};
 
 // Median-of-3 kills isolated one-point spikes in the side data without
 // flattening genuinely wide sections (drag strips, merge areas).
@@ -52,11 +58,18 @@ const parseSpline = (buf: Buffer): SplinePoint[] | null => {
   for (let i = 0; i < count; i++) {
     const p = HEADER_SIZE + i * POINT_SIZE;
     const e = extraCountOffset + 4 + i * EXTRA_SIZE;
-    const clamp = (v: number) => (Number.isFinite(v) ? Math.min(MAX_SIDE, Math.max(0, v)) : 0);
+    const clamp = (v: number) =>
+      Number.isFinite(v) ? Math.min(MAX_SIDE, Math.max(0, v)) : 0;
     lefts[i] = clamp(buf.readFloatLE(e + SIDE_LEFT_OFFSET));
     rights[i] = clamp(buf.readFloatLE(e + SIDE_RIGHT_OFFSET));
-    points[i] = { x: buf.readFloatLE(p), z: buf.readFloatLE(p + 8), sideLeft: 0, sideRight: 0 };
-    if (!Number.isFinite(points[i].x) || !Number.isFinite(points[i].z)) return null;
+    points[i] = {
+      x: buf.readFloatLE(p),
+      z: buf.readFloatLE(p + 8),
+      sideLeft: 0,
+      sideRight: 0,
+    };
+    if (!Number.isFinite(points[i].x) || !Number.isFinite(points[i].z))
+      return null;
   }
   const smoothLeft = median3(lefts);
   const smoothRight = median3(rights);
@@ -83,7 +96,10 @@ const insideMapBounds = (points: SplinePoint[], meta: MapMeta): boolean => {
   return inside / points.length >= MIN_IN_BOUNDS_RATIO;
 };
 
-export const resolveTrackEdges = (aiPath: string, meta: MapMeta | null): TrackEdges | null => {
+export const resolveTrackEdges = (
+  aiPath: string,
+  meta: MapMeta | null,
+): TrackEdges | null => {
   let buf: Buffer;
   try {
     buf = fs.readFileSync(aiPath);
@@ -95,13 +111,19 @@ export const resolveTrackEdges = (aiPath: string, meta: MapMeta | null): TrackEd
     console.warn(`[edges] ${aiPath} is not a usable AI spline`);
     return null;
   }
-  const usable = points.filter((p) => p.sideLeft + p.sideRight > MIN_WIDTH).length;
+  const usable = points.filter(
+    (p) => p.sideLeft + p.sideRight > MIN_WIDTH,
+  ).length;
   if (usable / points.length < MIN_USABLE_RATIO) {
-    console.warn(`[edges] ${aiPath} has no side data (${usable}/${points.length} points with width)`);
+    console.warn(
+      `[edges] ${aiPath} has no side data (${usable}/${points.length} points with width)`,
+    );
     return null;
   }
   if (meta && !insideMapBounds(points, meta)) {
-    console.warn(`[edges] ${aiPath} does not fit this track's map bounds — likely copied from another track`);
+    console.warn(
+      `[edges] ${aiPath} does not fit this track's map bounds — likely copied from another track`,
+    );
     return null;
   }
 
@@ -127,7 +149,10 @@ export const resolveTrackEdges = (aiPath: string, meta: MapMeta | null): TrackEd
       dz = segZ / len;
     }
     left[i] = [roundCm(p.x + dz * p.sideLeft), roundCm(p.z - dx * p.sideLeft)];
-    right[i] = [roundCm(p.x - dz * p.sideRight), roundCm(p.z + dx * p.sideRight)];
+    right[i] = [
+      roundCm(p.x - dz * p.sideRight),
+      roundCm(p.z + dx * p.sideRight),
+    ];
   }
   return { closed, left, right };
 };

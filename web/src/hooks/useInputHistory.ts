@@ -1,20 +1,18 @@
-import { useEffect, useRef } from 'react';
-import type { TelemetryFrame } from '../types';
+import { useEffect, useRef } from "react";
+
+import type { TelemetryFrame } from "../types";
 
 export type InputSample = {
   t: number; // performance.now() at capture, ms
   gas: number;
   brake: number;
   clutch: number;
-  accGH: number; // lateral G
-  accGF: number; // longitudinal G
+  lateralG: number;
+  longitudinalG: number;
 };
 
 const CAPACITY = 360; // ~12s of samples at the ~30 Hz React state rate (see useTelemetry)
 
-// Ring buffer of recent driver inputs, exposed as a ref so canvas components
-// (pedal trace, G-meter) can read it from requestAnimationFrame loops without
-// re-render coupling — same pattern as telemetryRef.
 export const useInputHistory = (
   telemetry: TelemetryFrame | null,
 ): React.RefObject<InputSample[]> => {
@@ -31,8 +29,8 @@ export const useInputHistory = (
       gas: telemetry.gas,
       brake: telemetry.brake,
       clutch: telemetry.clutch,
-      accGH: telemetry.accGHorizontal,
-      accGF: telemetry.accGFrontal,
+      lateralG: telemetry.accGHorizontal,
+      longitudinalG: telemetry.accGFrontal,
     });
     if (history.length > CAPACITY) history.shift();
   }, [telemetry]);

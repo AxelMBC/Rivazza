@@ -4,14 +4,9 @@ export type SessionInfo = {
   trackConfig: string;
   car: string;
   driver: string;
-  // Image + bounds metadata both found.
   mapAvailable: boolean;
-  // Bounds metadata (data/map.ini) found — enough to scale the map view.
   boundsAvailable: boolean;
-  // Track-edge polylines resolved from ai/fast_lane.ai.
   edgesAvailable: boolean;
-  // Car's advertised top speed in km/h (from ui_car.json), or null when
-  // unavailable — the speedometer scale is derived from it, else falls back.
   topSpeedKmh: number | null;
 };
 
@@ -46,24 +41,21 @@ export type TelemetryFrame = {
   z: number;
 };
 
-// One 4-tyres-out onset read from AC's physics shared-memory page, stamped
-// with the newest RTCarInfo frame at the moment of detection. `lapCount` is
-// the raw AC counter (display convention: lapCount N is "Lap N+1").
+// `lapCount` is AC's raw counter; the display convention is that lapCount N is "Lap N+1".
 export type CutEvent = {
   lapCount: number;
   lapTimeMs: number;
   x: number;
   z: number;
   speedKmh: number;
-  // Counter value that fired the onset (>= 4).
   tyresOut: number;
 };
 
 export type BridgeMessage =
-  | { type: 'status'; state: 'waiting' | 'connected' }
-  | ({ type: 'session' } & SessionInfo)
-  | ({ type: 'telemetry' } & TelemetryFrame)
-  | ({ type: 'cut' } & CutEvent);
+  | { type: "status"; state: "waiting" | "connected" }
+  | ({ type: "session" } & SessionInfo)
+  | ({ type: "telemetry" } & TelemetryFrame)
+  | ({ type: "cut" } & CutEvent);
 
 export type MapMeta = {
   width: number;
@@ -73,13 +65,12 @@ export type MapMeta = {
   scaleFactor: number;
 };
 
-// Track limits from the AI spline's per-point side distances: one polyline
-// per track edge, [x, z] world-meter pairs (cm precision). `closed` marks a
-// circuit loop; open splines (hillclimbs) get no closing segment.
+// Edge polylines as [x, z] world-meter pairs. `closed` marks a circuit loop;
+// open splines (hillclimbs) get no closing segment.
 export type TrackEdges = {
   closed: boolean;
   left: [number, number][];
   right: [number, number][];
 };
 
-export type ConnectionStatus = 'connecting' | 'waiting' | 'connected';
+export type ConnectionStatus = "connecting" | "waiting" | "connected";

@@ -1,4 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+
+import type { LapRecord } from "../hooks/useLapHistory";
+import { BRIDGE_HTTP } from "../hooks/useTelemetry";
+import { DEMO_MAP_URL, IS_DEMO } from "../lib/demo";
+import { formatGearCompact, formatLapTime } from "../lib/format";
+import { CLICK_MODE, isImmediateActivation } from "../lib/interaction";
+import type { ScrubPoint } from "../lib/lapAnalysis";
+import { COLORED_LAPS, lapColor } from "../lib/lapColors";
+import { SYNTHETIC_MOUSE_WINDOW_MS, TAP_SLOP_PX } from "../lib/touch";
 import type {
   CutEvent,
   MapMeta,
@@ -6,39 +15,19 @@ import type {
   TelemetryFrame,
   TrackEdges,
 } from "../types";
-import type { LapRecord } from "../hooks/useLapHistory";
-import { formatGearCompact, formatLapTime } from "../lib/format";
-import { COLORED_LAPS, lapColor } from "../lib/lapColors";
-import type { ScrubPoint } from "../lib/lapAnalysis";
-import { BRIDGE_HTTP } from "../hooks/useTelemetry";
-import { IS_DEMO, DEMO_MAP_URL } from "../lib/demo";
-import { TAP_SLOP_PX, SYNTHETIC_MOUSE_WINDOW_MS } from "../lib/touch";
-import { CLICK_MODE, isImmediateActivation } from "../lib/interaction";
 
 type Props = {
   session: SessionInfo;
   telemetryRef: React.RefObject<TelemetryFrame | null>;
   lapsRef: React.RefObject<LapRecord[]>;
   cutsRef: React.RefObject<CutEvent[]>;
-  // Display lap number hovered in the session-lap list (LapTimes writes it);
-  // that lap's cut markers reveal while set.
   hoveredLapRef: React.RefObject<number | null>;
-  // Scrub position from the analysis panel (LapAnalysis writes it); a ring
-  // marks that point on the map while set.
   scrubRef: React.RefObject<ScrubPoint | null>;
-  // Lap selected in the open analysis panel (LapAnalysis writes it); that
-  // lap's braking ticks reveal while set.
   analysisLapRef: React.RefObject<number | null>;
 };
 
-// map.ini metadata fixes the viewport and projection; edges are the track
-// limits parsed from the AI spline's side distances. The track's map.png is
-// deliberately never drawn: AC strokes it at constant width around the AI
-// line, so it misrepresents track limits — the ribbon (when edges resolve)
-// and the driven lines are the track. Null only when neither asset exists.
 type MapData = { meta: MapMeta | null; edges: TrackEdges | null };
-// `jump` marks a teleport (pits, restart) — no segment is drawn into it.
-// `speedKmh`, `gear`, and the pedals feed the hover readout.
+
 type Sample = {
   x: number;
   z: number;
@@ -48,14 +37,9 @@ type Sample = {
   gear: number;
   jump: boolean;
 };
-// Where a lap died: the world position of the cut that invalidated it. A lap
-// dies once, so a lap holds one of these or none — never a list.
 type CutMarker = { x: number; z: number };
-// Where a lap began braking: onset world position plus the unit travel
-// direction at that sample, so the tick renders perpendicular to the line.
 type BrakeTick = { x: number; z: number; dx: number; dz: number };
 type View = { cx: number; cz: number; ex: number; ez: number };
-// Screen-space zoom layered over the base fit projection: zoomed = base * level + (ox, oy).
 type Zoom = { level: number; ox: number; oy: number };
 type LegendEntry = {
   lap: number;
@@ -256,13 +240,7 @@ export const TrackMap = ({
   analysisLapRef,
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [mapData, setMapData] = useState<MapData | null>(null);
-  const [mapProbed, setMapProbed] = useState(false);
-  // Current lap's driving line (pedal-colored) and every completed lap
-  // (drawn grey underneath so the session history never disappears).
   const currentRef = useRef<Sample[]>([]);
-  // `path` is a lazily built world-space Path2D of the lap line — projection
-  // independent, so it survives zoom, camera motion, and effect re-creation.
   const previousLapsRef = useRef<
     {
       lap: number;
@@ -272,65 +250,31 @@ export const TrackMap = ({
       path?: Path2D;
     }[]
   >([]);
-  // Cut marker for the in-progress lap; completed laps carry theirs in
-  // previousLapsRef. The session cut list is consumed incrementally and the
-  // bookkeeping lives outside the draw effect so re-creating it (map data
-  // changes) never re-attaches already-consumed cuts; a replaced list (new
-  // session) restarts consumption via the identity check in the loop.
+
+  const [mapData, setMapData] = useState<MapData | null>(null);
+  const [mapProbed, setMapProbed] = useState(false);
+
   const currentCutRef = useRef<CutMarker | null>(null);
   const consumedCutsRef = useRef(0);
   const seenCutsRef = useRef<CutEvent[] | null>(null);
-  // Cursor position in canvas CSS pixels, null when not hovering.
   const mouseRef = useRef<{ x: number; y: number } | null>(null);
   const lapRef = useRef<number | null>(null);
   const lapTimeRef = useRef(0);
-  // Fallback mode only: world-space bounds of everything driven, plus an
-  // eased viewport so the auto-fit view glides instead of snapping while the
-  // first lap is still discovering the track's extent.
   const boundsRef = useRef(freshBounds());
   const viewRef = useRef<View | null>(null);
-  // First driven point: the camera stays locked onto it for the whole first
-  // lap so the line draws itself across a stationary canvas.
   const anchorRef = useRef<{ x: number; z: number } | null>(null);
-  // User wheel zoom — survives lap completion, resets with the session.
   const zoomRef = useRef<Zoom>(ZOOM_RESET);
-  // The follow camera's target framing, in world meters across the smaller
-  // canvas dimension. The wheel and pinch write it freely and out of range;
-  // `followCamera` clamps it against the live projection each frame and writes
-  // the clamped value back, so it is the camera — not the handlers — that knows
-  // the bounds. A retarget landing between frames is simply clamped on the next
-  // one. This is why the wheel never detaches follow: it retargets the camera
-  // instead of fighting it for ownership of `zoomRef`.
   const followWindowRef = useRef(FOLLOW_WINDOW_M);
-  // The window bounds the camera derives from the live projection, published
-  // for the input handlers: widening past `max` is the escape out of follow
-  // mode, and only the camera holds the two terms (px-per-meter, canvas size)
-  // that bound depends on. Unbounded until the first tracking frame writes it,
-  // so a notch arriving before then can never read a bound that doesn't exist
-  // yet and exit follow the moment it was armed.
   const followLimitsRef = useRef({ min: 0, max: Infinity });
-  // Follow cam: the ref is the source of truth for the rAF loop and event
-  // handlers; the mirrored state only drives which overlay button renders.
   const followRef = useRef<FollowState>("off");
   const [followUi, setFollowUi] = useState<FollowState>("off");
   const setFollow = (state: FollowState) => {
     followRef.current = state;
     setFollowUi(state);
   };
-  // Dwell bookkeeping. `armReadyRef` goes false the moment a dwell fires and
-  // only re-arms when the cursor leaves the button, which guards the swap that
-  // follows a completed dwell: follow and exit are the same element, so the
-  // replacement appears under the still-parked cursor, and a browser that
-  // re-fires mouseenter on DOM mutation would start the opposite dwell and
-  // toggle forever.
   const dwellTimerRef = useRef<number | null>(null);
   const armReadyRef = useRef(true);
-  // When a tap last drove the button: the browser fires compatibility mouse
-  // events after a tap, and a button sitting under the finger would catch that
-  // mouseenter and start a phantom dwell without this window.
   const touchToggleAtRef = useRef(-SYNTHETIC_MOUSE_WINDOW_MS);
-  // Whether the button is filling its progress bar. A single flag suffices:
-  // follow and exit are two roles of one element, never on screen together.
   const [dwelling, setDwelling] = useState(false);
   const cancelDwell = () => {
     if (dwellTimerRef.current !== null) {
@@ -339,33 +283,25 @@ export const TrackMap = ({
     }
     setDwelling(false);
   };
-  // Whether the follow camera — not the cursor — is driving the view right now.
-  // Two things follow from it: input handlers must not write `zoomRef` (it is
-  // mid-glide toward the camera's own target, so any write is a tug of war the
-  // next frame silently wins), and the cursor stops picking lap lines.
+
   const cameraDrivesView = () =>
     followRef.current === "following" || followRef.current === "exiting";
-  // Scale the follow camera's target window by `factor` (< 1 tightens the
-  // framing, > 1 widens it). Returns false — writing nothing — when the request
-  // is wider than follow mode allows, which is the caller's cue to leave follow
-  // mode instead of clamping. Otherwise deliberately unbounded: `followCamera`
-  // owns the clamp, because the bounds depend on the live projection and canvas
-  // size, which only it has.
+
   const retargetFollow = (factor: number) => {
     const wanted = followWindowRef.current * factor;
     if (wanted > followLimitsRef.current.max) return false;
     followWindowRef.current = wanted;
     return true;
   };
-  // What a completed dwell (or a tap) actually does: arm follow, or leave it.
+
   const fireDwell = () => {
     if (followRef.current !== "off") {
       setFollow("exiting");
-      // The car may have vanished mid-dwell (game closed) — nothing to follow.
     } else if (telemetryRef.current) {
       setFollow("following");
     }
   };
+
   const startDwell = () => {
     if (CLICK_MODE) return;
     if (
@@ -383,10 +319,12 @@ export const TrackMap = ({
       fireDwell();
     }, FOLLOW_DWELL_MS);
   };
+
   const leaveDwell = () => {
     armReadyRef.current = true;
     cancelDwell();
   };
+
   const onFollowActivate = (e: React.PointerEvent) => {
     if (!isImmediateActivation(e)) return;
     touchToggleAtRef.current = performance.now();
@@ -398,13 +336,11 @@ export const TrackMap = ({
       setFollow("exiting");
     }
   };
-  // Follow button only renders while there is a car to follow; flipped from
-  // the draw loop (telemetryRef nulls out when the bridge loses the game).
-  const [hasFrame, setHasFrame] = useState(false);
   const hasFrameRef = useRef(false);
-  // DOM legend for the colored laps; the key ref gates setState from the rAF loop.
-  const [legend, setLegend] = useState<LegendEntry[]>([]);
   const legendKeyRef = useRef("");
+
+  const [hasFrame, setHasFrame] = useState(false);
+  const [legend, setLegend] = useState<LegendEntry[]>([]);
 
   const resetLines = () => {
     currentRef.current = [];
@@ -775,7 +711,6 @@ export const TrackMap = ({
             LINE_WIDTH,
           );
       } else {
-        // Tail append onto the already-stroked layer: a handful of segments.
         currentLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         currentLayerCtx.lineWidth = LINE_WIDTH;
         currentLayerCtx.lineCap = "round";
@@ -830,7 +765,6 @@ export const TrackMap = ({
         ctx.lineTo(b.px, b.py);
         ctx.stroke();
       }
-      // Partial segment from the last on-line sample to the dot itself.
       const a = project(samples[end]);
       const b = project(tip);
       ctx.strokeStyle = bucketColor(bucketKey(frame.gas, frame.brake));
@@ -840,11 +774,7 @@ export const TrackMap = ({
       ctx.stroke();
     };
 
-    // Hover pick: the nearest stored lap line within HOVER_RADIUS of the
-    // cursor (index, or -1), plus a speed row for every *colored* lap that
-    // passes within the radius — at high zoom the lines separate on screen,
-    // so the rows naturally narrow to the lines the cursor is actually near.
-    // Samples are ~1 m apart so point distance is a faithful line distance;
+    // Samples are ~1 m apart, so point distance is a faithful line distance;
     // stepping by 3 keeps the scan cheap even with a full session of laps.
     type HoverRow = {
       lap: number;
@@ -918,12 +848,6 @@ export const TrackMap = ({
       return { nearest, rows, marker };
     };
 
-    // Hover readout: one row per in-radius colored lap ("Lap N · 143 km/h ·
-    // G3 · THR 80%" in the lap's color, the pedal state tinted by the same
-    // coast→throttle/brake ramp as the line itself), with the nearest lap
-    // overall also carrying its recorded time (red when invalid; number-only
-    // when unrecorded, e.g. laps driven before the page connected). A nearest
-    // lap outside the colored set keeps the classic white "Lap N — time" row.
     type Seg = { text: string; color: string };
 
     const pedalSeg = (gas: number, brake: number): Seg => {
@@ -1020,8 +944,6 @@ export const TrackMap = ({
         if (externalLap !== null)
           focus = laps.findIndex((l) => l.lap === externalLap);
       }
-      // Draw order matches the pre-layer renderer exactly: previous laps
-      // (minus focused) → current lap → focused emphasis → markers → readout.
       renderLapsLayer(project, projKey, focus, width, height, dpr);
       blitLayer(lapsLayer);
       renderCurrentLayer(project, projKey, width, height, dpr);
@@ -1094,9 +1016,8 @@ export const TrackMap = ({
       }
     };
 
-    // A haloed ring in a lap's color, drawn at a projected world point. Shared
-    // by the analysis-panel scrub echo and the direct line-hover marker so the
-    // two read as the same cue everywhere.
+    // Shared by the analysis-panel scrub echo and the direct line-hover
+    // marker so the two read as the same cue everywhere.
     const drawRing = (px: number, py: number, color: string) => {
       for (const [style, width] of [
         [SURFACE, 4.5],
@@ -1110,8 +1031,6 @@ export const TrackMap = ({
       }
     };
 
-    // Analysis-panel scrub echo: a ring at the hovered trace position on the
-    // selected lap's line, in that lap's identity color.
     const drawScrubMarker = (project: Project) => {
       const s = scrubRef.current;
       if (!s) return;
@@ -1232,10 +1151,7 @@ export const TrackMap = ({
       const uz = project({ x: pos.x, z: pos.z + 1 });
       const handed =
         (ux.px - px) * (uz.py - py) - (ux.py - py) * (uz.px - px) < 0 ? -1 : 1;
-      const frac = Math.max(
-        -1,
-        Math.min(1, frame.steerAngle / STEER_FULL_DEG),
-      );
+      const frac = Math.max(-1, Math.min(1, frame.steerAngle / STEER_FULL_DEG));
       const tick = frac * (Math.PI / 2) * handed;
       ctx.beginPath();
       ctx.moveTo(nose, 0);
@@ -1782,8 +1698,6 @@ export const TrackMap = ({
     const onMouseLeave = () => {
       mouseRef.current = null;
     };
-    // Hover + wheel only — zooming must never require a click or window focus,
-    // so the game keeps receiving controller input while the map is used.
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const st = followRef.current;
@@ -1833,12 +1747,8 @@ export const TrackMap = ({
         oy: e.offsetY - (e.offsetY - zm.oy) * r,
       };
     };
-    // Touch gestures (the desktop mouse/wheel path above is untouched): two
-    // fingers pinch-zoom anchored at the midpoint, one finger pans while
-    // zoomed, and a contact that never leaves the tap slop is a tap driving
-    // the same mouseRef hover pick as a parked cursor. Everything writes the
-    // same fresh Zoom objects the wheel writes, so the dirty-gated rAF loop
-    // repaints exactly when a gesture actually changed something.
+    // Touch gestures write the same fresh Zoom objects the wheel writes, so
+    // the dirty-gated rAF loop repaints exactly when a gesture changed something.
     let tapStart: { x: number; y: number } | null = null;
     let touchMoved = false; // gesture left the tap slop (pan/pinch happened)
     let lastSingle: { x: number; y: number } | null = null;
@@ -2002,7 +1912,15 @@ export const TrackMap = ({
       canvas.removeEventListener("touchend", onTouchEnd);
       canvas.removeEventListener("touchcancel", onTouchEnd);
     };
-  }, [mapData, telemetryRef, lapsRef, cutsRef, hoveredLapRef, scrubRef, analysisLapRef]);
+  }, [
+    mapData,
+    telemetryRef,
+    lapsRef,
+    cutsRef,
+    hoveredLapRef,
+    scrubRef,
+    analysisLapRef,
+  ]);
 
   return (
     <section className="relative flex min-h-0 flex-1 flex-col rounded-lg border border-edge bg-surface">

@@ -1,23 +1,24 @@
-import { useEffect, useRef } from 'react';
-import type { InputSample } from '../hooks/useInputHistory';
+import { useEffect, useRef } from "react";
 
-const MAX_G = 2.5; // outer edge of the gauge
+import type { InputSample } from "../hooks/useInputHistory";
+
+const MAX_G = 2.5;
 const RINGS = [1, 2];
-const PATH_SAMPLES = 60; // ~2s of recent dot travel at the ~30 Hz state rate
+const PATH_SAMPLES = 60;
 
-export const GForceMeter = ({ historyRef }: { historyRef: React.RefObject<InputSample[]> }) => {
+export const GForceMeter = ({
+  historyRef,
+}: {
+  historyRef: React.RefObject<InputSample[]>;
+}) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
     let rafId = 0;
-
-    // Dirty gating: the meter is purely data-driven (no time scrolling), so
-    // it only repaints when the input history or canvas size changes.
-    // lastLen starts at -1 so the first frame paints the empty rings.
     let lastLen = -1;
     let lastT = -1;
     let lastW = 0;
@@ -57,8 +58,7 @@ export const GForceMeter = ({ historyRef }: { historyRef: React.RefObject<InputS
       const cy = height / 2;
       const radius = Math.min(width, height) / 2 - 6;
 
-      // Crosshair + G rings
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.07)";
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(cx - radius, cy);
@@ -66,11 +66,11 @@ export const GForceMeter = ({ historyRef }: { historyRef: React.RefObject<InputS
       ctx.moveTo(cx, cy - radius);
       ctx.lineTo(cx, cy + radius);
       ctx.stroke();
-      ctx.fillStyle = 'rgba(137, 135, 129, 0.8)';
-      ctx.font = '10px system-ui';
+      ctx.fillStyle = "rgba(137, 135, 129, 0.8)";
+      ctx.font = "10px system-ui";
       for (const g of RINGS) {
         const r = (g / MAX_G) * radius;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.stroke();
@@ -79,14 +79,16 @@ export const GForceMeter = ({ historyRef }: { historyRef: React.RefObject<InputS
 
       if (history.length === 0) return;
 
-      // Lateral G on x, longitudinal on y (braking pulls the dot down).
       const project = (s: InputSample) => ({
-        px: cx + (Math.max(-MAX_G, Math.min(MAX_G, s.accGH)) / MAX_G) * radius,
-        py: cy + (Math.max(-MAX_G, Math.min(MAX_G, s.accGF)) / MAX_G) * radius,
+        px:
+          cx + (Math.max(-MAX_G, Math.min(MAX_G, s.lateralG)) / MAX_G) * radius,
+        py:
+          cy +
+          (Math.max(-MAX_G, Math.min(MAX_G, s.longitudinalG)) / MAX_G) * radius,
       });
 
       const recent = history.slice(-PATH_SAMPLES);
-      ctx.strokeStyle = 'rgba(57, 135, 229, 0.35)';
+      ctx.strokeStyle = "rgba(57, 135, 229, 0.35)";
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       recent.forEach((s, i) => {
@@ -99,10 +101,10 @@ export const GForceMeter = ({ historyRef }: { historyRef: React.RefObject<InputS
       const { px, py } = project(history[history.length - 1]);
       ctx.beginPath();
       ctx.arc(px, py, 5, 0, Math.PI * 2);
-      ctx.fillStyle = '#3987e5';
+      ctx.fillStyle = "#3987e5";
       ctx.fill();
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = "#ffffff";
       ctx.stroke();
     };
 

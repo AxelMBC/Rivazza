@@ -1,18 +1,18 @@
-import fs from 'node:fs';
-import http from 'node:http';
-import { WebSocketServer, WebSocket } from 'ws';
-import { ACClient } from './acClient.js';
-import { startCutDetection } from './sharedMemory.js';
-import { resolveTrackAssetsForSession, type TrackAssets } from './trackAssets.js';
-import { resolveCarTopSpeed } from './carAssets.js';
-import type { BridgeMessage, SessionInfo, TelemetryFrame } from './types.js';
+import fs from "node:fs";
+import http from "node:http";
+
+import { WebSocket, WebSocketServer } from "ws";
+
+import { ACClient } from "./acClient.js";
+import { resolveCarTopSpeed } from "./carAssets.js";
+import { startCutDetection } from "./sharedMemory.js";
+import {
+  resolveTrackAssetsForSession,
+  type TrackAssets,
+} from "./trackAssets.js";
+import type { BridgeMessage, SessionInfo, TelemetryFrame } from "./types.js";
 
 const PORT = Number(process.env.BRIDGE_PORT ?? 3001);
-// 60 Hz keeps frame spacing near 1 m even at top speed, so the track map's
-// meter-scale line sampling holds everywhere on track. Windows quantizes
-// short timers to ~15.6 ms ticks (a bare 60 Hz setInterval fires at ~32 Hz),
-// so delivery is driven by packet arrival against a due-time accumulator and
-// the interval below only sweeps up the trailing frame when packets pause.
 const BROADCAST_HZ = 60;
 const BROADCAST_INTERVAL_MS = 1000 / BROADCAST_HZ;
 
@@ -22,40 +22,38 @@ let latestFrame: TelemetryFrame | null = null;
 let frameDirty = false;
 
 const server = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  // req.url includes the query string; the image request carries a
-  // cache-busting ?v=<track> param, so routes match on the pathname only.
-  const pathname = (req.url ?? '').split('?')[0];
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  const pathname = (req.url ?? "").split("?")[0];
 
-  if (pathname === '/api/track-map/meta') {
+  if (pathname === "/api/track-map/meta") {
     if (!trackAssets?.meta) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'no map for current track' }));
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "no map for current track" }));
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(trackAssets.meta));
     return;
   }
 
-  if (pathname === '/api/track-map/edges') {
+  if (pathname === "/api/track-map/edges") {
     if (!trackAssets?.edges) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'no track edges for current track' }));
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "no track edges for current track" }));
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(trackAssets.edges));
     return;
   }
 
-  if (pathname === '/api/track-map/image') {
+  if (pathname === "/api/track-map/image") {
     if (!trackAssets?.mapImagePath) {
       res.writeHead(404);
       res.end();
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'image/png' });
+    res.writeHead(200, { "Content-Type": "image/png" });
     fs.createReadStream(trackAssets.mapImagePath).pipe(res);
     return;
   }
@@ -64,7 +62,7 @@ const server = http.createServer((req, res) => {
   res.end();
 });
 
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server, path: "/ws" });
 
 const broadcast = (message: BridgeMessage): void => {
   const payload = JSON.stringify(message);
@@ -73,22 +71,31 @@ const broadcast = (message: BridgeMessage): void => {
   }
 };
 
-wss.on('connection', (socket) => {
+wss.on("connection", (socket) => {
   const hello: BridgeMessage[] = session
-    ? [{ type: 'status', state: 'connected' }, { type: 'session', ...session }]
-    : [{ type: 'status', state: 'waiting' }];
+    ? [
+        { type: "status", state: "connected" },
+        { type: "session", ...session },
+      ]
+    : [{ type: "status", state: "waiting" }];
   for (const message of hello) socket.send(JSON.stringify(message));
 });
 
 const ac = new ACClient();
 
-ac.on('session', async (handshake) => {
-  // Layout resolution can touch shared memory; a failure there must never
-  // take down the session (and the UDP path) — fall back to no map assets.
+ac.on("session", async (handshake) => {
+  // Layout resolution touches shared memory; a failure there must never take
+  // down the session and with it the UDP path.
   try {
-    trackAssets = await resolveTrackAssetsForSession(handshake.trackName, handshake.trackConfig);
+    trackAssets = await resolveTrackAssetsForSession(
+      handshake.trackName,
+      handshake.trackConfig,
+    );
   } catch (err) {
-    console.warn('[map] track asset resolution failed:', (err as Error).message);
+    console.warn(
+      "[map] track asset resolution failed:",
+      (err as Error).message,
+    );
     trackAssets = null;
   }
   session = {
@@ -101,18 +108,17 @@ ac.on('session', async (handshake) => {
     edgesAvailable: trackAssets?.edges != null,
     topSpeedKmh: resolveCarTopSpeed(handshake.carName),
   };
-  broadcast({ type: 'status', state: 'connected' });
-  broadcast({ type: 'session', ...session });
+  broadcast({ type: "status", state: "connected" });
+  broadcast({ type: "session", ...session });
 });
 
-ac.on('waiting', () => {
+ac.on("waiting", () => {
   session = null;
   trackAssets = null;
   latestFrame = null;
-  broadcast({ type: 'status', state: 'waiting' });
+  broadcast({ type: "status", state: "waiting" });
 });
 
-// AC floods RTCarInfo packets; keep only the newest and flush at BROADCAST_HZ.
 let nextDueAt = 0;
 
 const flushIfDue = (): void => {
@@ -121,12 +127,15 @@ const flushIfDue = (): void => {
   if (now < nextDueAt) return;
   // Catch up in interval steps while roughly on schedule; re-anchor after a
   // long gap so a pause doesn't buy a burst of back-to-back sends.
-  nextDueAt = now - nextDueAt > BROADCAST_INTERVAL_MS ? now + BROADCAST_INTERVAL_MS : nextDueAt + BROADCAST_INTERVAL_MS;
+  nextDueAt =
+    now - nextDueAt > BROADCAST_INTERVAL_MS
+      ? now + BROADCAST_INTERVAL_MS
+      : nextDueAt + BROADCAST_INTERVAL_MS;
   frameDirty = false;
-  broadcast({ type: 'telemetry', ...latestFrame });
+  broadcast({ type: "telemetry", ...latestFrame });
 };
 
-ac.on('telemetry', (frame) => {
+ac.on("telemetry", (frame) => {
   latestFrame = frame;
   frameDirty = true;
   flushIfDue();
@@ -134,8 +143,6 @@ ac.on('telemetry', (frame) => {
 
 setInterval(flushIfDue, BROADCAST_INTERVAL_MS);
 
-// Cut detection reads AC's shared-memory tyres-out counter (Windows, same-PC
-// only) and pins each 4-tyres-out onset to the newest UDP frame's position.
 const stopCutDetection = startCutDetection({
   getFrame: () => latestFrame,
   isLive: () => session !== null,
@@ -143,7 +150,7 @@ const stopCutDetection = startCutDetection({
     console.log(
       `[shm] cut: ${cut.tyresOut} tyres out on lap ${cut.lapCount + 1} at (${cut.x.toFixed(1)}, ${cut.z.toFixed(1)})`,
     );
-    broadcast({ type: 'cut', ...cut });
+    broadcast({ type: "cut", ...cut });
   },
 });
 
@@ -158,5 +165,5 @@ const shutdown = (): void => {
   server.close();
   process.exit(0);
 };
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

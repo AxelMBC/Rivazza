@@ -1,7 +1,5 @@
-const REPO_URL = 'https://github.com/AxelMBC/Rivazza';
+const REPO_URL = "https://github.com/AxelMBC/Rivazza";
 
-// Source-code link, shown in the header so anyone viewing the dashboard (the
-// hosted demo especially) can reach the repo.
 export const GitHubLink = () => (
   <a
     href={REPO_URL}

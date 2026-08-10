@@ -95,12 +95,12 @@ is unchanged and connects to the live bridge as always.
 
 ## Configuration (env vars for the bridge)
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `AC_PATH` | auto-discovered from Steam | Game folder (for track/car data) |
-| `AC_HOST` | `127.0.0.1` | Machine running the game |
-| `AC_PORT` | `9996` | AC remote telemetry port |
-| `BRIDGE_PORT` | `3001` | Bridge HTTP/WebSocket port |
+| Variable      | Default                    | Purpose                          |
+| ------------- | -------------------------- | -------------------------------- |
+| `AC_PATH`     | auto-discovered from Steam | Game folder (for track/car data) |
+| `AC_HOST`     | `127.0.0.1`                | Machine running the game         |
+| `AC_PORT`     | `9996`                     | AC remote telemetry port         |
+| `BRIDGE_PORT` | `3001`                     | Bridge HTTP/WebSocket port       |
 
 ## Development
 
