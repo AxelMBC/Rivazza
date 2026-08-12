@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { LapRecord } from "../hooks/useLapHistory";
 import type {
@@ -17,8 +17,7 @@ import {
   resolveReference,
   sampleNear,
   SECTOR_COUNT,
-  SECTOR_TOLERANCE_MS,
-  sectorTimes,
+  sectorOwners,
   theoreticalBestMs,
   worldPointAt,
   type ScrubPoint,
@@ -75,15 +74,15 @@ export const LapAnalysis = ({
   // Mirrors the hover-reveal so the selected lap's brake ticks only show on
   // the map while the panel is actually on screen.
   const [open, setOpen] = useState(false);
+  const [hoveredSector, setHoveredSector] = useState<number | null>(null);
 
   const recordings = recordingsRef.current;
   const laps = lapsRef.current;
-  // Only valid complete laps are reviewable — an invalidated lap has nothing
-  // to teach as a target, so it never appears as a chip (user directive).
+  // Every complete lap is reviewable, cut ones included — a lap the game threw
+  // out is where the driver went faster and where they went off, which is worth
+  // more than it costs. Invalidity is marked, never filtered.
   const invalidLaps = new Set(laps.filter((l) => l.invalid).map((l) => l.lap));
-  const reviewableLaps = recordings.filter(
-    (r) => r.complete && !invalidLaps.has(r.lap),
-  );
+  const reviewableLaps = recordings.filter((r) => r.complete);
   const reference = resolveReference(recordings, laps);
   const latest =
     reviewableLaps.length > 0
@@ -95,8 +94,9 @@ export const LapAnalysis = ({
       : undefined) ?? latest;
 
   // A sticky selection falls back to follow-latest when its recording is
-  // evicted by the lap cap, invalidated, or cleared by a reset. (Render-time
-  // resolution above already falls back; this clears the stale state.)
+  // evicted by the lap cap or cleared by a reset — but not when the lap is
+  // invalidated, which now leaves it selected. (Render-time resolution above
+  // already falls back; this clears the stale state.)
   useEffect(() => {
     if (
       selectedLap !== null &&
@@ -113,20 +113,16 @@ export const LapAnalysis = ({
     };
   }, [open, selected, analysisLapRef]);
 
-  // The best-sector table is derived on every render, not memoized by the
+  // Both sector tables are derived on every render, not memoized by the
   // recording version: a lap's invalid flag can land in the lap log a few
   // frames after the recording is stored, and a memo keyed on the version
   // would keep crediting a cut lap with best sectors (and a theoretical
   // best) until the next lap completes. The math is a few hundred
   // interpolations — negligible at the 30 Hz render rate.
-  const best = bestSectors(recordings, laps, SECTOR_COUNT);
-  const theoreticalMs = theoreticalBestMs(best);
-  // A stored recording is immutable once promoted, so its identity is the
-  // only recompute signal needed here.
-  const selectedSectors = useMemo(
-    () => (selected ? sectorTimes(selected, SECTOR_COUNT) : null),
-    [selected],
+  const theoreticalMs = theoreticalBestMs(
+    bestSectors(recordings, laps, SECTOR_COUNT),
   );
+  const owners = sectorOwners(recordings, laps, SECTOR_COUNT);
 
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -319,8 +315,10 @@ export const LapAnalysis = ({
         width - PAD_X,
         strips.speed.top - 4,
       );
+      // With every complete lap cut there is no reference at all, and the
+      // delta strip is a bare zero line that reads as broken without this.
       traceCtx.fillText(
-        `±${(deltaRange / 1000).toFixed(1)}s`,
+        ref ? `±${(deltaRange / 1000).toFixed(1)}s` : "no valid reference",
         width - PAD_X,
         strips.delta.top - 4,
       );
@@ -519,27 +517,13 @@ export const LapAnalysis = ({
     };
   }, [scrubRef]);
 
-  const selectedRecord = selected
-    ? laps.find((l) => l.lap === selected.lap)
-    : undefined;
-  const selectedValid =
-    selected !== null && !(selectedRecord?.invalid ?? false);
+  const selectedInvalid = selected !== null && invalidLaps.has(selected.lap);
   // Session best is strictly the fastest VALID lap in the log — an invalid
   // lap must never be presented as "best", even when its raw time is lower.
   const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
   const sessionBestMs = validTimes.length > 0 ? Math.min(...validTimes) : null;
 
-  const sectorClass = (t: number | null, i: number): string => {
-    if (t === null) return "bg-surface";
-    const bestT = best[i];
-    // No valid baseline yet — inert, not "matched".
-    if (bestT === null) return "bg-hairline";
-    // A cut lap can't own a best sector, so an invalid selected lap caps at
-    // the "matched" tone even when its raw time is the fastest seen.
-    if (selectedValid && t <= bestT + 1) return "bg-best";
-    if (t <= bestT + SECTOR_TOLERANCE_MS) return "bg-ink-muted";
-    return "bg-hairline";
-  };
+  const hoveredOwner = hoveredSector === null ? null : owners[hoveredSector];
 
   return (
     <div
@@ -561,9 +545,15 @@ export const LapAnalysis = ({
         <section className="flex max-h-[42vh] flex-col gap-2 overflow-y-auto rounded-lg border border-edge bg-page/40 p-3 shadow-xl backdrop-blur-sm">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <p className="text-xs tracking-wide text-ink-muted uppercase">
-              {selected && reference && reference !== selected ? (
+              {selected ? (
                 <>
-                  Lap {selected.lap} vs Lap {reference.lap} (ref)
+                  <span className={selectedInvalid ? "text-critical" : ""}>
+                    Lap {selected.lap}
+                    {selectedInvalid && " (inv)"}
+                  </span>
+                  {reference && reference !== selected && (
+                    <> vs Lap {reference.lap} (ref)</>
+                  )}
                 </>
               ) : (
                 "Lap analysis"
@@ -611,7 +601,14 @@ export const LapAnalysis = ({
                       className="inline-block size-2 rounded-full"
                       style={{ background: lapColor(rec.lap) }}
                     />
-                    <span className="text-ink-muted">Lap {rec.lap}</span>
+                    <span className="text-ink-muted">
+                      Lap {rec.lap}
+                      {record?.invalid && (
+                        <span className="ml-1.5 text-[0.65rem] uppercase text-critical">
+                          inv
+                        </span>
+                      )}
+                    </span>
                     <span
                       className={`font-semibold tabular-nums ${
                         record?.invalid
@@ -633,24 +630,62 @@ export const LapAnalysis = ({
             <canvas ref={canvasRef} className="size-full touch-none" />
             {!selected && (
               <p className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-ink-muted">
-                Complete a valid lap to unlock analysis — speed, pedal and delta
+                Complete a lap to unlock analysis — speed, pedal and delta
                 traces appear here
               </p>
             )}
           </div>
 
-          {selectedSectors && (
-            <div className="flex items-center gap-3">
-              <span className="text-[0.65rem] tracking-wide text-ink-muted uppercase">
+          {owners.some((o) => o !== null) && (
+            <div
+              className="flex items-center gap-3"
+              onMouseLeave={() => setHoveredSector(null)}
+            >
+              <span className="shrink-0 text-[0.65rem] tracking-wide text-ink-muted uppercase">
                 Sectors
               </span>
-              <div className="flex h-1.5 flex-1 gap-px overflow-hidden rounded-sm">
-                {selectedSectors.map((t, i) => (
-                  // Slices are purely positional — the index is the identity.
-                  // eslint-disable-next-line react/no-array-index-key
-                  <span key={i} className={`flex-1 ${sectorClass(t, i)}`} />
+              <div className="flex h-3 flex-1 gap-px overflow-hidden rounded-sm">
+                {owners.map((owner, i) => (
+                  <span
+                    // Slices are purely positional — the index is the identity.
+                    // eslint-disable-next-line react/no-array-index-key
+                    key={i}
+                    onMouseEnter={() => setHoveredSector(i)}
+                    onPointerUp={(e) => {
+                      if (e.pointerType === "touch") setHoveredSector(i);
+                    }}
+                    className={`flex-1 ${
+                      owner === null
+                        ? "bg-hairline"
+                        : owner.invalid
+                          ? "bg-critical"
+                          : ""
+                    }`}
+                    style={
+                      owner && !owner.invalid
+                        ? { background: lapColor(owner.lap) }
+                        : undefined
+                    }
+                  />
                 ))}
               </div>
+              {/* The lap palette repeats every COLORED_LAPS laps, so past that
+                  the ribbon's colors alone cannot name an owner. */}
+              <span className="w-32 shrink-0 text-right text-[0.65rem] text-ink-muted tabular-nums">
+                {hoveredSector !== null && hoveredOwner && (
+                  <>
+                    S{hoveredSector + 1} · Lap {hoveredOwner.lap} ·{" "}
+                    <span
+                      className={
+                        hoveredOwner.invalid ? "text-critical" : "text-ink"
+                      }
+                    >
+                      {(hoveredOwner.timeMs / 1000).toFixed(3)}
+                      {hoveredOwner.invalid && " inv"}
+                    </span>
+                  </>
+                )}
+              </span>
             </div>
           )}
         </section>
@@ -667,9 +702,7 @@ export const LapAnalysis = ({
         </span>
         <span className="text-xs text-ink-muted tabular-nums">
           {reviewableLaps.length === 0
-            ? recordings.some((r) => r.complete)
-              ? "no valid laps yet"
-              : "no laps recorded yet"
+            ? "no laps recorded yet"
             : `${reviewableLaps.length} lap${reviewableLaps.length === 1 ? "" : "s"}${
                 sessionBestMs !== null
                   ? ` · best ${formatLapTime(sessionBestMs)}`

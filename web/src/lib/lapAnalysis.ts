@@ -14,8 +14,6 @@ export const COVERAGE_END = 0.95;
 // convention) are as good as any segmentation; 24 keeps a corner at ~1–2
 // slices on a typical track.
 export const SECTOR_COUNT = 24;
-// A sector this close to the session best reads as "matched", not "slower".
-export const SECTOR_TOLERANCE_MS = 50;
 
 export type ScrubPoint = { x: number; z: number; color: string };
 
@@ -148,6 +146,32 @@ export const bestSectors = (
     });
   }
   return best;
+};
+
+export type SectorOwner = { lap: number; timeMs: number; invalid: boolean };
+
+// Who holds the fastest time in each slice across ALL completed laps, cut ones
+// included — the ribbon's colors. Deliberately separate from `bestSectors`:
+// this table answers "who was quickest here", that one answers "what counts",
+// and only the latter may be summed into a theoretical best. Ties go to the
+// earlier lap (recordings are in lap order), so the ribbon never flickers
+// between two laps holding identical times.
+export const sectorOwners = (
+  recordings: readonly LapRecording[],
+  laps: readonly LapRecord[],
+  count: number,
+): (SectorOwner | null)[] => {
+  const invalid = invalidLapSet(laps);
+  const owners = new Array<SectorOwner | null>(count).fill(null);
+  for (const rec of recordings) {
+    if (rec.timeMs === null) continue;
+    sectorTimes(rec, count).forEach((t, i) => {
+      const owner = owners[i];
+      if (t !== null && (owner === null || t < owner.timeMs))
+        owners[i] = { lap: rec.lap, timeMs: t, invalid: invalid.has(rec.lap) };
+    });
+  }
+  return owners;
 };
 
 // Sum of the per-slice bests — only once every slice has a valid time, so a
