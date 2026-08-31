@@ -90,9 +90,26 @@ Archive a completed change in the experimental workflow.
    - Spec sync status (synced / sync skipped / no delta specs)
    - Note about any warnings (incomplete artifacts/tasks)
 
-7. **Always suggest a commit title**
+7. **Always suggest a commit title, derived from the uncommitted changes**
 
-   After every successful archive, propose a one-line commit title (Conventional Commits style, e.g. `feat: add hover-reveal panels for lap history and tyre data`) summarizing the implemented change, and append it to the summary output as a `**Suggested commit:**` line.
+   Base the title on what is actually uncommitted in the working tree — not on the proposal's stated intent. The two drift: work gets added or dropped mid-implementation, and the archive move itself is part of the commit.
+
+   Inspect the working tree before writing the title:
+
+   ```bash
+   git status --short
+   git diff --stat HEAD
+   ```
+
+   Read enough of the diff to name what actually changed rather than restating the proposal. Include the archive move and any spec sync in what the title covers.
+
+   Match the repository's existing commit convention rather than assuming plain Conventional Commits — check it with `git log --oneline -10` (this repo prefixes a gitmoji, e.g. `feat: :sparkles: review invalid laps and color mini-sectors by owner`).
+
+   Append the result to the summary output as a `**Suggested commit:**` line.
+
+   **Edge cases:**
+   - Working tree clean: say so instead of inventing a title.
+   - The diff spans work unrelated to the archived change: suggest the title for the archived change's files and name the files that fall outside it, so the user can split the commit.
 
    **Never run `git commit` (or `git add`) yourself as part of this command** — the user copy-pastes the title themselves. This applies even if the user has otherwise authorized commits elsewhere in the conversation.
 
@@ -171,4 +188,5 @@ Target archive directory already exists.
 - If sync is requested, use the Skill tool to invoke `openspec-sync-specs` (agent-driven)
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting
 - ALWAYS suggest a commit title after archiving, even on error/failure paths where nothing was archived — skip it only then
+- ALWAYS derive that title from the actual uncommitted diff (`git status --short`, `git diff --stat HEAD`) and match the repo's commit convention (`git log --oneline -10`) — never from the proposal text alone
 - NEVER commit on the user's behalf (no `git add`/`git commit`) — the user copy-pastes the suggested title themselves

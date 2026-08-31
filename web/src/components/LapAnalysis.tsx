@@ -21,6 +21,7 @@ import {
   theoreticalBestMs,
   worldPointAt,
   type ScrubPoint,
+  type SectorOwner,
 } from "../lib/lapAnalysis";
 import { lapColor } from "../lib/lapColors";
 
@@ -39,6 +40,10 @@ const PAD_X = 10;
 const PAD_TOP = 16; // room for the caption row above the first strip
 const PAD_BOTTOM = 8;
 const STRIP_GAP = 18; // captions live in the gaps between strips
+// Fixed, not a share of the panel height: the ribbon carries meaning in colour
+// alone, and a proportional height turns it into a hairline on short viewports.
+const RIBBON_H = 12;
+const SLICE_GAP = 1; // the DOM ribbon's gap-px, so boundaries stay readable
 // Same canvas color literals as the map/pedal-trace convention.
 const REFERENCE_TRACE = "rgba(255, 255, 255, 0.4)";
 const THROTTLE_TRACE = "rgb(18, 190, 60)";
@@ -46,6 +51,13 @@ const BRAKE_TRACE = "rgb(235, 55, 45)";
 const COAST_TEXT = "#fab219";
 const GRID = "rgba(255, 255, 255, 0.07)";
 const CAPTION = "rgba(255, 255, 255, 0.35)";
+const SLICE_UNOWNED = "#2c2c2a"; // --color-hairline
+const SLICE_INVALID = "#d03b3b"; // --color-critical
+const INVALID_SLICE_BAR = 3; // of RIBBON_H, so it reads as a mark on the slice
+// Dim enough that an invalid slice never competes with the laps that count,
+// opaque enough that its lap hue stays nameable against the panel ground.
+const INVALID_SLICE_ALPHA = 0.45;
+const SCRUB_BAND = "rgba(255, 255, 255, 0.07)";
 // Delta strip never zooms tighter than ±0.5 s, so tiny wobbles read as flat.
 const MIN_DELTA_RANGE_MS = 500;
 
@@ -53,13 +65,26 @@ type Strip = { top: number; h: number };
 
 const layoutStrips = (
   height: number,
-): { speed: Strip; pedals: Strip; delta: Strip } => {
-  const avail = height - PAD_TOP - PAD_BOTTOM - STRIP_GAP * 2;
+): { speed: Strip; pedals: Strip; delta: Strip; sectors: Strip } => {
+  const avail = height - PAD_TOP - PAD_BOTTOM - STRIP_GAP * 3 - RIBBON_H;
   const speed = { top: PAD_TOP, h: avail * 0.42 };
   const pedals = { top: speed.top + speed.h + STRIP_GAP, h: avail * 0.24 };
   const delta = { top: pedals.top + pedals.h + STRIP_GAP, h: avail * 0.34 };
-  return { speed, pedals, delta };
+  const sectors = { top: delta.top + delta.h + STRIP_GAP, h: RIBBON_H };
+  return { speed, pedals, delta, sectors };
 };
+
+const sliceAt = (pos: number) =>
+  Math.min(SECTOR_COUNT - 1, Math.floor(pos * SECTOR_COUNT));
+
+// The recordings version does not cover the ribbon: a lap's invalid flag can
+// land in the lap log frames after its recording is stored, flipping a slice's
+// colour with no version bump. Fingerprinting the owners keeps the cached trace
+// layer correct without rebuilding it on every scrub frame.
+const ownersKey = (owners: readonly (SectorOwner | null)[]) =>
+  owners
+    .map((o) => (o === null ? "-" : `${o.lap}${o.invalid ? "!" : ""}`))
+    .join();
 
 export const LapAnalysis = ({
   recordingsRef,
@@ -74,7 +99,6 @@ export const LapAnalysis = ({
   // Mirrors the hover-reveal so the selected lap's brake ticks only show on
   // the map while the panel is actually on screen.
   const [open, setOpen] = useState(false);
-  const [hoveredSector, setHoveredSector] = useState<number | null>(null);
 
   const recordings = recordingsRef.current;
   const laps = lapsRef.current;
@@ -130,6 +154,8 @@ export const LapAnalysis = ({
   referenceRef.current = reference;
   const versionRef = useRef(version);
   versionRef.current = version;
+  const ownersRef = useRef(owners);
+  ownersRef.current = owners;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -186,6 +212,31 @@ export const LapAnalysis = ({
       traceCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       traceCtx.clearRect(0, 0, width, height);
       const strips = layoutStrips(height);
+
+      const owners = ownersRef.current;
+      for (let i = 0; i < SECTOR_COUNT; i++) {
+        const owner = owners[i];
+        const x0 = plotX(i / SECTOR_COUNT, width);
+        const x1 = plotX((i + 1) / SECTOR_COUNT, width);
+        // The last slice keeps its full width so the ribbon ends flush with
+        // the traces above it.
+        const gap = i === SECTOR_COUNT - 1 ? 0 : SLICE_GAP;
+        const w = x1 - x0 - gap;
+        traceCtx.fillStyle =
+          owner === null ? SLICE_UNOWNED : lapColor(owner.lap);
+        traceCtx.globalAlpha = owner?.invalid ? INVALID_SLICE_ALPHA : 1;
+        traceCtx.fillRect(x0, strips.sectors.top, w, RIBBON_H);
+        traceCtx.globalAlpha = 1;
+        if (owner?.invalid) {
+          traceCtx.fillStyle = SLICE_INVALID;
+          traceCtx.fillRect(
+            x0,
+            strips.sectors.top + RIBBON_H - INVALID_SLICE_BAR,
+            w,
+            INVALID_SLICE_BAR,
+          );
+        }
+      }
 
       traceCtx.strokeStyle = GRID;
       traceCtx.lineWidth = 1;
@@ -309,6 +360,7 @@ export const LapAnalysis = ({
       traceCtx.fillText("SPEED", PAD_X, strips.speed.top - 4);
       traceCtx.fillText("THROTTLE / BRAKE", PAD_X, strips.pedals.top - 4);
       traceCtx.fillText("DELTA TO REFERENCE", PAD_X, strips.delta.top - 4);
+      traceCtx.fillText("SECTORS", PAD_X, strips.sectors.top - 4);
       traceCtx.textAlign = "right";
       traceCtx.fillText(
         `${Math.round(maxSpeed)} km/h`,
@@ -332,12 +384,42 @@ export const LapAnalysis = ({
       const ref = referenceRef.current;
       const strips = layoutStrips(height);
       const x = plotX(pos, width);
+      const bottom = strips.sectors.top + strips.sectors.h;
+
+      const slice = sliceAt(pos);
+      ctx.fillStyle = SCRUB_BAND;
+      const bandX = plotX(slice / SECTOR_COUNT, width);
+      ctx.fillRect(
+        bandX,
+        strips.speed.top,
+        plotX((slice + 1) / SECTOR_COUNT, width) - bandX,
+        bottom - strips.speed.top,
+      );
+
       ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(x, strips.speed.top);
-      ctx.lineTo(x, strips.delta.top + strips.delta.h);
+      ctx.lineTo(x, bottom);
       ctx.stroke();
+
+      // The lap palette repeats every COLORED_LAPS laps, so past that the
+      // ribbon's colours alone cannot name a slice's owner.
+      const owner = ownersRef.current[slice];
+      if (owner) {
+        const head = `S${slice + 1} · Lap ${owner.lap} · `;
+        const tail = `${(owner.timeMs / 1000).toFixed(3)}${owner.invalid ? " inv" : ""}`;
+        ctx.font = "10px system-ui";
+        const headW = ctx.measureText(head).width;
+        const readoutX = width - PAD_X - headW - ctx.measureText(tail).width;
+        const readoutY = strips.sectors.top - 4;
+        ctx.fillStyle = CAPTION;
+        ctx.fillText(head, readoutX, readoutY);
+        ctx.fillStyle = owner.invalid
+          ? SLICE_INVALID
+          : "rgba(255, 255, 255, 0.75)";
+        ctx.fillText(tail, readoutX + headW, readoutY);
+      }
 
       type Seg = { text: string; color: string };
       const rows: Seg[][] = [];
@@ -414,6 +496,7 @@ export const LapAnalysis = ({
     let lastSel: LapRecording | null = null;
     let lastRef: LapRecording | null = null;
     let lastVersion = -1;
+    let lastOwners = "";
     let lastMouse: number | null = null;
     let lastW = 0;
     let lastH = 0;
@@ -430,11 +513,13 @@ export const LapAnalysis = ({
       const sel = selectedRef.current;
       const ref = referenceRef.current;
       const v = versionRef.current;
+      const ok = ownersKey(ownersRef.current);
       const dirty =
         firstDraw ||
         sel !== lastSel ||
         ref !== lastRef ||
         v !== lastVersion ||
+        ok !== lastOwners ||
         mousePos !== lastMouse ||
         width !== lastW ||
         height !== lastH ||
@@ -444,6 +529,7 @@ export const LapAnalysis = ({
       lastSel = sel;
       lastRef = ref;
       lastVersion = v;
+      lastOwners = ok;
       lastMouse = mousePos;
       lastW = width;
       lastH = height;
@@ -459,7 +545,7 @@ export const LapAnalysis = ({
         layerKey = "";
         return;
       }
-      const key = `${v}|${sel.lap}|${ref?.lap ?? -1}|${width}x${height}@${dpr}`;
+      const key = `${v}|${sel.lap}|${ref?.lap ?? -1}|${ok}|${width}x${height}@${dpr}`;
       if (key !== layerKey) {
         layerKey = key;
         renderTraces(sel, ref, width, height, dpr);
@@ -522,8 +608,6 @@ export const LapAnalysis = ({
   // lap must never be presented as "best", even when its raw time is lower.
   const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
   const sessionBestMs = validTimes.length > 0 ? Math.min(...validTimes) : null;
-
-  const hoveredOwner = hoveredSector === null ? null : owners[hoveredSector];
 
   return (
     <div
@@ -626,7 +710,7 @@ export const LapAnalysis = ({
             </div>
           )}
 
-          <div className="relative h-24 lg:h-28">
+          <div className="relative h-32 lg:h-36">
             <canvas ref={canvasRef} className="size-full touch-none" />
             {!selected && (
               <p className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-ink-muted">
@@ -635,59 +719,6 @@ export const LapAnalysis = ({
               </p>
             )}
           </div>
-
-          {owners.some((o) => o !== null) && (
-            <div
-              className="flex items-center gap-3"
-              onMouseLeave={() => setHoveredSector(null)}
-            >
-              <span className="shrink-0 text-[0.65rem] tracking-wide text-ink-muted uppercase">
-                Sectors
-              </span>
-              <div className="flex h-3 flex-1 gap-px overflow-hidden rounded-sm">
-                {owners.map((owner, i) => (
-                  <span
-                    // Slices are purely positional — the index is the identity.
-                    // eslint-disable-next-line react/no-array-index-key
-                    key={i}
-                    onMouseEnter={() => setHoveredSector(i)}
-                    onPointerUp={(e) => {
-                      if (e.pointerType === "touch") setHoveredSector(i);
-                    }}
-                    className={`flex-1 ${
-                      owner === null
-                        ? "bg-hairline"
-                        : owner.invalid
-                          ? "bg-critical"
-                          : ""
-                    }`}
-                    style={
-                      owner && !owner.invalid
-                        ? { background: lapColor(owner.lap) }
-                        : undefined
-                    }
-                  />
-                ))}
-              </div>
-              {/* The lap palette repeats every COLORED_LAPS laps, so past that
-                  the ribbon's colors alone cannot name an owner. */}
-              <span className="w-32 shrink-0 text-right text-[0.65rem] text-ink-muted tabular-nums">
-                {hoveredSector !== null && hoveredOwner && (
-                  <>
-                    S{hoveredSector + 1} · Lap {hoveredOwner.lap} ·{" "}
-                    <span
-                      className={
-                        hoveredOwner.invalid ? "text-critical" : "text-ink"
-                      }
-                    >
-                      {(hoveredOwner.timeMs / 1000).toFixed(3)}
-                      {hoveredOwner.invalid && " inv"}
-                    </span>
-                  </>
-                )}
-              </span>
-            </div>
-          )}
         </section>
       </div>
 
