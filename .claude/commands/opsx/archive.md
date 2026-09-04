@@ -49,6 +49,31 @@ Archive a completed change in the experimental workflow.
 
    **If no tasks file exists:** Proceed without task-related warning.
 
+   **Then read the verification receipt** at `<changeRoot>/.verified.json`, written by
+   `/opsx:verify`. **Do not ask whether verify ran "this session"** — that question is unanswerable
+   after a compaction or in a new terminal, and a warning that cannot be evaluated degrades into
+   either constant noise or permanent silence. The receipt is the answer.
+
+   Apply the staleness rule — compare *what* changed since the receipt, not *whether* anything did:
+
+   ```bash
+   git diff --name-only <receipt.head>..HEAD
+   ```
+
+   The archive-only paths are `openspec/` (this repo has no `archive` block in
+   `.claude/workflow.yaml`, so nothing else is written post-archive).
+
+   | Condition | Report as | Action |
+   | --- | --- | --- |
+   | No `.verified.json` | **never verified** | Warn, and offer `/opsx:verify <name>` first via **AskUserQuestion**. Archiving anyway is allowed. |
+   | `head` == `HEAD`, tree clean | **verified at `<sha>`** | Proceed silently. |
+   | Changed paths all within `openspec/` | **still valid** | Proceed silently — that is the archive commit. |
+   | Any changed path outside `openspec/` | **stale — code changed since verify** | Warn and confirm. |
+   | `dirtyAtVerify: true` | **verified against uncommitted work at `<time>`** | Note it; do not block. This is the normal case here, since Claude never commits. |
+
+   Archiving an unverified change is possible — it is the user's call — but it must be a stated
+   choice, never a silent one.
+
 4. **Assess delta spec sync state**
 
    Use `artifactPaths.specs.existingOutputPaths` from status JSON to check for delta specs. If none exist, proceed without sync prompt.
@@ -62,7 +87,11 @@ Archive a completed change in the experimental workflow.
    - If changes needed: "Sync now (recommended)", "Archive without syncing"
    - If already synced: "Archive now", "Sync anyway", "Cancel"
 
-   If user chooses sync, use Task tool (subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"). Proceed to archive regardless of choice.
+   If the user chooses sync, **perform it in this context by following `/opsx:sync`'s steps
+   directly.** Never delegate it to a subagent, and never invoke an `openspec-sync-specs` skill —
+   that skill was deleted because it was a stale fork of `/opsx:sync` and had already drifted from
+   it. A merge into `openspec/specs/` is a judgement call over text you are already holding; handing
+   it to a fresh agent throws that context away. Proceed to archive regardless of choice.
 
 5. **Perform the archive**
 
@@ -103,7 +132,19 @@ Archive a completed change in the experimental workflow.
 
    Read enough of the diff to name what actually changed rather than restating the proposal. Include the archive move and any spec sync in what the title covers.
 
-   Match the repository's existing commit convention rather than assuming plain Conventional Commits — check it with `git log --oneline -10` (this repo prefixes a gitmoji, e.g. `feat: :sparkles: review invalid laps and color mini-sectors by owner`).
+   **The convention is `.claude/rules/git-workflow.md`, not `git log`.** Read the format and the
+   type→emoji table there. Do **not** derive the style from the history: this log contains entries
+   that predate the rule and do not follow it (`record con Ferrari en Imola`, `new laps for
+   deployment`, `feat: :sparkles: ico updated`), so sampling it reproduces the mistakes.
+
+   For an archive that only moves the change directory and syncs specs, the fixed form is:
+
+   ```
+   chore: :card_file_box: archive <change-id> and sync the specs
+   ```
+
+   When the commit also carries the implementation, title it after the implementation instead —
+   `feat:` / `fix:` / `refactor:` per the table — and mention the archive in the body.
 
    Append the result to the summary output as a `**Suggested commit:**` line.
 
@@ -111,7 +152,10 @@ Archive a completed change in the experimental workflow.
    - Working tree clean: say so instead of inventing a title.
    - The diff spans work unrelated to the archived change: suggest the title for the archived change's files and name the files that fall outside it, so the user can split the commit.
 
-   **Never run `git commit` (or `git add`) yourself as part of this command** — the user copy-pastes the title themselves. This applies even if the user has otherwise authorized commits elsewhere in the conversation.
+   **Never run `git commit` (or `git add`) yourself as part of this command** — the user
+   copy-pastes the title themselves, or runs `! git commit -m "..."` in the prompt so the output
+   still lands in the conversation. This applies even if the user has otherwise authorized commits
+   elsewhere in the conversation, and `.claude/guard-workflow.ps1` enforces it at the tool layer.
 
 **Output On Success**
 
@@ -185,8 +229,9 @@ Target archive directory already exists.
 - Don't block archive on warnings - just inform and confirm
 - Preserve .openspec.yaml when moving to archive (it moves with the directory)
 - Show clear summary of what happened
-- If sync is requested, use the Skill tool to invoke `openspec-sync-specs` (agent-driven)
+- If sync is requested, follow `/opsx:sync`'s steps in THIS context - never a subagent, never an `openspec-sync-specs` skill (it was deleted as a stale fork)
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting
 - ALWAYS suggest a commit title after archiving, even on error/failure paths where nothing was archived — skip it only then
-- ALWAYS derive that title from the actual uncommitted diff (`git status --short`, `git diff --stat HEAD`) and match the repo's commit convention (`git log --oneline -10`) — never from the proposal text alone
-- NEVER commit on the user's behalf (no `git add`/`git commit`) — the user copy-pastes the suggested title themselves
+- ALWAYS derive that title from the actual uncommitted diff (`git status --short`, `git diff --stat HEAD`) and write it per `.claude/rules/git-workflow.md` — never from the proposal text alone, and never by sampling `git log`
+- NEVER commit on the user's behalf (no `git add`/`git commit`) — the user copy-pastes the suggested title themselves; `.claude/guard-workflow.ps1` enforces this at the tool layer
+- ALWAYS read `.verified.json` rather than asking whether verify ran "this session" - the receipt outlives the session, the question does not

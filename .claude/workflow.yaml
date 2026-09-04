@@ -1,0 +1,81 @@
+# .claude/workflow.yaml
+#
+# Per-repo settings for the repo-local /opsx:* commands. Nothing in
+# .claude/commands/opsx/* should hardcode a stack or a host — every environment-specific detail
+# lives here instead.
+#
+# SCOPE NOTE: this file holds only what a command SUBSTITUTES or EXECUTES. Prose a model reads and
+# follows is not config — it belongs in `.claude/rules/`, where it gets `paths:` scoping.
+# `git` serves /opsx:propose and /opsx:tweak (branch creation) and /opsx:verify (the diff base for
+# its duplication scan); `checks` serves /opsx:verify (the gate) and /opsx:tweak (its fix loop).
+# Every key here has a reader — if you add one, add its reader too. Do not add empty placeholder
+# blocks: a command that reads a half-filled config is worse than one that correctly reports the
+# config is missing.
+#
+# There is deliberately NO `ado` block and no /opsx:pr. The remote is GitHub
+# (git@github.com:AxelMBC/Rivazza.git) and `gh` is not installed on this machine, so PRs are opened
+# by hand in the browser. Add a `pr` block only alongside a command that reads it.
+#
+# There is deliberately NO `archive` block: this repo has no repo-local tooling to refresh after an
+# archive. /opsx:archive therefore skips its post-archive step, and the staleness rule in
+# /opsx:verify treats `openspec/` alone as the archive-only paths.
+
+git:
+  host: 'github'
+
+  # origin/HEAD points at master, and every commit in the log landed there. `dev` exists on the
+  # remote but is not the integration branch — check before assuming otherwise.
+  default_base_branch: 'master'
+
+  # A naming HINT for /opsx:propose and /opsx:tweak, never an allowlist. Derived from the commit
+  # types actually in use in this log; `feat/princesa` is the only branch that predates the rule.
+  branch_prefixes: ['feat/', 'fix/', 'refactor/', 'style/', 'perf/', 'docs/', 'chore/']
+
+  # Which of the above /opsx:propose picks. fix_prefix when the change repairs a defect,
+  # feature_prefix otherwise. Both must appear in branch_prefixes.
+  feature_prefix: 'feat/'
+  fix_prefix: 'fix/'
+
+  # Merge targets, never PR sources. A command that finds HEAD here creates a branch first.
+  protected_branches: ['master', 'dev']
+
+# How /opsx:verify gates a change. Named `checks`, not `test`, because there is no test suite here —
+# see `.claude/rules/verification.md`. Every command in this block is READ-ONLY: nothing here may
+# modify the working tree, or a "verified" result would describe a tree that no longer exists.
+checks:
+  # Runs first and blocks the rest. The bridge's "build" IS the typecheck — it runs via tsx and is
+  # never compiled to JS, so `tsc --noEmit` is the only thing that ever type-checks bridge/src.
+  typecheck_bridge_command: 'npm run build -w bridge'
+
+  # Deliberately NOT `npm run build -w web`, which is `tsc -b && vite build` — the vite half writes
+  # web/dist/. `tsc -b <dir> --noEmit` gives the same type coverage and touches nothing (TypeScript
+  # 6.0.3; the flag combination is rejected by older tsc, so check before downgrading).
+  #
+  # The `web` argument is load-bearing, and so is using npx rather than npm:
+  #   `npm --prefix web exec -- tsc …`  resolves packages from web/ but leaves cwd at the repo root,
+  #                                     so tsc looks for ./tsconfig.json and dies with TS5083.
+  #   `npm exec -w web -- tsc …`        runs in the right place and PRINTS the errors, but exits 0 —
+  #                                     npm swallows tsc's exit code, so the gate would pass on red.
+  # Verified 2026-09-03 by injecting a type error: only the form below exits non-zero (2).
+  typecheck_web_command: 'npx tsc -b web --noEmit'
+
+  # oxlint, the repo's only linter, and it has no --fix. Safe in a read-only gate; the bridge has
+  # no linter at all.
+  lint_command: 'npm run lint -w web'
+
+  # `prettier --check`, not --write. Prettier owns import order, so a formatting failure here is a
+  # real finding: it means the change hand-sorted imports or was written outside the formatter.
+  format_check_command: 'npm run format:check'
+
+  # Validates the change's spec deltas before /opsx:sync merges them. Exits 1 on a malformed delta
+  # (missing ## ADDED/MODIFIED/REMOVED headers, or a requirement with no #### Scenario:). Skip it
+  # when the change has NO deltas — it then fails with "must have at least one delta", which is not
+  # a defect. Check artifactPaths.specs.existingOutputPaths first.
+  validate_change_command: 'openspec validate "{change}" --type change'
+
+# DELIBERATELY ABSENT: `full_suite_command`, `filter_command`, `filter_by_title_command`.
+#
+# There is no test framework in this repo — no vitest, no jest, no `npm test`. The manual half of
+# verification (mock + dev servers + a headless browser driving a hover-only UI) is a procedure, not
+# a command string, so it lives in `.claude/skills/verify/SKILL.md` and is pointed at from
+# `.claude/rules/verification.md`. Do not add a key here for it.

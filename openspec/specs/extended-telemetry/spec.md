@@ -7,14 +7,14 @@ Parse the full Assetto Corsa RTCarInfo UDP packet in the bridge and stream the e
 ## Requirements
 
 ### Requirement: Bridge parses the full RTCarInfo packet
-The bridge SHALL parse the complete 328-byte RTCarInfo struct and include the following additional fields in every `TelemetryFrame`: `clutch` (0–1), `steerAngle` (degrees, negative = left), `accGFrontal`, `accGHorizontal`, `accGVertical` (G units), `absEnabled`, `absInAction`, `tcEnabled`, `tcInAction`, `inPit`, `engineLimiterOn` (booleans), `carSlope` (radians), `tyreSlip` (array of 4, front-left/front-right/rear-left/rear-right), and `wheelLoad` (array of 4, newtons, same order).
+The bridge SHALL parse the complete 328-byte RTCarInfo struct and include the following additional fields in every `TelemetryFrame`: `clutch` (0–1), `steerAngle` (degrees, negative = left), `accGFrontal`, `accGHorizontal`, `accGVertical` (G units), `absEnabled`, `absInAction`, `tcEnabled`, `tcInAction`, `inPit`, `engineLimiterOn` (booleans), `carSlope` (radians), `tyreSlip` (array of 4, front-left/front-right/rear-left/rear-right), and `wheelLoad` (array of 4, newtons, same order). This specification SHALL name each decoded flag exactly as its `TelemetryFrame` field is named, so a reader can grep the specification against the code and find it.
 
 #### Scenario: Telemetry packet received
 - **WHEN** the bridge receives a 328-byte RTCarInfo UDP packet while subscribed
 - **THEN** the emitted `TelemetryFrame` contains all previously existing fields plus the new fields, decoded at their correct struct offsets
 
 #### Scenario: Boolean flags decoded from struct bytes
-- **WHEN** the RTCarInfo packet has a non-zero byte at a flag offset (e.g., `isAbsInAction`)
+- **WHEN** the RTCarInfo packet has a non-zero byte at a flag offset (e.g., `absInAction` at offset 21)
 - **THEN** the corresponding `TelemetryFrame` field is `true`, and `false` when the byte is zero
 
 ### Requirement: Extended frame streams over the existing WebSocket unchanged in shape

@@ -24,7 +24,8 @@ npm workspaces monorepo (`bridge`, `web`). Run from the repo root:
 - `npm run build -w bridge` — bridge "build" is `tsc --noEmit` (type-check only; it runs via `tsx`, never compiled to JS)
 - `npm run build -w web` — `tsc -b && vite build`
 
-There is **no test framework** in this repo — do not invent test commands.
+There is **no test framework** in this repo — do not invent test commands. What verification does
+mean here is `.claude/rules/verification.md`.
 
 ## Bridge configuration (env vars)
 
@@ -106,56 +107,23 @@ per-lap history with identity colors, and layers cursor-anchored wheel zoom over
 projection. All canvas components (`TrackMap`, `PedalTrace`, `GForceMeter`) dirty-gate their rAF
 loops — they only repaint when what's rendered actually changed. Preserve this when editing them.
 
-## Conventions
+## Where the rest of the guidance lives
 
-- **Tailwind v4** with semantic design tokens defined in `web/src/index.css` `@theme` (e.g. `text-ink-muted`, `bg-surface`, `border-edge`, `text-critical`). Use the tokens, not raw hex/color values.
-- React 19, Vite, strict TypeScript throughout.
+Cross-cutting conventions live in `.claude/rules/`, loaded by Claude Code without an import — read
+them there rather than restating them here:
 
-### Comments
+- **`git-workflow.md`** — commit format, the type→emoji table, branch creation. Loads every session.
+- **`code-style.md`** — comments, functions, imports, types and file layout, Tailwind tokens.
+  Loads only for `{bridge,web}/src/**/*.{ts,tsx,css}`.
+- **`verification.md`** — what "verified" means in a repo with no test framework. Loads every session.
 
-Comments explain **constraints that live outside the repo** — things no rename can express:
-AC's protocol and file formats, Windows/browser behaviour, and tuned constants whose value was
-chosen against a tradeoff (a reader who "cleans up" `FOLLOW_WINDOW_HEADROOM = 0.95` to `1`
-reintroduces a bug).
-
-Never comment what the code already says. In particular:
-
-- No JSDoc on internal functions — strict TS types carry it.
-- No section banners (`// ---- helpers ----`); that is a signal to split the file.
-- No comments narrating the next line, an effect's steps, or a function's name restated in prose.
-- Rationale about how two subsystems relate belongs in this file or in `openspec/specs/`, not in
-  a source comment. Before writing one, check whether the relevant spec already states it.
-
-Test before keeping a comment: _can a reader recover this by reading the code harder?_ If yes,
-delete it. If no, it is load-bearing — keep it, and keep it short.
-
-### Functions
-
-**All functions are arrow functions**, including React components. The only exceptions are cases
-arrows cannot express: TypeScript overload signatures, and generic functions in `.tsx` files
-(where `<T>` collides with JSX and would need the `<T,>` hack). Neither currently appears in this
-repo, so in practice the rule is unconditional.
-
-### Imports
-
-Prettier owns import order via `@ianvs/prettier-plugin-sort-imports` — never hand-sort. Groups
-run by distance (builtins → third-party → `../` → `./` → CSS), with `import type` sorted inline
-beside value imports from the same module rather than hoisted into its own block. Run
-`npm run format` (or `npm run format:check` in CI).
-
-### Types and file layout
-
-- A type moves to its own module only when a **second** module needs it. A `Props` type used by
-  one component stays in that component's file — do not extract it preemptively.
-- `web/src/types.ts` is strictly the hand-mirrored bridge wire contract. Shared app-level types
-  (e.g. `LapRecord`) live with the module that produces them, not here.
-- A component gets its own folder when it grows children or helpers only it uses — reactively,
-  not preemptively.
-- A file spanning more than two capabilities gets split. (`TrackMap.tsx` is the outstanding
-  case; see the `split-track-map` change.)
+Per-repo command configuration (branch conventions, the check commands `/opsx:verify` runs) is
+`.claude/workflow.yaml`. The authoritative record of behaviour is `openspec/specs/`.
 
 ## Spec workflow
 
 This project uses **OpenSpec** (spec-driven). Live specs are in `openspec/specs/`; changes are
-proposed/applied/archived via the `/opsx:*` skills (`propose`, `apply`, `archive`, `sync`, `explore`).
-Consult the relevant spec in `openspec/specs/` before changing a documented feature.
+proposed/applied/archived via the `/opsx:*` commands in `.claude/commands/opsx/` — `explore`,
+`propose`, `apply`, `verify`, `sync`, `archive`, plus `tweak` (small delta-only changes) and
+`audit-drift` (spec maintenance). Consult the relevant spec in `openspec/specs/` before changing a
+documented feature.

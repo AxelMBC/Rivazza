@@ -12,3 +12,9 @@ logs/
 .idea/
 .vscode/
 !.vscode/extensions.json
+
+# Per-developer Claude Code permissions. The shared, durable set lives in the tracked
+# .claude/settings.json (including the deny list that backstops the never-commit guard).
+# This file is one machine's local additions: one-off command approvals and absolute paths
+# into the Assetto Corsa install. It must never be the home of a shared rule.
+.claude/settings.local.json
