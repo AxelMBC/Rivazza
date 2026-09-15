@@ -43,6 +43,10 @@ const median3 = (values: number[]): number[] =>
 
 const roundCm = (v: number): number => Math.round(v * 100) / 100;
 
+// 1e-5 of a lap is ~5 cm on a 5 km circuit — finer than the map can draw, and
+// far finer than a sector boundary needs.
+const POS_PRECISION = 1e5;
+
 const parseSpline = (buf: Buffer): SplinePoint[] | null => {
   if (buf.length < HEADER_SIZE) return null;
   const version = buf.readInt32LE(0);
@@ -134,12 +138,23 @@ export const resolveTrackEdges = (
 
   const left: [number, number][] = new Array(n);
   const right: [number, number][] = new Array(n);
+  // Cumulative chord length, the basis for each vertex's normalized track
+  // position. The point record also carries AC's own `length` field, but it is
+  // as corruptible as every other field here and would need its own
+  // monotonicity checks plus this exact derivation as a fallback — so this is
+  // the derivation, with nothing in front of it. At AC's spline density the
+  // chord sum tracks arc length to well under the sample spacing.
+  const cum: number[] = new Array(n);
   // Driver-left in world XZ is (dz, -dx) for unit travel direction (dx, dz);
   // validated empirically (racing lines hug the inside edge at apexes).
   let dx = 1;
   let dz = 0;
   for (let i = 0; i < n; i++) {
     const p = points[i];
+    cum[i] =
+      i === 0
+        ? 0
+        : cum[i - 1] + Math.hypot(p.x - points[i - 1].x, p.z - points[i - 1].z);
     const q = closed || i < n - 1 ? points[(i + 1) % n] : p;
     const segX = q.x - p.x;
     const segZ = q.z - p.z;
@@ -154,5 +169,15 @@ export const resolveTrackEdges = (
       roundCm(p.z + dx * p.sideRight),
     ];
   }
-  return { closed, left, right };
+  // A closed circuit's last segment runs back to point 0, so the lap is longer
+  // than the last cumulative value by exactly that leg.
+  const total = closed
+    ? cum[n - 1] + Math.hypot(first.x - last.x, first.z - last.z)
+    : cum[n - 1];
+  const pos =
+    total > 0
+      ? cum.map((c) => Math.round((c / total) * POS_PRECISION) / POS_PRECISION)
+      : cum.map(() => 0);
+
+  return { closed, left, right, pos };
 };

@@ -14,6 +14,7 @@ import {
 import {
   bestSectors,
   interpolateTimeAt,
+  latestComplete,
   resolveReference,
   sampleNear,
   SECTOR_COUNT,
@@ -43,7 +44,10 @@ const STRIP_GAP = 18; // captions live in the gaps between strips
 // Fixed, not a share of the panel height: the ribbon carries meaning in colour
 // alone, and a proportional height turns it into a hairline on short viewports.
 const RIBBON_H = 12;
-const SLICE_GAP = 1; // the DOM ribbon's gap-px, so boundaries stay readable
+// Slices are wide at this count, so a hairline gap reads as a seam rather than
+// a boundary; 2 px keeps the divisions as legible as 1 px was when they were a
+// third of the width.
+const SLICE_GAP = 2;
 // Same canvas color literals as the map/pedal-trace convention.
 const REFERENCE_TRACE = "rgba(255, 255, 255, 0.4)";
 const THROTTLE_TRACE = "rgb(18, 190, 60)";
@@ -108,10 +112,7 @@ export const LapAnalysis = ({
   const invalidLaps = new Set(laps.filter((l) => l.invalid).map((l) => l.lap));
   const reviewableLaps = recordings.filter((r) => r.complete);
   const reference = resolveReference(recordings, laps);
-  const latest =
-    reviewableLaps.length > 0
-      ? reviewableLaps[reviewableLaps.length - 1]
-      : null;
+  const latest = latestComplete(recordings);
   const selected =
     (selectedLap !== null
       ? reviewableLaps.find((r) => r.lap === selectedLap)
@@ -568,7 +569,9 @@ export const LapAnalysis = ({
       const sel = selectedRef.current;
       const point = sel ? worldPointAt(sel.samples, pos) : null;
       scrubRef.current =
-        sel && point ? { ...point, color: lapColor(sel.lap) } : null;
+        sel && point
+          ? { ...point, color: lapColor(sel.lap), slice: sliceAt(pos) }
+          : null;
     };
     const clearScrub = () => {
       mousePos = null;

@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { LapRecord } from "../hooks/useLapHistory";
+import type { LapRecording } from "../hooks/useLapRecordings";
 import { BRIDGE_HTTP } from "../hooks/useTelemetry";
 import { DEMO_MAP_URL, IS_DEMO } from "../lib/demo";
 import { formatGearCompact, formatLapTime } from "../lib/format";
 import { CLICK_MODE, isImmediateActivation } from "../lib/interaction";
-import type { ScrubPoint } from "../lib/lapAnalysis";
+import {
+  SECTOR_COUNT,
+  sectorOwners,
+  type ScrubPoint,
+  type SectorOwner,
+} from "../lib/lapAnalysis";
 import { COLORED_LAPS, lapColor } from "../lib/lapColors";
 import { SYNTHETIC_MOUSE_WINDOW_MS, TAP_SLOP_PX } from "../lib/touch";
 import type {
@@ -24,6 +30,8 @@ type Props = {
   hoveredLapRef: React.RefObject<number | null>;
   scrubRef: React.RefObject<ScrubPoint | null>;
   analysisLapRef: React.RefObject<number | null>;
+  recordingsRef: React.RefObject<LapRecording[]>;
+  recordingsVersion: number;
 };
 
 type MapData = { meta: MapMeta | null; edges: TrackEdges | null };
@@ -38,7 +46,9 @@ type Sample = {
   jump: boolean;
 };
 type CutMarker = { x: number; z: number };
-type BrakeTick = { x: number; z: number; dx: number; dz: number };
+// A world point plus a unit direction pointing off the track. Projecting the
+// direction turns it into a screen offset that holds at any zoom.
+type Anchor = { x: number; z: number; dx: number; dz: number };
 type View = { cx: number; cz: number; ex: number; ez: number };
 type Zoom = { level: number; ox: number; oy: number };
 type LegendEntry = {
@@ -64,22 +74,14 @@ const MAX_LAPS = 40; // completed laps kept on the map (oldest dropped beyond th
 const HOVER_RADIUS_SQ = 12 * 12; // px² — how close the cursor must be to pick a lap line
 const TELEPORT_DIST = 100; // a jump this large between frames isn't driving
 const DEAD_ZONE = 0.05;
-const LINE_WIDTH = 3;
+// Thin on purpose: several laps overlap on the same corner, and at 3 px they
+// merged into one band. The map's job is to let lines be told apart.
+const LINE_WIDTH = 2;
 // Cut × geometry in screen pixels — zoom-invariant because the projection
 // scales points, not the canvas transform.
 const CUT_ARM = 5;
 const CUT_WIDTH = 2.5;
 const CUT_HALO_WIDTH = 5;
-// Braking-onset ticks: rising through BRAKE_ON marks a point, and the next
-// one first needs BRAKE_REARM_M meters of travel below BRAKE_OFF —
-// hysteresis plus a distance gate so trail-brake flutter doesn't spawn a
-// marker trail. Tick geometry is screen-px, zoom-invariant like the cuts.
-const BRAKE_ON = 0.2;
-const BRAKE_OFF = 0.1;
-const BRAKE_REARM_M = 25;
-const BRAKE_TICK_LEN = 10;
-const BRAKE_TICK_WIDTH = 2.5;
-const BRAKE_TICK_HALO = 5;
 const VIEW_MARGIN = 0.15; // extra space around the driven bounds (fallback mode)
 const VIEW_EASE = 0.06; // per-frame easing toward the target view (fallback mode)
 // Until a full lap exists the track's real size is unknown — assume at least
@@ -148,10 +150,27 @@ const SURFACE = "#1a1a19";
 // muted so the pedal-colored lines stay visually dominant.
 const TRACK_FILL = "#242422";
 const TRACK_EDGE = "rgba(255, 255, 255, 0.28)";
-const TRACK_EDGE_WIDTH = 1;
 const PREVIOUS_LAP = "rgba(255, 255, 255, 0.45)";
 const HOVERED_GREY_LAP = "#ffffff"; // uncolored laps brighten to solid white on hover
 const INVALID_TIME = "#f0554b"; // theme critical, brightened for the small canvas label
+// The track edge stays neutral and thin. Lap-identity hues here read as a
+// second set of driving lines and swamp the real ones — the division is
+// carried by the boundary ticks and the labels instead, so the only saturated
+// colour on the map is a lap's own line.
+const TRACK_EDGE_WIDTH = 1.25;
+// Hover brightens the edge, it does not thicken it: a width change shifts the
+// track's apparent limits, which is the one thing the edge must not do.
+const SECTOR_EDGE_HOVER = "rgba(255, 255, 255, 0.95)";
+// Boundary ticks point outward from the edge only. Nothing is ever drawn
+// across the asphalt.
+const SECTOR_TICK_LEN = 7;
+const SECTOR_TICK_WIDTH = 1.5;
+const SECTOR_TICK = "rgba(255, 255, 255, 0.5)";
+const SECTOR_LABEL_FONT = "600 10px system-ui";
+const SECTOR_LABEL_FONT_ON = "700 11px system-ui";
+const SECTOR_LABEL_HALO = 3;
+const SECTOR_LABEL_OFFSET = 15; // screen px clear of the edge
+const SECTOR_LABEL_IDLE = "rgba(255, 255, 255, 0.4)";
 const STEER_TICK_COLOR = "#3987e5"; // theme accent, mirrors --color-accent
 
 // Pedal-state colors: coast (yellow) blends toward throttle (green) or
@@ -190,37 +209,31 @@ const bucketColor = (key: number): string => {
   return `rgb(${COAST[0]}, ${COAST[1]}, ${COAST[2]})`;
 };
 
-// Braking onsets for a completed lap, computed once at lap completion and
-// cached with the stored entry. `clearDist` (meters traveled with the pedal
-// below BRAKE_OFF) starts unbounded so the first application always marks;
-// partial pressure between the thresholds resets the gate without marking.
-const computeBrakeTicks = (samples: Sample[]): BrakeTick[] => {
-  const ticks: BrakeTick[] = [];
-  let clearDist = Infinity;
-  for (let i = 1; i < samples.length; i++) {
-    const s = samples[i];
-    const prev = samples[i - 1];
-    if (s.jump) {
-      // A teleport isn't clean travel — require a fresh rearm after it.
-      clearDist = 0;
-      continue;
-    }
-    const step = Math.hypot(s.x - prev.x, s.z - prev.z);
-    if (s.brake < BRAKE_OFF) {
-      clearDist += step;
-      continue;
-    }
-    if (s.brake >= BRAKE_ON && clearDist >= BRAKE_REARM_M && step > 0) {
-      ticks.push({
-        x: s.x,
-        z: s.z,
-        dx: (s.x - prev.x) / step,
-        dz: (s.z - prev.z) / step,
-      });
-    }
-    clearDist = 0;
+// Index runs of the edge polylines, one per sector, from the normalized
+// positions the bridge ships with the edges. Adjacent runs share their
+// boundary vertex so the strokes meet with no seam; on a closed circuit the
+// last run wraps back to vertex 0. Positions are monotonic, so one pass finds
+// every run's start.
+const sectorVertexRuns = (
+  pos: readonly number[],
+  count: number,
+  closed: boolean,
+): number[][] => {
+  const starts = new Array<number>(count).fill(-1);
+  for (let i = 0; i < pos.length; i++) {
+    const s = Math.min(count - 1, Math.max(0, Math.floor(pos[i] * count)));
+    if (starts[s] < 0) starts[s] = i;
   }
-  return ticks;
+  return starts.map((from, s) => {
+    if (from < 0) return [];
+    let next = -1;
+    for (let t = s + 1; t < count && next < 0; t++) next = starts[t];
+    const end = next >= 0 ? next : pos.length - 1;
+    const run: number[] = [];
+    for (let i = from; i <= end; i++) run.push(i);
+    if (next < 0 && closed) run.push(0);
+    return run;
+  });
 };
 
 const freshBounds = () => ({
@@ -238,15 +251,19 @@ export const TrackMap = ({
   hoveredLapRef,
   scrubRef,
   analysisLapRef,
+  recordingsRef,
+  recordingsVersion,
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const recordingsVersionRef = useRef(recordingsVersion);
+  recordingsVersionRef.current = recordingsVersion;
+  const sectorOwnersRef = useRef<(SectorOwner | null)[]>([]);
   const currentRef = useRef<Sample[]>([]);
   const previousLapsRef = useRef<
     {
       lap: number;
       samples: Sample[];
       cut: CutMarker | null;
-      brakes: BrakeTick[];
       path?: Path2D;
     }[]
   >([]);
@@ -428,7 +445,10 @@ export const TrackMap = ({
     // Track edges without map.ini: the ribbon's world bounds (plus margin)
     // fix the viewport — the same never-moving guarantee as the metadata fit.
     let edgeView: View | null = null;
-    if (edges && !mapData?.meta) {
+    // The centre is also what decides which way a sector label faces, so the
+    // bounds are taken whenever edges exist, not only in the no-metadata case.
+    let edgeCentre: { x: number; z: number } | null = null;
+    if (edges) {
       let minX = Infinity;
       let maxX = -Infinity;
       let minZ = Infinity;
@@ -441,12 +461,14 @@ export const TrackMap = ({
           maxZ = Math.max(maxZ, z);
         }
       }
-      edgeView = {
-        cx: (minX + maxX) / 2,
-        cz: (minZ + maxZ) / 2,
-        ex: Math.max(maxX - minX, 50) * (1 + VIEW_MARGIN * 2),
-        ez: Math.max(maxZ - minZ, 50) * (1 + VIEW_MARGIN * 2),
-      };
+      edgeCentre = { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2 };
+      if (!mapData?.meta)
+        edgeView = {
+          cx: edgeCentre.x,
+          cz: edgeCentre.z,
+          ex: Math.max(maxX - minX, 50) * (1 + VIEW_MARGIN * 2),
+          ez: Math.max(maxZ - minZ, 50) * (1 + VIEW_MARGIN * 2),
+        };
     }
 
     // Static world-space ribbon geometry, built once for the effect's life.
@@ -463,7 +485,9 @@ export const TrackMap = ({
       }
     };
     let edgesFill: Path2D | null = null;
-    let edgeLines: Path2D[] = [];
+    let sectorEdges: { left: Path2D; right: Path2D }[] = [];
+    let sectorLabels: (Anchor | null)[] = [];
+    let sectorTicks: (Anchor | null)[][] = [];
     if (edges) {
       // Closed circuits fill as an annulus: the two edge rings run in
       // opposite directions, so the nonzero rule leaves the infield empty.
@@ -479,11 +503,54 @@ export const TrackMap = ({
         traceInto(edgesFill, edges.right, true, false);
         edgesFill.closePath();
       }
-      edgeLines = [edges.left, edges.right].map((line) => {
+      const runs = sectorVertexRuns(edges.pos, SECTOR_COUNT, edges.closed);
+      const traceRun = (line: [number, number][], run: number[]) => {
         const p = new Path2D();
-        traceInto(p, line, false, true);
-        if (edges.closed) p.closePath();
+        run.forEach((i, k) => {
+          const [x, z] = line[i];
+          if (k === 0) p.moveTo(x, z);
+          else p.lineTo(x, z);
+        });
         return p;
+      };
+      sectorEdges = runs.map((run) => ({
+        left: traceRun(edges.left, run),
+        right: traceRun(edges.right, run),
+      }));
+
+      // Anchors carry a world-unit direction pointing off the track, which
+      // projecting turns into a fixed screen offset at any zoom. Both edges at
+      // a sector's first vertex give the boundary ticks; the mid vertex of
+      // whichever edge faces away from the track's centre gives the label, so
+      // all eight land outside the circuit rather than some in the infield.
+      const centre = edgeCentre;
+      const anchorAt = (i: number, side: "left" | "right"): Anchor | null => {
+        const [lx, lz] = edges.left[i];
+        const [rx, rz] = edges.right[i];
+        const span = Math.hypot(rx - lx, rz - lz);
+        if (span === 0) return null;
+        const ux = (rx - lx) / span;
+        const uz = (rz - lz) / span;
+        return side === "left"
+          ? { x: lx, z: lz, dx: -ux, dz: -uz }
+          : { x: rx, z: rz, dx: ux, dz: uz };
+      };
+      const outwardness = (a: Anchor | null) =>
+        a && centre
+          ? (a.x - centre.x) * a.dx + (a.z - centre.z) * a.dz
+          : -Infinity;
+
+      sectorTicks = runs.map((run) =>
+        run.length === 0
+          ? []
+          : [anchorAt(run[0], "left"), anchorAt(run[0], "right")],
+      );
+      sectorLabels = runs.map((run) => {
+        if (run.length === 0 || !centre) return null;
+        const i = run[run.length >> 1];
+        const left = anchorAt(i, "left");
+        const right = anchorAt(i, "right");
+        return outwardness(left) > outwardness(right) ? left : right;
       });
     }
 
@@ -571,9 +638,88 @@ export const TrackMap = ({
     let appendedCount = 0;
     let trackLayerKey = "";
 
-    // The track-limits ribbon under everything else. Edges are static for
-    // the whole session, so only a projection change (zoom, resize, DPR)
-    // re-renders the layer; every other frame just re-blits it.
+    // The sector's number and its owning lap, set off the asphalt. The lap
+    // number is on the map deliberately: the identity palette is shorter than
+    // the sector count, so two sectors can share a hue and colour alone cannot
+    // name an owner. Offsetting 1 m along the outward world direction fixes
+    // the label's screen direction, keeping its distance from the edge
+    // constant at any zoom.
+    // Projecting the anchor and a point 1 m along its outward direction turns
+    // a world direction into a screen one, so a tick or a label keeps the same
+    // distance from the track edge at every zoom level.
+    const outwardScreen = (project: Project, anchor: Anchor) => {
+      const a = project(anchor);
+      const n = project({ x: anchor.x + anchor.dx, z: anchor.z + anchor.dz });
+      const len = Math.hypot(n.px - a.px, n.py - a.py);
+      if (len === 0) return null;
+      return { ...a, ux: (n.px - a.px) / len, uy: (n.py - a.py) / len };
+    };
+
+    // A boundary mark that grows outward from the edge and never onto the
+    // asphalt — the racing line is what the map is for, and a mark across it
+    // both hides it and reads as a braking or cut marker.
+    const drawSectorTick = (
+      target: CanvasRenderingContext2D,
+      project: Project,
+      anchor: Anchor | null,
+      emphasized: boolean,
+    ) => {
+      if (!anchor) return;
+      const o = outwardScreen(project, anchor);
+      if (!o) return;
+      const len = emphasized ? SECTOR_TICK_LEN * 1.6 : SECTOR_TICK_LEN;
+      target.strokeStyle = emphasized ? SECTOR_EDGE_HOVER : SECTOR_TICK;
+      target.lineWidth = SECTOR_TICK_WIDTH;
+      target.lineCap = "round";
+      target.beginPath();
+      target.moveTo(o.px, o.py);
+      target.lineTo(o.px + o.ux * len, o.py + o.uy * len);
+      target.stroke();
+    };
+
+    // The owning lap is named in text rather than painted onto the track: the
+    // identity palette is shorter than the sector count, so colour alone could
+    // not name an owner anyway, and hues on the edges drown the driving lines.
+    const drawSectorLabel = (
+      target: CanvasRenderingContext2D,
+      project: Project,
+      sector: number,
+      owner: SectorOwner | null,
+      emphasized: boolean,
+    ) => {
+      const anchor = sectorLabels[sector];
+      if (!anchor) return;
+      const o = outwardScreen(project, anchor);
+      if (!o) return;
+      const px = o.px + o.ux * SECTOR_LABEL_OFFSET;
+      const py = o.py + o.uy * SECTOR_LABEL_OFFSET;
+      const text = owner
+        ? `S${sector + 1} · L${owner.lap}${owner.invalid ? " INV" : ""}`
+        : `S${sector + 1}`;
+      target.font = emphasized ? SECTOR_LABEL_FONT_ON : SECTOR_LABEL_FONT;
+      target.textAlign = "center";
+      target.textBaseline = "middle";
+      target.lineJoin = "round";
+      target.lineWidth = SECTOR_LABEL_HALO;
+      target.strokeStyle = SURFACE;
+      target.strokeText(text, px, py);
+      target.fillStyle = owner?.invalid
+        ? INVALID_TIME
+        : emphasized
+          ? HOVERED_GREY_LAP
+          : owner
+            ? lapColor(owner.lap)
+            : SECTOR_LABEL_IDLE;
+      target.fillText(text, px, py);
+      target.textAlign = "left";
+      target.textBaseline = "alphabetic";
+    };
+
+    // The track-limits ribbon under everything else, and the sector division
+    // its edge strokes carry. Edge geometry is static for the session, so the
+    // layer re-renders only when the projection changes (zoom, resize, DPR) or
+    // when sector ownership does — a lap completing or being invalidated.
+    // Every other frame just re-blits it.
     const renderTrackLayer = (
       project: Project,
       projKey: string,
@@ -582,8 +728,9 @@ export const TrackMap = ({
       dpr: number,
     ) => {
       if (!edges || !edgesFill) return;
-      if (projKey !== trackLayerKey) {
-        trackLayerKey = projKey;
+      const key = `${projKey}|${sectorKey}`;
+      if (key !== trackLayerKey) {
+        trackLayerKey = key;
         sizeLayer(trackLayer, canvas.width, canvas.height);
         trackLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         trackLayerCtx.clearRect(0, 0, width, height);
@@ -602,16 +749,31 @@ export const TrackMap = ({
         trackLayerCtx.fill(edgesFill);
         trackLayerCtx.restore();
 
-        // The edge strokes are the actual track limits.
-        for (const line of edgeLines)
-          strokeWorldPath(
+        // The edge strokes are the actual track limits and stay neutral: a
+        // lap-identity hue here reads as another driving line and swamps the
+        // real ones. The division is carried by outward boundary ticks and by
+        // the labels, so nothing is drawn across the asphalt and the only
+        // saturated colour on the map is a lap's own line.
+        sectorEdges.forEach((sector, s) => {
+          for (const path of [sector.left, sector.right])
+            strokeWorldPath(
+              trackLayerCtx,
+              path,
+              aff,
+              dpr,
+              TRACK_EDGE,
+              TRACK_EDGE_WIDTH,
+            );
+          for (const anchor of sectorTicks[s] ?? [])
+            drawSectorTick(trackLayerCtx, project, anchor, false);
+          drawSectorLabel(
             trackLayerCtx,
-            line,
-            aff,
-            dpr,
-            TRACK_EDGE,
-            TRACK_EDGE_WIDTH,
+            project,
+            s,
+            sectorOwnersRef.current[s],
+            false,
           );
+        });
       }
       blitLayer(trackLayer);
     };
@@ -966,7 +1128,7 @@ export const TrackMap = ({
           LINE_WIDTH + 1,
         );
       }
-      drawBrakeTicks(project, focus);
+      drawScrubSector(project, affineOf(project), dpr);
       drawCutMarkers(project, focus);
       drawScrubMarker(project);
       // Line-hover echo: a colored ring snapped to the nearest point on the
@@ -979,41 +1141,18 @@ export const TrackMap = ({
       if (hit.nearest >= 0) drawHoverReadout(hit);
     };
 
-    // Braking-point ticks are revealed for the focused lap only, never
-    // ambient — every colored lap's ticks at once drowned the map. Ticks sit
-    // perpendicular to the driven line at a fixed screen length, haloed like
-    // the cut markers; one lap's handful is far cheaper to project per
-    // repaint than another layer.
-    const drawBrakeTicks = (project: Project, focusIndex: number) => {
-      const laps = previousLapsRef.current;
-      if (focusIndex < 0) return;
-      const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
-      {
-        const index = focusIndex;
-        const { lap, brakes } = laps[index];
-        const color = index >= coloredFrom ? lapColor(lap) : HOVERED_GREY_LAP;
-        for (const t of brakes) {
-          const a = project(t);
-          // 1 m along the world normal fixes the tick's screen direction.
-          const n = project({ x: t.x - t.dz, z: t.z + t.dx });
-          const len = Math.hypot(n.px - a.px, n.py - a.py);
-          if (len === 0) continue;
-          const ux = ((n.px - a.px) / len) * (BRAKE_TICK_LEN / 2);
-          const uy = ((n.py - a.py) / len) * (BRAKE_TICK_LEN / 2);
-          for (const [style, width] of [
-            [SURFACE, BRAKE_TICK_HALO],
-            [color, BRAKE_TICK_WIDTH],
-          ] as const) {
-            ctx.strokeStyle = style;
-            ctx.lineWidth = width;
-            ctx.lineCap = "round";
-            ctx.beginPath();
-            ctx.moveTo(a.px - ux, a.py - uy);
-            ctx.lineTo(a.px + ux, a.py + uy);
-            ctx.stroke();
-          }
-        }
-      }
+    // Gate geometry and slice ownership change only when a lap is recorded or
+    // logged, never per frame. A lap's log entry lands a few frames after its
+    // recording is stored, so the log's length is part of the key too — the
+    // recordings version alone would keep a just-invalidated lap owning slices.
+    let sectorKey = "";
+    const syncSectorTables = () => {
+      const recordings = recordingsRef.current;
+      const laps = lapsRef.current;
+      const key = `${recordingsVersionRef.current}|${laps.length}`;
+      if (key === sectorKey) return;
+      sectorKey = key;
+      sectorOwnersRef.current = sectorOwners(recordings, laps, SECTOR_COUNT);
     };
 
     // Shared by the analysis-panel scrub echo and the direct line-hover
@@ -1029,6 +1168,33 @@ export const TrackMap = ({
         ctx.arc(px, py, 8, 0, Math.PI * 2);
         ctx.stroke();
       }
+    };
+
+    // The sector under the analysis panel's cursor, re-stroked over the
+    // blitted layer. The panel resolves the pointer to a sector and publishes
+    // it, so the band in the panel and the emphasis here cannot disagree.
+    const drawScrubSector = (project: Project, aff: Affine, dpr: number) => {
+      const scrub = scrubRef.current;
+      const sector = scrub ? sectorEdges[scrub.slice] : undefined;
+      if (!scrub || !sector) return;
+      for (const path of [sector.left, sector.right])
+        strokeWorldPath(
+          ctx,
+          path,
+          aff,
+          dpr,
+          SECTOR_EDGE_HOVER,
+          TRACK_EDGE_WIDTH,
+        );
+      for (const anchor of sectorTicks[scrub.slice] ?? [])
+        drawSectorTick(ctx, project, anchor, true);
+      drawSectorLabel(
+        ctx,
+        project,
+        scrub.slice,
+        sectorOwnersRef.current[scrub.slice],
+        true,
+      );
     };
 
     const drawScrubMarker = (project: Project) => {
@@ -1177,6 +1343,7 @@ export const TrackMap = ({
     let lastHoveredLap: number | null = null;
     let lastScrub: ScrubPoint | null = null;
     let lastAnalysisLap: number | null = null;
+    let lastRecVersion = -1;
     let lastW = 0;
     let lastH = 0;
     let lastDpr = 0;
@@ -1392,6 +1559,7 @@ export const TrackMap = ({
       const hoveredLap = hoveredLapRef.current;
       const scrub = scrubRef.current;
       const analysisLap = analysisLapRef.current;
+      const recVersion = recordingsVersionRef.current;
       const followState = followRef.current;
       const followWindow = followWindowRef.current;
       const dirty =
@@ -1408,6 +1576,7 @@ export const TrackMap = ({
         hoveredLap !== lastHoveredLap ||
         scrub !== lastScrub ||
         analysisLap !== lastAnalysisLap ||
+        recVersion !== lastRecVersion ||
         width !== lastW ||
         height !== lastH ||
         dpr !== lastDpr;
@@ -1423,6 +1592,8 @@ export const TrackMap = ({
       lastHoveredLap = hoveredLap;
       lastScrub = scrub;
       lastAnalysisLap = analysisLap;
+      lastRecVersion = recVersion;
+      syncSectorTables();
       lastW = width;
       lastH = height;
       lastDpr = dpr;
@@ -1455,7 +1626,6 @@ export const TrackMap = ({
             lap: prevLap + 1,
             samples: currentRef.current,
             cut: currentCutRef.current,
-            brakes: computeBrakeTicks(currentRef.current),
           });
           if (previousLapsRef.current.length > MAX_LAPS)
             previousLapsRef.current.shift();
@@ -1920,6 +2090,7 @@ export const TrackMap = ({
     hoveredLapRef,
     scrubRef,
     analysisLapRef,
+    recordingsRef,
   ]);
 
   return (

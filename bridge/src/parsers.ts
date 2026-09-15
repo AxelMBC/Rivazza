@@ -11,8 +11,7 @@ export const OperationId = {
 } as const;
 
 // AC's UTF-16LE strings are fixed 50-wchar buffers that keep garbage after the
-// terminator (often a stray '%' or control bytes), so cut at the first control
-// character or '%'. Invisible garbage here silently breaks track-folder lookups.
+// terminator (often a stray '%' or control bytes), so cut at the first control character or '%'.
 const readWideString = (buf: Buffer, offset: number, wchars = 50): string => {
   const raw = buf.toString("utf16le", offset, offset + wchars * 2);
   let end = raw.length;

@@ -10,12 +10,21 @@ export const COVERAGE_START = 0.05;
 export const COVERAGE_END = 0.95;
 
 // Fixed equal normalized-position slices. No corner metadata exists in the
-// assets the bridge reads, so equal micro-sectors (the sim-timing-tool
-// convention) are as good as any segmentation; 24 keeps a corner at ~1–2
-// slices on a typical track.
-export const SECTOR_COUNT = 24;
+// assets the bridge reads, so equal sectors are as good as any segmentation.
+// The count is chosen to be nameable rather than fine: 8 puts a sector at
+// ~600 m on a typical circuit, which can be pointed at on the track map and
+// reasoned about as a section. Finer slices read as texture, not sectors, and
+// flatter the theoretical best with a time no achievable lap resembles.
+// Shared by the panel's ribbon and the map's division so the two cannot
+// disagree about how the lap is cut.
+export const SECTOR_COUNT = 8;
 
-export type ScrubPoint = { x: number; z: number; color: string };
+export type ScrubPoint = {
+  x: number;
+  z: number;
+  color: string;
+  slice: number;
+};
 
 type PosTimed = { pos: number; timeMs: number };
 
@@ -73,6 +82,14 @@ export const worldPointAt = (
   const span = b.pos - a.pos;
   const f = span <= 0 ? 0 : (pos - a.pos) / span;
   return { x: a.x + (b.x - a.x) * f, z: a.z + (b.z - a.z) * f };
+};
+
+export const latestComplete = (
+  recordings: readonly LapRecording[],
+): LapRecording | null => {
+  for (let i = recordings.length - 1; i >= 0; i--)
+    if (recordings[i].complete) return recordings[i];
+  return null;
 };
 
 const invalidLapSet = (laps: readonly LapRecord[]): Set<number> =>

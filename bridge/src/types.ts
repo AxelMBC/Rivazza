@@ -40,7 +40,6 @@ export type TelemetryFrame = {
   z: number;
 };
 
-// `lapCount` is AC's raw counter; the display convention is that lapCount N is "Lap N+1".
 export type CutEvent = {
   lapCount: number;
   lapTimeMs: number;
@@ -79,4 +78,8 @@ export type TrackEdges = {
   closed: boolean;
   left: [number, number][];
   right: [number, number][];
+  // Normalized track position (0-1) of each vertex, index-aligned one-to-one
+  // with `left` and `right` — the AI spline's own points, so a normalized
+  // position resolves onto real track geometry instead of a driven line.
+  pos: number[];
 };

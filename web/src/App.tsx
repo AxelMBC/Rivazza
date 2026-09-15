@@ -116,6 +116,8 @@ const App = () => {
               hoveredLapRef={hoveredLapRef}
               scrubRef={scrubRef}
               analysisLapRef={analysisLapRef}
+              recordingsRef={recordingsRef}
+              recordingsVersion={recVersion}
             />
 
             <LapAnalysis

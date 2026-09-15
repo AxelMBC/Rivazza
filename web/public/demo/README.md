@@ -1,3 +1,21 @@
+# Demo assets
+
+`imola.map.json` is the `{ meta, edges }` payload the demo build serves in place of
+`/api/track-map/meta` and `/api/track-map/edges`. It is a snapshot of the track assets
+the bridge resolves from an AC install, so **it goes stale whenever `TrackEdges`
+changes shape** — a missing field silently costs the demo a feature (the sector
+division reads `edges.pos`). Regenerating needs only the AC install, not a running
+game or session:
+
+```ts
+import { resolveTrackAssets } from "./bridge/src/trackAssets.js";
+const a = resolveTrackAssets("imola", null);
+fs.writeFileSync("web/public/demo/imola.map.json",
+  JSON.stringify({ meta: a.meta, edges: a.edges }));
+```
+
+Run it with `npx tsx`, then commit the result.
+
 # Demo recording
 
 `imola.json` is the recorded session replayed when the app is built with

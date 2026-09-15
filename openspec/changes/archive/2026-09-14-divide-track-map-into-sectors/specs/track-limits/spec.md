@@ -1,11 +1,4 @@
-# track-limits
-
-## Purpose
-Defines how the track map depicts real track limits, sourced from the AI spline's
-per-point edge measurements (resolution and serving of that data are owned by the
-`track-asset-resolution` capability).
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Track map renders the track surface beneath driving lines
 When edge data is available, the track map SHALL draw the track surface under all

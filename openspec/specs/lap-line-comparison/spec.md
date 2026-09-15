@@ -79,25 +79,6 @@ Whatever surface focuses a lap — its line hovered on the map, its row hovered 
 - **WHEN** the view is following the car and the cursor rests on a stored lap's line
 - **THEN** no lap is focused by that hover, and no brake ticks or cut markers reveal from it
 
-### Requirement: Braking-point markers revealed for the focused lap
-For each completed lap, the track map SHALL compute the points where braking began — a brake application onset detected with hysteresis and a minimum no-braking distance gate so trail-braking flutter does not spawn spurious markers — once per completed lap, cached. Markers SHALL never render ambiently (all laps' ticks at once are visual noise): they render as small ticks in the lap's identity color only for the single focused lap, where focus means any of: the lap's line hovered on the map, the lap's row hovered in the session-lap list, or the lap selected in the analysis panel while that panel is open. When no lap is focused, no ticks render. The in-progress lap SHALL NOT show markers (its live pedal gradient already shows braking).
-
-#### Scenario: No focus, no ticks
-- **WHEN** the pointer is not on any lap line, lap-list row, or open analysis panel
-- **THEN** the map shows no braking ticks
-
-#### Scenario: Hovering a lap line reveals only that lap's ticks
-- **WHEN** the cursor hovers Lap 4's line on the map while Laps 3–5 are stored
-- **THEN** only Lap 4's braking ticks render, in Lap 4's identity color
-
-#### Scenario: Analysis selection reveals ticks while the panel is open
-- **WHEN** the analysis panel is open with Lap 3 selected
-- **THEN** Lap 3's braking ticks render on the map, and disappear when the panel closes
-
-#### Scenario: Trail-brake flutter suppressed
-- **WHEN** a lap's brake trace crosses the onset threshold multiple times within the no-braking distance gate
-- **THEN** only one marker is produced for that braking zone
-
 ### Requirement: Cursor picking is suspended while the follow camera drives the view
 The cursor SHALL NOT pick stored lap lines while the follow camera is driving the view (tracking the car, or animating back out of follow mode): no hover readout, no line-hover ring, no hover emphasis, no brake ticks or cut markers revealed by the cursor, and no pointer cursor. This takes precedence over the hover-driven requirements in this capability for as long as follow mode is driving the view. The reason is that the map sweeps under a parked cursor in follow mode, so lines pick themselves as the car drives past them, and with more than one stored lap the readout, ring and emphasis change on every frame — noise rather than analysis. Deliberate, named selections SHALL continue to reveal exactly as they do outside follow mode: the analysis panel's selection and scrub, and the session-lap-list row hover. Inspecting a lap while following is done through those surfaces. Leaving follow mode SHALL restore cursor picking with no further action.
 
