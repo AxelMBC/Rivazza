@@ -18,11 +18,25 @@ Assetto Corsa ──UDP 9996──▶ bridge (Node) ──WebSocket :3001──�
 npm workspaces monorepo (`bridge`, `web`). Run from the repo root:
 
 - `npm run dev` — starts bridge (:3001) and web app (:5173) together via concurrently
+- `npm run dev:demo` — web app alone (:5173) replaying the committed recording; no bridge
 - `npm run build` — builds both workspaces
 - `npm run mock -w bridge` — fake AC on UDP 9996 streaming a car lapping Magione, for developing without the game. **Stop it before running the real game** (both bind 9996).
 - `npm run lint -w web` — oxlint (the only linter; the bridge has none)
 - `npm run build -w bridge` — bridge "build" is `tsc --noEmit` (type-check only; it runs via `tsx`, never compiled to JS)
 - `npm run build -w web` — `tsc -b && vite build`
+
+`dev` and `dev:demo` call `tsx` and `vite` **directly** (`tsx watch bridge/src/index.ts`,
+`vite web`) instead of delegating through `npm run … -w`. That is deliberate: yarn 1 exports five
+`npm_config_*` keys npm 11 rejects, so every nested `npm run` printed five `Unknown env config`
+warnings under `yarn dev`. With no npm in the chain there is nothing left to warn, whichever
+launcher is used. Both workspaces are fully hoisted (`bridge/node_modules` doesn't exist) and the
+bridge reads no `process.cwd()`, so running them from the repo root changes nothing.
+`npm run dev -w bridge` and `npm run dev -w web` remain valid per-workspace entry points — the root
+script inlines them, so keep the two in step.
+
+`build` deliberately keeps its `npm run … -w` delegation: the root `tsc` is the bridge's 5.9.3,
+while `web` pins TypeScript 6.0.3 in `web/node_modules`, and only running with cwd `web/` puts the
+right compiler on PATH. `--loglevel=error` silences the same yarn-leaked warnings there instead.
 
 There is **no test framework** in this repo — do not invent test commands. What verification does
 mean here is `.claude/rules/verification.md`.

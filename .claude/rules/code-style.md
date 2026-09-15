@@ -66,4 +66,4 @@ beside value imports from the same module rather than hoisted into its own block
 - A component gets its own folder when it grows children or helpers only it uses — reactively,
   not preemptively.
 - A file spanning more than two capabilities gets split. (`TrackMap.tsx` is the outstanding
-  case; see the `split-track-map` change.)
+  case: ~2,200 lines spanning eight.)

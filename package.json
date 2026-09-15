@@ -13,9 +13,9 @@
     "web"
   ],
   "scripts": {
-    "dev": "concurrently -n bridge,web -c yellow,cyan \"npm run dev -w bridge\" \"npm run dev -w web\"",
-    "dev:demo": "npm run dev:demo -w web",
-    "build": "npm run build -w bridge && npm run build -w web",
+    "dev": "concurrently -n bridge,web -c yellow,cyan \"tsx watch bridge/src/index.ts\" \"vite web\"",
+    "dev:demo": "vite web --mode demo",
+    "build": "npm run --loglevel=error build -w bridge && npm run --loglevel=error build -w web",
     "format": "prettier --write \"{bridge,web}/src/**/*.{ts,tsx,css}\" \"*.{json,md}\"",
     "format:check": "prettier --check \"{bridge,web}/src/**/*.{ts,tsx,css}\" \"*.{json,md}\""
   },
