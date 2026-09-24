@@ -118,7 +118,10 @@ sync if you change one.
 from `map.ini`. If the dot appears mirrored on some track, flip the X term in `project`. The map draws
 pedal-colored driving lines (coast→throttle/brake color lerp) for the current lap, keeps a bounded
 per-lap history with identity colors, and layers cursor-anchored wheel zoom over the base fit
-projection. All canvas components (`TrackMap`, `PedalTrace`, `GForceMeter`) dirty-gate their rAF
+projection. From the second wheel notch in (follow not tracking, fixed-fit modes only) an overview inset in the
+top-right corner navigates the zoomed view at constant zoom: a ~250 ms cursor rest on it glides the
+view there — one more writer of `zoomRef`, like the follow cam (`web/src/lib/overviewInset.ts`
+holds its geometry). All canvas components (`TrackMap`, `PedalTrace`, `GForceMeter`) dirty-gate their rAF
 loops — they only repaint when what's rendered actually changed. Preserve this when editing them.
 
 ## Where the rest of the guidance lives

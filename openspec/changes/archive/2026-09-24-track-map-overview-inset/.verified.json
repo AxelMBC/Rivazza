@@ -1,0 +1,11 @@
+{
+  "verifiedAt": "2026-09-24T17:54:38Z",
+  "head": "1c1add2c31369280c8ccf3c9f3df210031e32b92",
+  "dirtyAtVerify": true,
+  "typecheckBridge": "pass",
+  "typecheckWeb": "pass",
+  "lint": "pass",
+  "format": "pass",
+  "specDeltas": "valid",
+  "openManualChecks": 5
+}

@@ -13,6 +13,19 @@ import {
   type SectorOwner,
 } from "../lib/lapAnalysis";
 import { COLORED_LAPS, lapColor } from "../lib/lapColors";
+import {
+  baseToInset,
+  centreZoomOn,
+  insetRect,
+  insetToBase,
+  insideRect,
+  viewCentre,
+  viewportInInset,
+  type Inset,
+  type Point,
+  type Rect,
+  type Zoom,
+} from "../lib/overviewInset";
 import { SYNTHETIC_MOUSE_WINDOW_MS, TAP_SLOP_PX } from "../lib/touch";
 import type {
   CutEvent,
@@ -50,7 +63,6 @@ type CutMarker = { x: number; z: number };
 // direction turns it into a screen offset that holds at any zoom.
 type Anchor = { x: number; z: number; dx: number; dz: number };
 type View = { cx: number; cz: number; ex: number; ez: number };
-type Zoom = { level: number; ox: number; oy: number };
 type LegendEntry = {
   lap: number;
   color: string;
@@ -99,6 +111,10 @@ const ZOOM_RESET: Zoom = { level: 1, ox: 0, oy: 0 };
 // A pinch ending this close to 1× snaps to the exact fit framing — the touch
 // counterpart of the wheel path's exact-1 reset (fingers can't land on 1.0).
 const ZOOM_SNAP_LEVEL = 1.02;
+// The overview inset shows from the second wheel notch in. Pinned between the
+// first and second notch levels, not at the second, so float rounding in the
+// accumulated wheel level can never put notch two just below it.
+const INSET_MIN_LEVEL = ZOOM_STEP ** 1.5;
 
 // Follow cam: hover-dwell armed (never a click — clicks would focus the
 // browser and steal controller input from the game). 'following' tracks the
@@ -139,6 +155,11 @@ const FOLLOW_TAU_S = 0.3; // camera glide — entry animation and tracking lag a
 // this: it inherits the target's unevenness at every step.
 const FOLLOW_DELAY_MS = 120;
 const ANCHOR_SNAP_M = 100; // a jump this large is a teleport — snap, don't glide
+// Overview inset: a cursor resting this long navigates. Short enough to feel
+// immediate, long enough that sweeping across the inset on the way elsewhere
+// never commits a jump.
+const INSET_DWELL_MS = 250;
+const INSET_REST_SLOP_PX = 3; // hand tremor under this still counts as resting
 // The current-lap line must never poke out ahead of the (delayed) dot, so
 // this many newest samples stay out of the cached layer and are drawn each
 // frame only up to the dot. Sized for the delay at top speed (~100 m/s ×
@@ -172,6 +193,11 @@ const SECTOR_LABEL_HALO = 3;
 const SECTOR_LABEL_OFFSET = 15; // screen px clear of the edge
 const SECTOR_LABEL_IDLE = "rgba(255, 255, 255, 0.4)";
 const STEER_TICK_COLOR = "#3987e5"; // theme accent, mirrors --color-accent
+const INSET_BORDER = "rgba(255, 255, 255, 0.1)"; // mirrors --color-edge
+const INSET_VIEWPORT = "rgba(255, 255, 255, 0.75)";
+const INSET_GHOST = "#3987e5"; // theme accent, mirrors --color-accent
+const INSET_GHOST_FILL = "rgba(57, 135, 229, 0.18)";
+const INSET_CAR_RADIUS = 2.5;
 
 // Pedal-state colors: coast (yellow) blends toward throttle (green) or
 // brake (red) with pedal magnitude, so partial inputs read as softer tones.
@@ -281,6 +307,7 @@ export const TrackMap = ({
   const viewRef = useRef<View | null>(null);
   const anchorRef = useRef<{ x: number; z: number } | null>(null);
   const zoomRef = useRef<Zoom>(ZOOM_RESET);
+  const navRef = useRef<Point | null>(null);
   const followWindowRef = useRef(FOLLOW_WINDOW_M);
   const followLimitsRef = useRef({ min: 0, max: Infinity });
   const followRef = useRef<FollowState>("off");
@@ -369,6 +396,7 @@ export const TrackMap = ({
     viewRef.current = null;
     anchorRef.current = null;
     zoomRef.current = ZOOM_RESET;
+    navRef.current = null;
     // Session change / restart ends follow mode with everything else, and any
     // adjusted framing goes with it — the next follow starts comfortable again.
     // The published bounds go too: the new session may be a different track, so
@@ -438,7 +466,10 @@ export const TrackMap = ({
     const currentLayerCtx = currentLayer.getContext("2d");
     const trackLayer = document.createElement("canvas");
     const trackLayerCtx = trackLayer.getContext("2d");
-    if (!lapsLayerCtx || !currentLayerCtx || !trackLayerCtx) return;
+    const insetLayer = document.createElement("canvas");
+    const insetLayerCtx = insetLayer.getContext("2d");
+    if (!lapsLayerCtx || !currentLayerCtx || !trackLayerCtx || !insetLayerCtx)
+      return;
     let rafId = 0;
 
     const edges = mapData?.edges ?? null;
@@ -637,6 +668,10 @@ export const TrackMap = ({
     let currentLayerKey = "";
     let appendedCount = 0;
     let trackLayerKey = "";
+    let insetLayerKey = "";
+    // The inset as last painted, null while hidden. Handlers hit-test against
+    // this, so the hit area is always exactly what is on screen.
+    let inset: Inset | null = null;
 
     // The sector's number and its owning lap, set off the asphalt. The lap
     // number is on the map deliberately: the identity palette is shorter than
@@ -963,7 +998,12 @@ export const TrackMap = ({
       // Inspection while following goes through the analysis panel and the
       // session lap list instead — their selections still reveal below, since
       // they name a lap deliberately rather than catching whatever swept past.
-      if (!m || laps.length === 0 || cameraDrivesView())
+      if (
+        !m ||
+        laps.length === 0 ||
+        cameraDrivesView() ||
+        (inset && insideRect(inset, m))
+      )
         return { nearest: -1, rows: [], marker: null };
       const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
       let nearest = -1;
@@ -1332,6 +1372,109 @@ export const TrackMap = ({
       ctx.restore();
     };
 
+    const showsInset = () =>
+      zoomRef.current.level >= INSET_MIN_LEVEL && !cameraDrivesView();
+
+    // The fit-framing track depiction, independent of zoom: zooming and
+    // gliding only re-blit it.
+    const renderInsetLayer = (
+      base: Project,
+      fitKey: string,
+      at: Inset,
+      dpr: number,
+    ) => {
+      const key = `${fitKey}|${edgesFill ? "" : lapsVersion}`;
+      if (key === insetLayerKey) return;
+      insetLayerKey = key;
+      sizeLayer(insetLayer, Math.round(at.w * dpr), Math.round(at.h * dpr));
+      insetLayerCtx.setTransform(1, 0, 0, 1, 0, 0);
+      insetLayerCtx.clearRect(0, 0, insetLayer.width, insetLayer.height);
+      const fit = affineOf(base);
+      const aff = {
+        k: fit.k * at.scale,
+        tx: fit.tx * at.scale,
+        ty: fit.ty * at.scale,
+      };
+      if (edgesFill) {
+        insetLayerCtx.save();
+        insetLayerCtx.setTransform(
+          dpr * aff.k,
+          0,
+          0,
+          dpr * aff.k,
+          dpr * aff.tx,
+          dpr * aff.ty,
+        );
+        insetLayerCtx.fillStyle = TRACK_FILL;
+        insetLayerCtx.fill(edgesFill);
+        insetLayerCtx.restore();
+        for (const sector of sectorEdges)
+          for (const path of [sector.left, sector.right])
+            strokeWorldPath(insetLayerCtx, path, aff, dpr, TRACK_EDGE, 1);
+        return;
+      }
+      for (const entry of previousLapsRef.current) {
+        entry.path ??= buildLapPath(entry.samples);
+        strokeWorldPath(insetLayerCtx, entry.path, aff, dpr, PREVIOUS_LAP, 1);
+      }
+    };
+
+    const strokeRect = (r: Rect) => {
+      ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+    };
+
+    const drawInset = (
+      base: Project,
+      fitKey: string,
+      width: number,
+      height: number,
+      dpr: number,
+      frame: TelemetryFrame | null,
+    ) => {
+      const at = inset;
+      if (!at) return;
+      renderInsetLayer(base, fitKey, at, dpr);
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(at.x, at.y, at.w, at.h, 4);
+      ctx.fillStyle = SURFACE;
+      ctx.fill();
+      ctx.clip();
+      ctx.drawImage(insetLayer, at.x, at.y, at.w, at.h);
+      const zm = zoomRef.current;
+      const view = viewportInInset(at, zm, width, height);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = INSET_VIEWPORT;
+      strokeRect(view);
+      const m = mouseRef.current;
+      if (m && insideRect(at, m)) {
+        const ghost = {
+          x: m.x - view.w / 2,
+          y: m.y - view.h / 2,
+          w: view.w,
+          h: view.h,
+        };
+        ctx.fillStyle = INSET_GHOST_FILL;
+        ctx.fillRect(ghost.x, ghost.y, ghost.w, ghost.h);
+        ctx.strokeStyle = INSET_GHOST;
+        strokeRect(ghost);
+      }
+      if (frame) {
+        const { px, py } = base(dotWorld(frame));
+        const car = baseToInset(at, { x: px, y: py });
+        ctx.beginPath();
+        ctx.arc(car.x, car.y, INSET_CAR_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.beginPath();
+      ctx.roundRect(at.x + 0.5, at.y + 0.5, at.w - 1, at.h - 1, 4);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = INSET_BORDER;
+      ctx.stroke();
+    };
+
     // Dirty gating: repaint only when something rendered actually changed.
     // Telemetry frames, mouse positions, and zoom states are fresh objects on
     // every change, so identity comparison is a faithful change detector.
@@ -1360,6 +1503,8 @@ export const TrackMap = ({
     // term the camera wouldn't run and the retarget would sit inert on an
     // otherwise-idle frame (stationary car, no new telemetry, parked cursor).
     let lastFollowWindow = followWindowRef.current;
+    let lastNav = navRef.current;
+    let navAnimating = false;
     // Smoothed world position the follow cam tracks (and the dot renders at
     // while following) — absorbs the uneven arrival of raw frames.
     let followPos: { x: number; z: number } | null = null;
@@ -1528,6 +1673,33 @@ export const TrackMap = ({
       followAnimating = true;
     };
 
+    // Inset navigation glides the view centre toward navRef at the unchanged
+    // level, with the follow cam's time constant so both glides feel alike.
+    const navCamera = (width: number, height: number, dt: number) => {
+      navAnimating = false;
+      const target = navRef.current;
+      if (!target) return;
+      const zm = zoomRef.current;
+      if (cameraDrivesView() || zm.level <= 1) {
+        navRef.current = null;
+        return;
+      }
+      const c = viewCentre(zm, width, height);
+      const blend = 1 - Math.exp(-dt / FOLLOW_TAU_S);
+      const next = {
+        x: c.x + (target.x - c.x) * blend,
+        y: c.y + (target.y - c.y) * blend,
+      };
+      // Asymptotic easing — snap inside a sub-pixel epsilon so it terminates.
+      if (Math.hypot(target.x - next.x, target.y - next.y) * zm.level < 0.5) {
+        zoomRef.current = centreZoomOn(target, zm.level, width, height);
+        navRef.current = null;
+        return;
+      }
+      zoomRef.current = centreZoomOn(next, zm.level, width, height);
+      navAnimating = true;
+    };
+
     // While following, the dot renders at the smoothed tracked point so it
     // moves in lockstep with the camera instead of stepping with raw frames.
     const dotWorld = (frame: TelemetryFrame): { x: number; z: number } =>
@@ -1562,10 +1734,13 @@ export const TrackMap = ({
       const recVersion = recordingsVersionRef.current;
       const followState = followRef.current;
       const followWindow = followWindowRef.current;
+      const nav = navRef.current;
       const dirty =
         firstDraw ||
         easing ||
         followAnimating ||
+        navAnimating ||
+        nav !== lastNav ||
         followState !== lastFollow ||
         followWindow !== lastFollowWindow ||
         frame !== lastFrame ||
@@ -1584,6 +1759,7 @@ export const TrackMap = ({
       firstDraw = false;
       lastFollow = followState;
       lastFollowWindow = followWindow;
+      lastNav = nav;
       lastFrame = frame;
       lastMouse = mouse;
       lastZoom = zoom;
@@ -1597,6 +1773,7 @@ export const TrackMap = ({
       lastW = width;
       lastH = height;
       lastDpr = dpr;
+      inset = null;
 
       if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
         canvas.width = width * dpr;
@@ -1737,14 +1914,18 @@ export const TrackMap = ({
             ((p.z + meta.zOffset) / meta.scaleFactor / meta.height) * drawnH,
         });
         followCamera(base, width, height, dt);
+        navCamera(width, height, dt);
         const project: Project = zoomed(base);
         const zm = zoomRef.current;
+        inset = showsInset() ? insetRect(width, height) : null;
 
         // Everything the projection depends on — a change invalidates layers.
-        const projKey = `m|${width}x${height}@${dpr}|${zm.level},${zm.ox},${zm.oy}`;
+        const fitKey = `m|${width}x${height}@${dpr}`;
+        const projKey = `${fitKey}|${zm.level},${zm.ox},${zm.oy}`;
         renderTrackLayer(project, projKey, width, height, dpr);
         drawLaps(project, projKey, width, height, dpr);
         if (frame) drawDot(project, frame);
+        drawInset(base, fitKey, width, height, dpr, frame);
         return;
       }
 
@@ -1762,12 +1943,16 @@ export const TrackMap = ({
           py: height / 2 + (p.z - view.cz) * scale,
         });
         followCamera(base, width, height, dt);
+        navCamera(width, height, dt);
         const project: Project = zoomed(base);
         const zm = zoomRef.current;
-        const projKey = `e|${width}x${height}@${dpr}|${zm.level},${zm.ox},${zm.oy}`;
+        inset = showsInset() ? insetRect(width, height) : null;
+        const fitKey = `e|${width}x${height}@${dpr}`;
+        const projKey = `${fitKey}|${zm.level},${zm.ox},${zm.oy}`;
         renderTrackLayer(project, projKey, width, height, dpr);
         drawLaps(project, projKey, width, height, dpr);
         if (frame) drawDot(project, frame);
+        drawInset(base, fitKey, width, height, dpr, frame);
         return;
       }
 
@@ -1862,12 +2047,49 @@ export const TrackMap = ({
       drawDot(project, frame);
     };
 
+    const navigateTo = (p: Point) => {
+      if (inset && insideRect(inset, p)) navRef.current = insetToBase(inset, p);
+    };
+
+    let insetDwellTimer: number | null = null;
+    let insetDwellAnchor: Point | null = null;
+    const cancelInsetDwell = () => {
+      if (insetDwellTimer !== null) clearTimeout(insetDwellTimer);
+      insetDwellTimer = null;
+      insetDwellAnchor = null;
+    };
+    // A resting cursor stops dirtying the rAF gate, so the loop cannot notice
+    // the rest itself — a timer commits it instead.
+    const trackInsetDwell = (p: Point) => {
+      if (CLICK_MODE || !inset || !insideRect(inset, p)) {
+        cancelInsetDwell();
+        return;
+      }
+      const anchor = insetDwellAnchor;
+      if (
+        anchor &&
+        Math.hypot(p.x - anchor.x, p.y - anchor.y) <= INSET_REST_SLOP_PX
+      )
+        return;
+      cancelInsetDwell();
+      insetDwellAnchor = p;
+      insetDwellTimer = window.setTimeout(() => {
+        insetDwellTimer = null;
+        if (mouseRef.current) navigateTo(mouseRef.current);
+      }, INSET_DWELL_MS);
+    };
+
     const onMouseMove = (e: MouseEvent) => {
-      mouseRef.current = { x: e.offsetX, y: e.offsetY };
+      const p = { x: e.offsetX, y: e.offsetY };
+      mouseRef.current = p;
+      trackInsetDwell(p);
     };
     const onMouseLeave = () => {
       mouseRef.current = null;
+      cancelInsetDwell();
     };
+    const onClick = (e: MouseEvent) =>
+      navigateTo({ x: e.offsetX, y: e.offsetY });
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const st = followRef.current;
@@ -1895,6 +2117,12 @@ export const TrackMap = ({
         setFollow("following");
         return;
       }
+      // Over the inset the cursor's screen point means nothing to the main
+      // view, so the zoom anchors at the view centre — which also keeps a
+      // glide in progress valid, since it targets a centre.
+      const overInset =
+        inset !== null && insideRect(inset, { x: e.offsetX, y: e.offsetY });
+      if (!overInset) navRef.current = null;
       const zm = zoomRef.current;
       const level = Math.min(
         ZOOM_MAX,
@@ -1905,16 +2133,19 @@ export const TrackMap = ({
         // Fully out = exact fit framing again; any accumulated focus is
         // discarded and a detached follow is dismissed with it.
         zoomRef.current = ZOOM_RESET;
+        navRef.current = null;
         if (followRef.current === "detached") setFollow("off");
         return;
       }
       // Anchor the world point under the cursor: base = (m - o) / level must
       // land back on m, so o' = m - (m - o) * (level' / level).
+      const ax = overInset ? canvas.clientWidth / 2 : e.offsetX;
+      const ay = overInset ? canvas.clientHeight / 2 : e.offsetY;
       const r = level / zm.level;
       zoomRef.current = {
         level,
-        ox: e.offsetX - (e.offsetX - zm.ox) * r,
-        oy: e.offsetY - (e.offsetY - zm.oy) * r,
+        ox: ax - (ax - zm.ox) * r,
+        oy: ay - (ay - zm.oy) * r,
       };
     };
     // Touch gestures write the same fresh Zoom objects the wheel writes, so
@@ -1923,6 +2154,9 @@ export const TrackMap = ({
     let touchMoved = false; // gesture left the tap slop (pan/pinch happened)
     let lastSingle: { x: number; y: number } | null = null;
     let lastPinch: { dist: number; mx: number; my: number } | null = null;
+    // A gesture that starts on the inset belongs to it until every finger
+    // lifts: it can only be a tap, never a pan or pinch of the main view.
+    let insetTouch = false;
 
     const touchPoint = (t: Touch) => {
       const rect = canvas.getBoundingClientRect();
@@ -1958,6 +2192,7 @@ export const TrackMap = ({
       if (e.touches.length === 1) {
         tapStart = touchPoint(e.touches[0]);
         touchMoved = false;
+        insetTouch = inset !== null && insideRect(inset, tapStart);
       } else {
         // Multi-finger is never a tap; a lingering readout leaves with it.
         tapStart = null;
@@ -1968,6 +2203,15 @@ export const TrackMap = ({
 
     const onTouchMove = (e: TouchEvent) => {
       e.preventDefault();
+      if (insetTouch) {
+        const p = e.touches.length === 1 ? touchPoint(e.touches[0]) : null;
+        if (
+          tapStart &&
+          (!p || Math.hypot(p.x - tapStart.x, p.y - tapStart.y) > TAP_SLOP_PX)
+        )
+          tapStart = null;
+        return;
+      }
       if (e.touches.length === 2 && lastPinch) {
         const a = touchPoint(e.touches[0]);
         const b = touchPoint(e.touches[1]);
@@ -1979,6 +2223,7 @@ export const TrackMap = ({
         };
         if (prev.dist <= 0 || lastPinch.dist <= 0) return;
         touchMoved = true;
+        navRef.current = null;
         // Pinch is the touch twin of the wheel: while tracking it resizes the
         // follow framing and keeps the camera on the car, so midpoint drift has
         // nothing to pan. Past the widest framing it exits, same as the wheel.
@@ -2030,6 +2275,7 @@ export const TrackMap = ({
           touchMoved = true;
         }
         if (!touchMoved) return; // still within the tap slop — don't jitter
+        navRef.current = null;
         const zm = zoomRef.current;
         if (zm.level <= 1) return; // the fit view has nowhere to pan
         detachFollow();
@@ -2045,7 +2291,9 @@ export const TrackMap = ({
       if (e.cancelable) e.preventDefault();
       seedTouches(e.touches);
       if (e.touches.length > 0) return;
-      if (tapStart && !touchMoved) {
+      if (insetTouch) {
+        if (tapStart) navigateTo(tapStart);
+      } else if (tapStart && !touchMoved) {
         // A clean tap: park the "cursor" there — the ordinary hit test shows
         // the readout on a line and clears it on empty track.
         mouseRef.current = { x: tapStart.x, y: tapStart.y };
@@ -2061,6 +2309,7 @@ export const TrackMap = ({
       }
       tapStart = null;
       touchMoved = false;
+      insetTouch = false;
     };
 
     canvas.addEventListener("mousemove", onMouseMove);
@@ -2070,6 +2319,7 @@ export const TrackMap = ({
     canvas.addEventListener("touchmove", onTouchMove, { passive: false });
     canvas.addEventListener("touchend", onTouchEnd, { passive: false });
     canvas.addEventListener("touchcancel", onTouchEnd, { passive: false });
+    if (CLICK_MODE) canvas.addEventListener("click", onClick);
 
     rafId = requestAnimationFrame(draw);
     return () => {
@@ -2081,6 +2331,8 @@ export const TrackMap = ({
       canvas.removeEventListener("touchmove", onTouchMove);
       canvas.removeEventListener("touchend", onTouchEnd);
       canvas.removeEventListener("touchcancel", onTouchEnd);
+      canvas.removeEventListener("click", onClick);
+      cancelInsetDwell();
     };
   }, [
     mapData,
