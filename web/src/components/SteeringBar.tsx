@@ -11,16 +11,8 @@ export const SteeringBar = ({
   const fraction = Math.max(-1, Math.min(1, angle / MAX_DEG));
 
   return (
-    <div>
-      <div className="flex items-center justify-between">
-        <p className="text-xs tracking-wide text-ink-muted uppercase">
-          Steering
-        </p>
-        <p className="text-xs tabular-nums text-ink-secondary">
-          {Math.round(angle)}°
-        </p>
-      </div>
-      <div className="relative mt-2 h-2 overflow-hidden rounded-full bg-hairline">
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-hairline">
         <div className="absolute inset-y-0 left-1/2 w-px bg-ink-muted" />
         <div
           className="absolute inset-y-0 rounded-full bg-accent"
@@ -31,6 +23,9 @@ export const SteeringBar = ({
           }
         />
       </div>
+      <p className="w-10 text-right text-xs tabular-nums text-ink-secondary">
+        {Math.round(angle)}°
+      </p>
     </div>
   );
 };

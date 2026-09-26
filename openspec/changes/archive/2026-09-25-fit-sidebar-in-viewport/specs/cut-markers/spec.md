@@ -1,21 +1,4 @@
-# cut-markers
-
-## Purpose
-
-Renders detected cuts as position markers on the track map — per-lap association, on-demand visibility (ambient for the in-progress lap, hover-revealed for stored laps), and session/restart reset semantics.
-
-## Requirements
-
-### Requirement: Track map marks cut locations
-The track map SHALL draw a distinct marker (an × cross in the critical/red tone over a dark halo for contrast) at the world position of each lap's invalidating cut, projected through the same projection as the driving lines — above the track ribbon and lap lines, below the car dot and hover readout. Markers SHALL keep a constant screen size at every zoom level and stay anchored to their world position while zooming or panning.
-
-#### Scenario: Cut appears where it happened
-- **WHEN** the first cut event of a lap arrives while driving
-- **THEN** a marker appears at that cut's world position on the map within a frame
-
-#### Scenario: Zooming keeps markers registered
-- **WHEN** the user scroll-zooms the map
-- **THEN** each marker stays anchored to its world position at unchanged screen size
+## MODIFIED Requirements
 
 ### Requirement: Markers associate with laps and reveal on demand
 Cut markers SHALL attach to laps by the event's lap counter (existing display convention: lapCount N is "Lap N+1"), including a cut that arrives just after its lap completed. Each lap SHALL carry at most one marker: the first cut event attributed to that lap — the moment the lap was invalidated. Every later cut event attributed to a lap that already has a marker SHALL be discarded without being attached or drawn, however far away in time or position it occurred. Only the in-progress lap's marker SHALL be ambiently visible — it leaves the ambient view the moment the lap completes. A stored lap's marker SHALL render only while that lap is hovered: either its line on the track map, or its row in the session-lap list. Markers SHALL be dropped together with their lap when it rolls out of the bounded lap history.
@@ -43,21 +26,3 @@ Cut markers SHALL attach to laps by the event's lap counter (existing display co
 #### Scenario: Lap validity is unaffected
 - **WHEN** a lap receives several cut events and only the first is drawn
 - **THEN** the lap is still recorded as invalid exactly as before, and the in-progress lap's INV cue behaves unchanged
-
-### Requirement: Cut markers reset with the session
-Cut markers SHALL clear when the session changes and when a session restart is detected (the existing lap-counter/lap-clock signature). A cut event whose lap counter matches neither the current lap nor a stored lap (e.g. a pre-restart leftover) SHALL never be attached or drawn.
-
-#### Scenario: Session restart clears markers
-- **WHEN** the driver restarts the session
-- **THEN** all markers disappear along with the driven lines
-
-#### Scenario: Stale event dropped
-- **WHEN** a cut event references a lap counter that matches neither the current nor any stored lap
-- **THEN** it is discarded without drawing
-
-### Requirement: Markers preserve the dirty-gated render loop
-Cut marker support SHALL keep the map's dirty-gated rAF loop intact: the arrival of a cut event triggers a repaint, and an idle map (no telemetry, mouse, zoom, size, or cut changes) SHALL keep skipping repaints exactly as before.
-
-#### Scenario: Idle map stays idle
-- **WHEN** telemetry, mouse, zoom, canvas size, and the cut list are all unchanged
-- **THEN** marker support causes no additional repaints

@@ -192,7 +192,7 @@ List them, plus anything else that fell on the manual side:
 
 - Anything that needs frames arriving — the position dot, the driving-line gradient, follow-cam, the
   sector ribbon. Four green checks say nothing about whether the dot moves.
-- Canvas repaint behaviour: `TrackMap`, `PedalTrace` and `GForceMeter` dirty-gate their rAF loops,
+- Canvas repaint behaviour: `TrackMap` and `GForceMeter` dirty-gate their rAF loops,
   and a broken gate is invisible to `tsc` — it shows up as a pegged CPU, not an error.
 - Hover-only interaction (a click would steal focus from the game), touch parity, the `lg:` desktop
   breakpoint.

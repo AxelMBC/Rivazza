@@ -4,14 +4,11 @@ import type { TelemetryFrame } from "../types";
 
 export type InputSample = {
   t: number; // performance.now() at capture, ms
-  gas: number;
-  brake: number;
-  clutch: number;
   lateralG: number;
   longitudinalG: number;
 };
 
-const CAPACITY = 360; // ~12s of samples at the ~30 Hz React state rate (see useTelemetry)
+const CAPACITY = 60; // ~2s of samples at the ~30 Hz React state rate (see useTelemetry)
 
 export const useInputHistory = (
   telemetry: TelemetryFrame | null,
@@ -26,9 +23,6 @@ export const useInputHistory = (
     const history = historyRef.current;
     history.push({
       t: performance.now(),
-      gas: telemetry.gas,
-      brake: telemetry.brake,
-      clutch: telemetry.clutch,
       lateralG: telemetry.accGHorizontal,
       longitudinalG: telemetry.accGFrontal,
     });
