@@ -1,7 +1,7 @@
 # Assetto Corsa Live Telemetry
 
 Live dashboard for Assetto Corsa (original): gauges, lap times with live delta,
-pedal trace, G-meter, and a 2D track map that draws your driving lines in real time.
+throttle / brake bars, G-meter, and a 2D track map that draws your driving lines in real time.
 
 ```
 Assetto Corsa ──UDP 9996──▶ bridge (Node) ──WebSocket :3001──▶ React app :5173
@@ -21,7 +21,7 @@ Assetto Corsa ──UDP 9996──▶ bridge (Node) ──WebSocket :3001──�
 - Analog speedometer scaled to the current car's real top speed (read from the
   game's car data), plus gear, RPM, and fuel readouts
 - Lap time log with validity detection and a live delta against your fastest lap
-- Pedal trace (throttle / brake / clutch) and lateral/longitudinal G-meter
+- Live throttle / brake bars and lateral/longitudinal G-meter
 - 2D track map with pedal-colored driving lines (green throttle, red brake,
   yellow coast), per-lap colored history, cursor-anchored wheel zoom, and a
   hover speed readout on any lap line

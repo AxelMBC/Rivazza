@@ -189,7 +189,7 @@ RELEVANT CODE FOUND
   Wire type:   <field on BridgeMessage / TelemetryFrame / SessionInfo>
                | none — anything here changes BOTH mirrored types.ts files
   Hook:        useTelemetry | useLapHistory | useLapDelta | useInputHistory | none
-  Canvas:      TrackMap | PedalTrace | GForceMeter | none — mind the rAF dirty-gating
+  Canvas:      TrackMap | GForceMeter | none — mind the rAF dirty-gating
   Specs:       <capability-id>, …                | none — likely a new capability
   Manual only: <what only a running app can show — see .claude/skills/verify/SKILL.md>
 ```

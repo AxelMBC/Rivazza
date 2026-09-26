@@ -6,6 +6,7 @@ import { speedScale } from "../lib/speedScale";
 import type { SessionInfo, TelemetryFrame } from "../types";
 
 import { AnalogGauge } from "./AnalogGauge";
+import { SteeringBar } from "./SteeringBar";
 import { TyreOverlay } from "./TyreOverlay";
 
 const RPM_MAX = 10000;
@@ -92,7 +93,7 @@ export const InstrumentCluster = ({
         </AnalogGauge>
       </div>
 
-      <div className="mt-3 flex justify-center gap-2">
+      <div className="mt-3 flex items-center gap-2">
         <StatusLight
           label="ABS"
           enabled={telemetry?.absEnabled ?? false}
@@ -111,6 +112,8 @@ export const InstrumentCluster = ({
           active={telemetry?.inPit ?? false}
           activeClass="bg-accent"
         />
+
+        <SteeringBar telemetry={telemetry} />
       </div>
     </section>
   );

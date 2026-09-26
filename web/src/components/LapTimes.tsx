@@ -10,13 +10,17 @@ const TimeTile = ({
   value,
   accentClass = "text-ink",
   invalid = false,
+  className = "",
 }: {
   label: string;
   value: string;
   accentClass?: string;
   invalid?: boolean;
+  className?: string;
 }) => (
-  <div className="rounded-lg border border-edge bg-surface px-4 py-3">
+  <div
+    className={`rounded-lg border border-edge bg-surface px-4 py-2 ${className}`}
+  >
     <p className="text-xs tracking-wide text-ink-muted uppercase">
       {label}
       {invalid && (
@@ -31,6 +35,9 @@ const TimeTile = ({
     </p>
   </div>
 );
+
+const COMPLETED_LAP_TILE_CLASS =
+  "transition-colors hover:border-accent/60 group-hover:border-accent/60";
 
 const formatDelta = (deltaMs: number): string => {
   const seconds = Math.abs(deltaMs) / 1000;
@@ -149,7 +156,7 @@ export const LapTimes = ({
   return (
     <section className="grid grid-cols-2 gap-2">
       <TimeTile
-        label="Current lap"
+        label={`Lap ${telemetry ? telemetry.lapCount + 1 : "–"}`}
         value={formatLapTime(telemetry?.lapTimeMs)}
         invalid={currentLapInvalidRef.current}
       />
@@ -164,16 +171,9 @@ export const LapTimes = ({
               : "text-warning"
         }
       />
-      <TimeTile label="Last lap" value={formatLapTime(telemetry?.lastLapMs)} />
-
-      <TimeTile
-        label="Best lap"
-        value={formatLapTime(bestLapMs)}
-        accentClass="text-best"
-      />
 
       <div
-        className={`${HOVER_GROUP_CLASS} relative col-span-2 flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60`}
+        className={`${HOVER_GROUP_CLASS} relative col-span-2 grid grid-cols-2 gap-2`}
         onPointerUp={(e) => {
           if (!isImmediateActivation(e)) return;
           setListOpen((o) => {
@@ -188,12 +188,17 @@ export const LapTimes = ({
           open={listOpen}
         />
 
-        <span className="text-xs tracking-wide text-ink-muted uppercase">
-          Lap
-        </span>
-        <span className="text-lg font-semibold tabular-nums">
-          {telemetry ? telemetry.lapCount + 1 : "-"}
-        </span>
+        <TimeTile
+          label="Last lap"
+          value={formatLapTime(telemetry?.lastLapMs)}
+          className={COMPLETED_LAP_TILE_CLASS}
+        />
+        <TimeTile
+          label="Best lap"
+          value={formatLapTime(bestLapMs)}
+          accentClass="text-best"
+          className={COMPLETED_LAP_TILE_CLASS}
+        />
       </div>
     </section>
   );

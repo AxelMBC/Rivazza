@@ -1,12 +1,10 @@
 import { useRef } from "react";
 
-import { GForceMeter } from "./components/GForceMeter";
+import { DriverInputs } from "./components/DriverInputs";
 import { InstrumentCluster } from "./components/InstrumentCluster";
 import { LapAnalysis } from "./components/LapAnalysis";
 import { LapTimes } from "./components/LapTimes";
-import { PedalTrace } from "./components/PedalTrace";
 import { SessionHeader } from "./components/SessionHeader";
-import { SteeringBar } from "./components/SteeringBar";
 import { TrackMap } from "./components/TrackMap";
 import { useInputHistory } from "./hooks/useInputHistory";
 import { useLapDelta } from "./hooks/useLapDelta";
@@ -96,15 +94,11 @@ const App = () => {
               hoveredLapRef={hoveredLapRef}
             />
 
-            <PedalTrace historyRef={historyRef} />
-
-            <div className="grid grid-cols-[10rem_1fr] items-start gap-3">
-              <GForceMeter historyRef={historyRef} />
-
-              <div className="rounded-lg border border-edge bg-surface p-4">
-                <SteeringBar telemetry={telemetry} />
-              </div>
-            </div>
+            <DriverInputs
+              telemetry={telemetry}
+              historyRef={historyRef}
+              className="h-42 shrink-0 lg:h-auto lg:min-h-24 lg:flex-1"
+            />
           </div>
 
           <div className="flex min-h-0 flex-col gap-4">

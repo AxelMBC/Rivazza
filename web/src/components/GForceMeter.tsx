@@ -4,7 +4,6 @@ import type { InputSample } from "../hooks/useInputHistory";
 
 const MAX_G = 2.5;
 const RINGS = [1, 2];
-const PATH_SAMPLES = 60;
 
 export const GForceMeter = ({
   historyRef,
@@ -87,11 +86,10 @@ export const GForceMeter = ({
           (Math.max(-MAX_G, Math.min(MAX_G, s.longitudinalG)) / MAX_G) * radius,
       });
 
-      const recent = history.slice(-PATH_SAMPLES);
       ctx.strokeStyle = "rgba(57, 135, 229, 0.35)";
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      recent.forEach((s, i) => {
+      history.forEach((s, i) => {
         const { px, py } = project(s);
         if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
@@ -113,9 +111,9 @@ export const GForceMeter = ({
   }, [historyRef]);
 
   return (
-    <section className="flex flex-col rounded-lg border border-edge bg-surface p-4">
+    <div className="flex min-h-0 flex-col">
       <p className="text-xs tracking-wide text-ink-muted uppercase">G-force</p>
-      <canvas ref={canvasRef} className="mt-2 aspect-square w-full" />
-    </section>
+      <canvas ref={canvasRef} className="mt-2 min-h-0 w-full flex-1" />
+    </div>
   );
 };

@@ -103,7 +103,7 @@ every 1.5s) and exposes telemetry two ways: React state (`telemetry`) for normal
 `telemetryRef` for `requestAnimationFrame` loops (the track map) that must read every frame without
 triggering re-renders. When adding high-frequency canvas visuals, read the ref, not the state.
 
-**Derived-data hooks (`web/src/hooks/`).** `useInputHistory` (pedal/G ring buffer), `useLapHistory`
+**Derived-data hooks (`web/src/hooks/`).** `useInputHistory` (G-force ring buffer), `useLapHistory`
 (session lap log), and `useLapDelta` (live delta vs. fastest recorded lap) all follow the same
 pattern: bookkeeping in an effect keyed on the throttled `telemetry` state, result exposed as a
 ref so canvas rAF loops can read it. AC's protocol sends no lap list and no invalid-lap flag, so
@@ -121,7 +121,7 @@ per-lap history with identity colors, and layers cursor-anchored wheel zoom over
 projection. From the second wheel notch in (follow not tracking, fixed-fit modes only) an overview inset in the
 top-right corner navigates the zoomed view at constant zoom: a ~250 ms cursor rest on it glides the
 view there — one more writer of `zoomRef`, like the follow cam (`web/src/lib/overviewInset.ts`
-holds its geometry). All canvas components (`TrackMap`, `PedalTrace`, `GForceMeter`) dirty-gate their rAF
+holds its geometry). All canvas components (`TrackMap`, `GForceMeter`) dirty-gate their rAF
 loops — they only repaint when what's rendered actually changed. Preserve this when editing them.
 
 ## Where the rest of the guidance lives
