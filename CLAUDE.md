@@ -118,18 +118,29 @@ ref so canvas rAF loops can read it. AC's protocol sends no lap list and no inva
 would-be PB the game didn't adopt = cut lap; pit-lane touch = invalid), with shared-memory cut
 events as the authoritative override when available. Also note: AC's "restart
 session" does **not** re-handshake — restarts are detected by the lap counter or lap clock running
-backwards, a signature duplicated in `useLapHistory`, `useLapDelta`, and `TrackMap`. Keep them in
-sync if you change one.
+backwards, a signature duplicated in `useLapHistory`, `useLapDelta`, and `TrackMap`
+(`TrackMap/lineRecorder.ts`). Keep them in sync if you change one.
 
-**Track map projection (`web/src/components/TrackMap.tsx`).** `pixel = (world + OFFSET) / SCALE_FACTOR`
-from `map.ini`. If the dot appears mirrored on some track, flip the X term in `project`. The map draws
+**Track map projection (`web/src/components/TrackMap/`).** `pixel = (world + OFFSET) / SCALE_FACTOR`
+from `map.ini`. If the dot appears mirrored on some track, flip the X term in `metaProjection`
+(`TrackMap/projection.ts`). The map draws
 pedal-colored driving lines (coast→throttle/brake color lerp) for the current lap, keeps a bounded
 per-lap history with identity colors, and layers cursor-anchored wheel zoom over the base fit
 projection. From the second wheel notch in (follow not tracking, fixed-fit modes only) an overview inset in the
 top-right corner navigates the zoomed view at constant zoom: a ~250 ms cursor rest on it glides the
-view there — one more writer of `zoomRef`, like the follow cam (`web/src/lib/overviewInset.ts`
+view there — one more writer of `zoomRef`, like the follow cam (`web/src/components/TrackMap/overviewInset.ts`
 holds its geometry). All canvas components (`TrackMap`, `GForceMeter`) dirty-gate their rAF
 loops — they only repaint when what's rendered actually changed. Preserve this when editing them.
+
+**TrackMap's layout.** `index.tsx` is wiring: it owns the one rAF loop and its one dirty-gate
+expression, and every other job is a sibling module. State that must outlive the render effect
+(which re-runs when map data arrives) lives in component-level stable objects created once with
+`useState`: the line recorder (`lineRecorder.ts`: samples, stored laps, lap counter, cut cursor)
+and follow control (`useFollowControl.ts`). Everything scoped to one map is an effect-level
+`create…` factory, called once per effect with the refs it reads: `camera.ts`, `markers.ts`,
+`layers.ts` (offscreen layer caches), `hitTest.ts` and `gestures.ts`. The pieces communicate
+only through refs (`zoomRef`, `navRef`, `insetRef`, …), never through a primitive captured at
+creation. A new repaint input is one more term in the gate in `index.tsx`, not a flag in a module.
 
 ## Where the rest of the guidance lives
 

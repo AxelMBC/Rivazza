@@ -1,0 +1,56 @@
+import type { MapMeta, SessionInfo, TrackEdges } from "@rivazza/protocol";
+import { useEffect, useState } from "react";
+
+import { BRIDGE_HTTP } from "../../hooks/useTelemetry";
+import { DEMO_MAP_URL, IS_DEMO } from "../../lib/demo";
+
+export type MapData = { meta: MapMeta | null; edges: TrackEdges | null };
+
+const probe = async <T>(url: string): Promise<T | null> => {
+  try {
+    const res = await fetch(url);
+    return res.ok ? ((await res.json()) as T) : null;
+  } catch {
+    // bridge unreachable; treated as no map data
+    return null;
+  }
+};
+
+export const useTrackMapData = (session: SessionInfo) => {
+  const [mapData, setMapData] = useState<MapData | null>(null);
+  const [mapProbed, setMapProbed] = useState(false);
+
+  useEffect(() => {
+    setMapData(null);
+    setMapProbed(false);
+
+    // Always probe the bridge instead of trusting session flags — a page
+    // holding a stale session must still pick up bounds the bridge has now.
+    let cancelled = false;
+    const load = async () => {
+      // Demo mode has no bridge: the outline is a static file recorded next to
+      // the session (see lib/demo.ts). Everything downstream is identical.
+      if (IS_DEMO) {
+        const data = await probe<MapData>(DEMO_MAP_URL);
+        if (cancelled) return;
+        if (data && (data.meta || data.edges))
+          setMapData({ meta: data.meta ?? null, edges: data.edges ?? null });
+        setMapProbed(true);
+        return;
+      }
+      const [meta, edges] = await Promise.all([
+        probe<MapMeta>(`${BRIDGE_HTTP}/api/track-map/meta`),
+        probe<TrackEdges>(`${BRIDGE_HTTP}/api/track-map/edges`),
+      ]);
+      if (cancelled) return;
+      if (meta || edges) setMapData({ meta, edges });
+      setMapProbed(true);
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  return { mapData, mapProbed };
+};
