@@ -1,0 +1,12 @@
+{
+  "name": "@rivazza/protocol",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Bridge ↔ web WebSocket wire contract (types only)",
+  "license": "MIT",
+  "type": "module",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

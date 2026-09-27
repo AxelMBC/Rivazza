@@ -21,7 +21,7 @@ So the job is to find out whether something **objectively better** exists. Not "
 
 - **Standards** — does it land where the existing shape says it lands? Bookkeeping in an effect with
   the result exposed as a ref for rAF consumers; canvas components dirty-gating their repaint; the
-  wire contract mirrored in both `types.ts` files; Tailwind tokens rather than raw colours. An
+  wire contract declared once in `@rivazza/protocol`; Tailwind tokens rather than raw colours. An
   approach that needs an exception to a spec in `openspec/specs/` is worse **unless** the exception
   is itself the finding — in which case say so plainly and name the spec that would have to change.
 - **Scalability** — does it extend an existing capability or stand up a parallel one? Does it still
@@ -185,9 +185,9 @@ same shape the next command consumes, so nothing has to be re-derived:
 ```
 RELEVANT CODE FOUND
 ───────────────────────────────────────────
-  Bridge:      parsers.ts | acClient.ts | sharedMemory.ts | trackAssets.ts | carAssets.ts | none
+  Bridge:      udp/ | shm/ | content/ | frameThrottle.ts | trackAssetServer.ts | none
   Wire type:   <field on BridgeMessage / TelemetryFrame / SessionInfo>
-               | none — anything here changes BOTH mirrored types.ts files
+               | none — anything here changes packages/protocol, read by both sides
   Hook:        useTelemetry | useLapHistory | useLapDelta | useInputHistory | none
   Canvas:      TrackMap | GForceMeter | none — mind the rAF dirty-gating
   Specs:       <capability-id>, …                | none — likely a new capability

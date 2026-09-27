@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { AC_PATH } from "./trackAssets.js";
+import { AC_PATH } from "./acPath.js";
 
 // ui_car.json routinely carries raw control characters that make JSON.parse
 // throw, so the field is scanned out of the text rather than parsed.

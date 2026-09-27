@@ -1,6 +1,5 @@
+import type { TelemetryFrame } from "@rivazza/protocol";
 import { useEffect, useRef } from "react";
-
-import type { TelemetryFrame } from "../types";
 
 export type InputSample = {
   t: number; // performance.now() at capture, ms

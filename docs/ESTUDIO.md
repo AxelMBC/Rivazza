@@ -129,7 +129,7 @@ perdido es un frame que ya estaba obsoleto 16 ms después. Retransmitirlo —lo 
 TCP— solo retrasaría los frames siguientes. Por eso lo usan los juegos, el vídeo en
 directo y el audio.
 
-En Node eso es el módulo `dgram` (`bridge/src/acClient.ts:1`):
+En Node eso es el módulo `dgram` (`bridge/src/udp/acClient.ts:1`):
 
 ```ts
 const socket = dgram.createSocket("udp4");

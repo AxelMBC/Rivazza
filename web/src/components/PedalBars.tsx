@@ -1,4 +1,4 @@
-import type { TelemetryFrame } from "../types";
+import type { TelemetryFrame } from "@rivazza/protocol";
 
 const PedalBar = ({
   label,

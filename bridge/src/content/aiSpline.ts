@@ -1,6 +1,6 @@
 import fs from "node:fs";
 
-import type { MapMeta, TrackEdges } from "./types.js";
+import type { MapMeta, TrackEdges } from "@rivazza/protocol";
 
 // ai/fast_lane.ai is AC's AI spline: little-endian, header of four int32s
 // (version == 7, point count, lap time, sample count), then count 20-byte

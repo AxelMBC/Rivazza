@@ -1,4 +1,4 @@
-import type { TelemetryFrame } from "../types";
+import type { TelemetryFrame } from "@rivazza/protocol";
 
 // Index order must match the tyreSlip / wheelLoad arrays.
 const WHEEL_LABELS = ["FL", "FR", "RL", "RR"] as const;

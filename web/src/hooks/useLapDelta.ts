@@ -1,3 +1,4 @@
+import type { TelemetryFrame } from "@rivazza/protocol";
 import { useEffect, useRef } from "react";
 
 import {
@@ -5,7 +6,6 @@ import {
   COVERAGE_START,
   interpolateTimeAt,
 } from "../lib/lapAnalysis";
-import type { TelemetryFrame } from "../types";
 
 type LapSample = { pos: number; timeMs: number };
 

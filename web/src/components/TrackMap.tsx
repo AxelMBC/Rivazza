@@ -1,3 +1,10 @@
+import type {
+  CutEvent,
+  MapMeta,
+  SessionInfo,
+  TelemetryFrame,
+  TrackEdges,
+} from "@rivazza/protocol";
 import { useEffect, useRef, useState } from "react";
 
 import type { LapRecord } from "../hooks/useLapHistory";
@@ -27,13 +34,6 @@ import {
   type Zoom,
 } from "../lib/overviewInset";
 import { SYNTHETIC_MOUSE_WINDOW_MS, TAP_SLOP_PX } from "../lib/touch";
-import type {
-  CutEvent,
-  MapMeta,
-  SessionInfo,
-  TelemetryFrame,
-  TrackEdges,
-} from "../types";
 
 type Props = {
   session: SessionInfo;

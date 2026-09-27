@@ -1,9 +1,9 @@
+import type { TelemetryFrame } from "@rivazza/protocol";
 import { useState } from "react";
 
 import type { LapRecord } from "../hooks/useLapHistory";
 import { formatLapTime } from "../lib/format";
 import { HOVER_GROUP_CLASS, isImmediateActivation } from "../lib/interaction";
-import type { TelemetryFrame } from "../types";
 
 const TimeTile = ({
   label,

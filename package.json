@@ -10,14 +10,15 @@
   },
   "workspaces": [
     "bridge",
+    "packages/protocol",
     "web"
   ],
   "scripts": {
     "dev": "concurrently -n bridge,web -c yellow,cyan \"tsx watch bridge/src/index.ts\" \"vite web\"",
     "dev:demo": "vite web --mode demo",
     "build": "npm run --loglevel=error build -w bridge && npm run --loglevel=error build -w web",
-    "format": "prettier --write \"{bridge,web}/src/**/*.{ts,tsx,css}\" \"*.{json,md}\"",
-    "format:check": "prettier --check \"{bridge,web}/src/**/*.{ts,tsx,css}\" \"*.{json,md}\""
+    "format": "prettier --write \"{bridge,web}/src/**/*.{ts,tsx,css}\" \"bridge/scripts/**/*.ts\" \"packages/*/src/**/*.ts\" \"*.{json,md}\"",
+    "format:check": "prettier --check \"{bridge,web}/src/**/*.{ts,tsx,css}\" \"bridge/scripts/**/*.ts\" \"packages/*/src/**/*.ts\" \"*.{json,md}\""
   },
   "devDependencies": {
     "@ianvs/prettier-plugin-sort-imports": "^4.7.1",

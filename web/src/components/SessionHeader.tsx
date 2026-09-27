@@ -1,6 +1,8 @@
+import type { SessionInfo } from "@rivazza/protocol";
+
+import type { ConnectionStatus } from "../hooks/useTelemetry";
 import { IS_DEMO } from "../lib/demo";
 import { prettifyName } from "../lib/format";
-import type { ConnectionStatus, SessionInfo } from "../types";
 
 import { ConnectionBadge } from "./ConnectionBadge";
 import { DemoBadge } from "./DemoBadge";

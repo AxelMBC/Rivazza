@@ -10,10 +10,9 @@ import { useInputHistory } from "./hooks/useInputHistory";
 import { useLapDelta } from "./hooks/useLapDelta";
 import { useLapHistory } from "./hooks/useLapHistory";
 import { useLapRecordings } from "./hooks/useLapRecordings";
-import { useTelemetry } from "./hooks/useTelemetry";
+import { useTelemetry, type ConnectionStatus } from "./hooks/useTelemetry";
 import { IS_DEMO } from "./lib/demo";
 import type { ScrubPoint } from "./lib/lapAnalysis";
-import type { ConnectionStatus } from "./types";
 
 const DemoLoadingScreen = () => (
   <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">

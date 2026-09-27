@@ -1,19 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-
-import { DEMO_RECORDING_URL, IS_DEMO } from "../lib/demo";
 import type {
   BridgeMessage,
-  ConnectionStatus,
   CutEvent,
   SessionInfo,
   TelemetryFrame,
-} from "../types";
+} from "@rivazza/protocol";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { DEMO_RECORDING_URL, IS_DEMO } from "../lib/demo";
 
 export const BRIDGE_HTTP = `http://${window.location.hostname}:3001`;
 
 const BRIDGE_WS = `ws://${window.location.hostname}:3001/ws`;
 const RECONNECT_MS = 1500;
 const STATE_INTERVAL_MS = 1000 / 30;
+
+export type ConnectionStatus = "connecting" | "waiting" | "connected";
 
 type RecordedEntry = { t: number; msg: BridgeMessage };
 

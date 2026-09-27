@@ -105,8 +105,9 @@ Implement tasks from an OpenSpec change.
    - **Restart detection.** The lap-counter-runs-backwards signature already lives in
      `useLapHistory`, `useLapDelta` and `TrackMap`, and `CLAUDE.md` flags keeping them in sync. Do
      not add a fourth copy — extend, or note explicitly why a fourth is unavoidable.
-   - **A wire field.** `bridge/src/types.ts` and `web/src/types.ts` are hand-mirrored. Adding a
-     field means editing **both**; adding it to one side compiles fine and breaks at runtime.
+   - **A wire type.** The wire contract is declared once, in `packages/protocol/src/index.ts`
+     (`@rivazza/protocol`). A field goes there, never into a bridge- or web-local copy of the type:
+     a local copy compiles fine and breaks at runtime.
 
    For each pending task:
    - Show which task is being worked on

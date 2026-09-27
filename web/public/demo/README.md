@@ -8,7 +8,7 @@ division reads `edges.pos`). Regenerating needs only the AC install, not a runni
 game or session:
 
 ```ts
-import { resolveTrackAssets } from "./bridge/src/trackAssets.js";
+import { resolveTrackAssets } from "./bridge/src/content/trackAssets.js";
 const a = resolveTrackAssets("imola", null);
 fs.writeFileSync("web/public/demo/imola.map.json",
   JSON.stringify({ meta: a.meta, edges: a.edges }));

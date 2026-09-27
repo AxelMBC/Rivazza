@@ -1,4 +1,4 @@
-import type { CutEvent, TelemetryFrame } from "./types.js";
+import type { CutEvent, TelemetryFrame } from "@rivazza/protocol";
 
 // AC publishes SPageFilePhysics as a memory-mapped page on the local machine
 // (#pragma pack(4), rewritten every physics tick at ~333 Hz) — the same

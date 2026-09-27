@@ -1,6 +1,6 @@
 ---
 name: 'OPSX: Audit drift'
-description: Find spec claims that no longer hold — dead symbols, dead paths, a broken type mirror
+description: Find spec claims that no longer hold — dead symbols, dead paths, a re-duplicated wire type
 category: Workflow
 tags: [workflow, specs, maintenance]
 ---
@@ -13,7 +13,7 @@ spec still describes the code. This command closes three narrow, mechanical part
 
 **Scope is deliberately narrow.** Read **What this does not catch** before relying on a clean run.
 It is a claim-resolution checker, not a spec-versus-code checker. A clean run means "no spec names
-something that vanished, and the wire contract is still mirrored" — nothing more.
+something that vanished, and the wire contract is still declared once" — nothing more.
 
 **Read-only. It finds and ranks; it never edits a spec and never edits code.** Repairs go through
 `/opsx:tweak`, one capability at a time, so each one lands as a reviewed delta rather than a silent
@@ -77,29 +77,22 @@ echo "paths: $(wc -l < /tmp/claimed.txt) | unresolved: $(wc -l < /tmp/missing.tx
 
 Suffix matching is deliberate: specs cite `types.ts` and `web/src/types.ts` interchangeably.
 
-### Detector 3 — the wire-contract mirror
+### Detector 3 — the wire contract has one declaration
 
-`CLAUDE.md` states that `bridge/src/types.ts` and `web/src/types.ts` are **hand-mirrored and must be
-kept in sync**, and nothing enforces it. A field added to one side and forgotten on the other is a
-runtime hole that `tsc` cannot see: each side compiles perfectly against its own copy.
+The wire contract is declared once, in `packages/protocol/src/index.ts` (`@rivazza/protocol`), and
+both workspaces import it. The mirror that used to need a field-by-field diff no longer exists.
+What can still drift is a workspace growing its **own** copy of a wire type again. That compiles,
+because each side type-checks against whichever copy it imports, and it brings back the runtime
+hole the package removed.
 
 ```bash
-diff <(grep -vE '^\s*//' bridge/src/types.ts) <(grep -vE '^\s*//' web/src/types.ts)
+git grep -nE "^export (type|interface) (BridgeMessage|SessionInfo|TelemetryFrame|CutEvent|MapMeta|TrackEdges)" -- bridge web
 ```
 
-**The diff is not expected to be empty, and an empty-diff check would be wrong.** Each side
-legitimately owns types the other must not have:
-
-| Type | Lives in | Why |
-| --- | --- | --- |
-| `SessionInfo`, `TelemetryFrame`, `CutEvent`, `BridgeMessage`, `MapMeta`, `TrackEdges` | **both** | the wire contract — these must match field for field |
-| `HandshakerResponse` | bridge only | AC's UDP handshake struct; never crosses the WebSocket |
-| `ConnectionStatus` | web only | UI state for the reconnect indicator; the bridge has no such concept |
-
-So the check is: **the six shared types must match field for field; anything else in the diff is
-side-specific and correct.** A new type appearing on one side is a finding only if a
-`BridgeMessage` variant references it. Report a shared-type mismatch as a **contradiction** — the
-worst bucket, because both files typecheck while the app is broken.
+**Expected: no output.** Any hit is a **contradiction**, the worst bucket, because both sides
+typecheck while the wire can be broken. Side-specific types are correct where they are and are
+not findings: `HandshakerResponse` in `bridge/src/udp/parsers.ts` and `ConnectionStatus` in
+`web/src/hooks/useTelemetry.ts`.
 
 ---
 
@@ -124,7 +117,7 @@ Then sort it into exactly one bucket:
 | **External vocabulary** | Names something the repo does not own: a field in AC's shared-memory or UDP structs, a game file format, a build-time env var. `numberOfTyresOut`, `packetId`, `map.ini`, `ui_car.json`, `fast_lane.ai`, `libraryfolders.vdf`, `acpmf_physics`, `VITE_DEMO_MODE` | **Not drift.** The spec is quoting the game's vocabulary, which is correct even when the code names its own reader differently. Discard silently. |
 | **Inverted assertion** | The spec asserts the thing is _gone_: "no longer", "SHALL NOT", "deliberately never". | **Not drift.** Absence is the spec being satisfied. Discard silently. |
 | **Dead symbol or dead path** | A positive claim naming something the repo used to have. | **Drift.** Record what the code calls it now. |
-| **Contradiction** | Two specs make incompatible claims, or a spec contradicts the code _and_ another spec. A shared-type mismatch from detector 3 lands here. | **Drift, worst kind.** Rank first — an agent reading either side is misled, and they cannot both be repaired the same way. |
+| **Contradiction** | Two specs make incompatible claims, or a spec contradicts the code _and_ another spec. A re-declared wire type from detector 3 lands here. | **Drift, worst kind.** Rank first — an agent reading either side is misled, and they cannot both be repaired the same way. |
 
 **The external-vocabulary bucket is the one that makes this command usable here**, and it is the
 bucket a generic path-checker doesn't have. `numberOfTyresOut` is the canonical case: the spec names
@@ -165,7 +158,7 @@ buckets entirely — do not list what isn't drift.
 - DEAD SYMBOL    <what> — spec cites <old>, code has <new>
 - DEAD PATH      <what> — spec cites <old>, code has <new>
 
-Wire mirror: shared types match | <type>.<field> present in <side> only
+Wire contract: one declaration | <type> re-declared in <path>
 
 Scanned: <A> symbols, <B> paths (<C> unresolved, <D> external vocabulary, <E> inverted assertions
 discarded).
@@ -218,7 +211,7 @@ Until that exists, constants and offsets are reviewed by hand or not at all.
   rewrites specs directly is indistinguishable from the drift it was built to catch.
 - **Never fix the code to match the spec.** When a spec and the code disagree, which one is wrong is
   a judgement for the user. Report both sides and let them decide — especially for detector 3, where
-  the right repair might be adding the field to the other side of the mirror rather than removing it.
+  the re-declared copy may hold a field that belongs in `@rivazza/protocol` rather than being deleted.
 - **Never claim coverage this command does not have.** A clean run is "no spec names something that
   vanished", never "the specs match the code".
 - **The external-vocabulary bucket is not optional.** Skipping it turns a two-finding report into a

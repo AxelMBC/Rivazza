@@ -1,7 +1,7 @@
+import type { SessionInfo, TelemetryFrame } from "@rivazza/protocol";
 import { useEffect, useRef, useState } from "react";
 
 import { COVERAGE_END, COVERAGE_START } from "../lib/lapAnalysis";
-import type { SessionInfo, TelemetryFrame } from "../types";
 
 import type { LapRecord } from "./useLapHistory";
 

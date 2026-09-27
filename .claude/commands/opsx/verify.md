@@ -372,9 +372,9 @@ Diagnose each failure briefly. Start from this repo's usual suspects rather than
 
 | Symptom | First suspect |
 | --- | --- |
-| A field exists on one side of the wire and not the other | `bridge/src/types.ts` and `web/src/types.ts` are hand-mirrored and must be kept in sync. Fix both, not one. |
+| A field exists on one side of the wire and not the other | A workspace declared its own copy of a wire type instead of importing `@rivazza/protocol`. Delete the copy; the field goes in `packages/protocol/src/index.ts`. |
 | `tsc -b` reports an error in a file the change never touched | Project references: a `web/tsconfig.*.json` project was rebuilt. Read the path in the error before assuming it's unrelated. |
-| Telemetry values come out as garbage rather than a type error | Not a typecheck failure — a byte offset in `bridge/src/parsers.ts`. Offsets encode MSVC struct padding; only the manual half catches this. |
+| Telemetry values come out as garbage rather than a type error | Not a typecheck failure — a byte offset in `bridge/src/udp/parsers.ts`. Offsets encode MSVC struct padding; only the manual half catches this. |
 | `prettier --check` fails on a file with no visible change | Import order. Prettier owns it; never hand-sort. |
 | oxlint clean but the bridge is broken | Expected — the bridge has no linter. Say so rather than implying it was checked. |
 

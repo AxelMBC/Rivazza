@@ -6,9 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { BridgeMessage } from "@rivazza/protocol";
 import { WebSocket } from "ws";
-
-import type { BridgeMessage } from "./types.js";
 
 // `npm run record -w bridge` runs with the CWD set to the bridge workspace, so
 // paths resolve against the repo root instead — otherwise --out would bury the

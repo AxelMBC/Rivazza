@@ -1,9 +1,9 @@
+import type { SessionInfo, TelemetryFrame } from "@rivazza/protocol";
 import { useState } from "react";
 
 import { formatGear } from "../lib/format";
 import { HOVER_GROUP_CLASS, isImmediateActivation } from "../lib/interaction";
 import { speedScale } from "../lib/speedScale";
-import type { SessionInfo, TelemetryFrame } from "../types";
 
 import { AnalogGauge } from "./AnalogGauge";
 import { SteeringBar } from "./SteeringBar";

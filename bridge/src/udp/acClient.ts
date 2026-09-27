@@ -1,6 +1,8 @@
 import dgram from "node:dgram";
 import { EventEmitter } from "node:events";
 
+import type { TelemetryFrame } from "@rivazza/protocol";
+
 import {
   buildHandshakePacket,
   HANDSHAKE_RESPONSE_SIZE,
@@ -8,8 +10,8 @@ import {
   parseHandshakerResponse,
   parseRTCarInfo,
   RT_CAR_INFO_SIZE,
+  type HandshakerResponse,
 } from "./parsers.js";
-import type { HandshakerResponse, TelemetryFrame } from "./types.js";
 
 const AC_HOST = process.env.AC_HOST ?? "127.0.0.1";
 const AC_PORT = Number(process.env.AC_PORT ?? 9996);

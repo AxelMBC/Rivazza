@@ -1,4 +1,3 @@
-// Mirrors bridge/src/types.ts — keep the two in sync.
 export type SessionInfo = {
   track: string;
   trackConfig: string;
@@ -76,5 +75,3 @@ export type TrackEdges = {
   // position resolves onto real track geometry instead of a driven line.
   pos: number[];
 };
-
-export type ConnectionStatus = "connecting" | "waiting" | "connected";

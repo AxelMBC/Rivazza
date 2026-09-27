@@ -17,6 +17,7 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@rivazza/protocol": "*",
     "@tailwindcss/vite": "^4.1.0",
     "tailwindcss": "^4.1.0",
     "@types/node": "^24.13.2",

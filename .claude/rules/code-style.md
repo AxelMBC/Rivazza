@@ -1,6 +1,8 @@
 ---
 paths:
   - '{bridge,web}/src/**/*.{ts,tsx,css}'
+  - 'bridge/scripts/**/*.ts'
+  - 'packages/*/src/**/*.ts'
 ---
 
 # Code style
@@ -61,8 +63,9 @@ beside value imports from the same module rather than hoisted into its own block
 
 - A type moves to its own module only when a **second** module needs it. A `Props` type used by
   one component stays in that component's file — do not extract it preemptively.
-- `web/src/types.ts` is strictly the hand-mirrored bridge wire contract. Shared app-level types
-  (e.g. `LapRecord`) live with the module that produces them, not here.
+- `packages/protocol/src/index.ts` (`@rivazza/protocol`) is strictly the bridge ↔ web wire
+  contract. Types that stay on one side (`HandshakerResponse`, `ConnectionStatus`, `LapRecord`)
+  live with the module that produces them, not there.
 - A component gets its own folder when it grows children or helpers only it uses — reactively,
   not preemptively.
 - A file spanning more than two capabilities gets split. (`TrackMap.tsx` is the outstanding

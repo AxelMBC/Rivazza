@@ -1,4 +1,13 @@
-import type { HandshakerResponse, TelemetryFrame } from "./types.js";
+import type { TelemetryFrame } from "@rivazza/protocol";
+
+export type HandshakerResponse = {
+  carName: string;
+  driverName: string;
+  identifier: number;
+  version: number;
+  trackName: string;
+  trackConfig: string;
+};
 
 export const HANDSHAKE_RESPONSE_SIZE = 408;
 export const RT_CAR_INFO_SIZE = 328;

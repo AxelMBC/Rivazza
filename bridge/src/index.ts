@@ -1,16 +1,15 @@
-import fs from "node:fs";
-import http from "node:http";
-
+import type { BridgeMessage, SessionInfo } from "@rivazza/protocol";
 import { WebSocket, WebSocketServer } from "ws";
 
-import { ACClient } from "./acClient.js";
-import { resolveCarTopSpeed } from "./carAssets.js";
-import { startCutDetection } from "./sharedMemory.js";
+import { resolveCarTopSpeed } from "./content/carAssets.js";
 import {
   resolveTrackAssetsForSession,
   type TrackAssets,
-} from "./trackAssets.js";
-import type { BridgeMessage, SessionInfo, TelemetryFrame } from "./types.js";
+} from "./content/trackAssets.js";
+import { createFrameThrottle } from "./frameThrottle.js";
+import { startCutDetection } from "./shm/sharedMemory.js";
+import { createTrackAssetServer } from "./trackAssetServer.js";
+import { ACClient } from "./udp/acClient.js";
 
 const PORT = Number(process.env.BRIDGE_PORT ?? 3001);
 const BROADCAST_HZ = 60;
@@ -18,49 +17,8 @@ const BROADCAST_INTERVAL_MS = 1000 / BROADCAST_HZ;
 
 let session: SessionInfo | null = null;
 let trackAssets: TrackAssets | null = null;
-let latestFrame: TelemetryFrame | null = null;
-let frameDirty = false;
 
-const server = http.createServer((req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  const pathname = (req.url ?? "").split("?")[0];
-
-  if (pathname === "/api/track-map/meta") {
-    if (!trackAssets?.meta) {
-      res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "no map for current track" }));
-      return;
-    }
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(trackAssets.meta));
-    return;
-  }
-
-  if (pathname === "/api/track-map/edges") {
-    if (!trackAssets?.edges) {
-      res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "no track edges for current track" }));
-      return;
-    }
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(trackAssets.edges));
-    return;
-  }
-
-  if (pathname === "/api/track-map/image") {
-    if (!trackAssets?.mapImagePath) {
-      res.writeHead(404);
-      res.end();
-      return;
-    }
-    res.writeHead(200, { "Content-Type": "image/png" });
-    fs.createReadStream(trackAssets.mapImagePath).pipe(res);
-    return;
-  }
-
-  res.writeHead(404);
-  res.end();
-});
+const server = createTrackAssetServer(() => trackAssets);
 
 const wss = new WebSocketServer({ server, path: "/ws" });
 
@@ -70,6 +28,10 @@ const broadcast = (message: BridgeMessage): void => {
     if (client.readyState === WebSocket.OPEN) client.send(payload);
   }
 };
+
+const throttle = createFrameThrottle(BROADCAST_INTERVAL_MS, (frame) =>
+  broadcast({ type: "telemetry", ...frame }),
+);
 
 wss.on("connection", (socket) => {
   const hello: BridgeMessage[] = session
@@ -115,36 +77,14 @@ ac.on("session", async (handshake) => {
 ac.on("waiting", () => {
   session = null;
   trackAssets = null;
-  latestFrame = null;
+  throttle.clear();
   broadcast({ type: "status", state: "waiting" });
 });
 
-let nextDueAt = 0;
-
-const flushIfDue = (): void => {
-  if (!frameDirty || !latestFrame) return;
-  const now = performance.now();
-  if (now < nextDueAt) return;
-  // Catch up in interval steps while roughly on schedule; re-anchor after a
-  // long gap so a pause doesn't buy a burst of back-to-back sends.
-  nextDueAt =
-    now - nextDueAt > BROADCAST_INTERVAL_MS
-      ? now + BROADCAST_INTERVAL_MS
-      : nextDueAt + BROADCAST_INTERVAL_MS;
-  frameDirty = false;
-  broadcast({ type: "telemetry", ...latestFrame });
-};
-
-ac.on("telemetry", (frame) => {
-  latestFrame = frame;
-  frameDirty = true;
-  flushIfDue();
-});
-
-setInterval(flushIfDue, BROADCAST_INTERVAL_MS);
+ac.on("telemetry", throttle.push);
 
 const stopCutDetection = startCutDetection({
-  getFrame: () => latestFrame,
+  getFrame: throttle.latest,
   isLive: () => session !== null,
   onCut: (cut) => {
     console.log(
@@ -161,6 +101,7 @@ server.listen(PORT, () => {
 
 const shutdown = (): void => {
   stopCutDetection();
+  throttle.stop();
   ac.stop();
   server.close();
   process.exit(0);

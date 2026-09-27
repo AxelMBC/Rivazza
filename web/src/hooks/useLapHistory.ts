@@ -1,6 +1,5 @@
+import type { CutEvent, TelemetryFrame } from "@rivazza/protocol";
 import { useEffect, useRef } from "react";
-
-import type { CutEvent, TelemetryFrame } from "../types";
 
 export type LapRecord = {
   // Display lap number — matches the LAP tile convention (lapCount N completes "Lap N+1").

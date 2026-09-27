@@ -15,7 +15,7 @@ Assetto Corsa ──UDP 9996──▶ bridge (Node) ──WebSocket :3001──�
 
 ## Commands
 
-npm workspaces monorepo (`bridge`, `web`). Run from the repo root:
+npm workspaces monorepo (`bridge`, `web`, plus the types-only `packages/protocol`). Run from the repo root:
 
 - `npm run dev` — starts bridge (:3001) and web app (:5173) together via concurrently
 - `npm run dev:demo` — web app alone (:5173) replaying the committed recording; no bridge
@@ -47,18 +47,22 @@ mean here is `.claude/rules/verification.md`.
 
 ## Architecture
 
-**Binary UDP protocol (`bridge/src/parsers.ts`).** The delicate core. AC sends fixed-size
+`bridge/src/` is grouped by data source: `udp/` (the AC remote telemetry protocol), `shm/`
+(the shared-memory page), `content/` (the AC install on disk). `index.ts` only wires them to the
+transport modules beside it. Dev tooling (`mock-ac.js`, `record.ts`) lives in `bridge/scripts/`.
+
+**Binary UDP protocol (`bridge/src/udp/parsers.ts`).** The delicate core. AC sends fixed-size
 little-endian structs at exact byte offsets: `HANDSHAKE_RESPONSE_SIZE = 408`,
 `RT_CAR_INFO_SIZE = 328`. Message type is disambiguated purely by packet length. Offsets
 encode MSVC struct alignment/padding — do not "clean up" the magic numbers. AC's UTF-16LE
 strings are fixed 50-wchar buffers with trailing garbage (often a stray `%`); `readWideString`
 cuts at the first control char or `%`. Corrupt strings here silently break track-folder lookups.
 
-**Session lifecycle (`bridge/src/acClient.ts`).** `ACClient` runs handshake → subscribe →
+**Session lifecycle (`bridge/src/udp/acClient.ts`).** `ACClient` runs handshake → subscribe →
 RTCarInfo stream. AC never signals session end, so a stale timer (5s of silence) drops back to
 handshaking and emits `waiting`. It retries the handshake every 3s while the game is closed.
 
-**Throttling (`bridge/src/index.ts`).** AC floods RTCarInfo packets; the bridge keeps only the
+**Throttling (`bridge/src/frameThrottle.ts`).** AC floods RTCarInfo packets; the bridge keeps only the
 newest frame and flushes to WebSocket clients at 60 Hz (needed for the track map's ~1 m line
 sampling). Windows quantizes short timers to ~15.6 ms, so a bare 60 Hz `setInterval` fires at
 ~32 Hz — delivery is instead driven by packet arrival against a due-time accumulator, with the
@@ -67,7 +71,7 @@ interval only sweeping up the trailing frame. On the web side, `useTelemetry` up
 so text readouts re-render at half rate while canvas rAF consumers keep full fidelity. New WS
 clients get a `hello` (current status + session) on connect.
 
-**Cut detection (`bridge/src/sharedMemory.ts`).** Windows/same-PC only. `koffi` (the repo's
+**Cut detection (`bridge/src/shm/sharedMemory.ts`).** Windows/same-PC only. `koffi` (the repo's
 only native dependency) maps AC's `Local\acpmf_physics` shared-memory page and polls it at
 ~60 Hz with offset-based Buffer reads (`packetId`@0, `speedKmh`@28, `numberOfTyresOut`@244 —
 magic numbers in the parsers.ts tradition). `numberOfTyresOut` is the game's own
@@ -82,21 +86,24 @@ plus the live current-lap INV cue, and `TrackMap` draws red × markers — ambie
 while the invalid lap is in progress; stored laps reveal theirs on hover (their map
 line, or their session-lap-list row via the shared `hoveredLapRef`).
 
-**Track assets (`bridge/src/trackAssets.ts`).** Reads `content/tracks/<track>/[<config>/]data/map.ini`
+**Track assets (`bridge/src/content/trackAssets.ts`, served by `bridge/src/trackAssetServer.ts`).** Reads `content/tracks/<track>/[<config>/]data/map.ini`
 for projection bounds; served at `/api/track-map/meta`. The `.ini` bounds alone fix the viewport.
 `map.png` is still served at `/api/track-map/image`, but the web app **deliberately never draws
 it** — AC strokes it at constant width around the AI line, misrepresenting track limits; the
 driven lines are the track. Tracks without a `map.ini` fall back to an auto-fit view of the
-driven line.
+driven line. The AC install itself is resolved once in `content/acPath.ts` (`AC_PATH` env var, else
+the Steam library configs), shared by the track and car modules.
 
-**Car assets (`bridge/src/carAssets.ts`).** Resolves the car's advertised top speed from
+**Car assets (`bridge/src/content/carAssets.ts`).** Resolves the car's advertised top speed from
 `content/cars/<car>/ui/ui_car.json` (→ `topSpeedKmh` on `SessionInfo`, used to scale the
 speedometer dial). These files routinely contain raw control characters that break `JSON.parse`,
 so the field is regex-scanned out of the text — same garbage-tolerant philosophy as `parsers.ts`.
 
-**Type contract.** `bridge/src/types.ts` and `web/src/types.ts` are hand-mirrored and **must be
-kept in sync** — the `BridgeMessage` union (`status` | `session` | `telemetry` | `cut`) is the
-wire format for both sides.
+**Type contract (`packages/protocol`).** The wire format is declared once, in the types-only
+workspace package `@rivazza/protocol`, and both sides `import type` from it. The `BridgeMessage`
+union (`status` | `session` | `telemetry` | `cut`) is the wire format. The package has no build
+step: its `exports` point at the `.ts` source, and each side's own compiler checks it. Never
+re-declare a wire type locally. A local copy compiles and breaks at runtime.
 
 **Web data flow.** `useTelemetry` (`web/src/hooks/useTelemetry.ts`) owns the WebSocket (auto-reconnect
 every 1.5s) and exposes telemetry two ways: React state (`telemetry`) for normal components, and a
@@ -131,7 +138,7 @@ them there rather than restating them here:
 
 - **`git-workflow.md`** — commit format, the type→emoji table, branch creation. Loads every session.
 - **`code-style.md`** — comments, functions, imports, types and file layout, Tailwind tokens.
-  Loads only for `{bridge,web}/src/**/*.{ts,tsx,css}`.
+  Loads only for `{bridge,web}/src/**`, `bridge/scripts/**` and `packages/*/src/**`.
 - **`verification.md`** — what "verified" means in a repo with no test framework. Loads every session.
 
 Per-repo command configuration (branch conventions, the check commands `/opsx:verify` runs) is
