@@ -1,0 +1,308 @@
+import { useEffect, useRef, useState } from "react";
+
+import type { LapRecord } from "../../hooks/useLapHistory";
+import type { LapRecording } from "../../hooks/useLapRecordings";
+import { formatLapTime } from "../../lib/format";
+import {
+  CLICK_MODE,
+  HOVER_GROUP_CLASS,
+  isImmediateActivation,
+} from "../../lib/interaction";
+import {
+  bestSectors,
+  latestComplete,
+  resolveReference,
+  SECTOR_COUNT,
+  sectorOwners,
+  theoreticalBestMs,
+  type ScrubPoint,
+} from "../../lib/lapAnalysis";
+
+import { ownersKey } from "./constants";
+import { LapChips } from "./LapChips";
+import { attachScrub } from "./scrubInput";
+import { drawScrubOverlay } from "./scrubOverlay";
+import { createTraceLayer } from "./traceLayer";
+
+type Props = {
+  recordingsRef: React.RefObject<LapRecording[]>;
+  version: number;
+  lapsRef: React.RefObject<LapRecord[]>;
+  // Written while scrubbing the traces; the track map echoes the point.
+  scrubRef: React.RefObject<ScrubPoint | null>;
+  // The panel's selected lap while the panel is open (display lap number),
+  // null otherwise — the track map reveals that lap's braking ticks.
+  analysisLapRef: React.RefObject<number | null>;
+};
+
+export const LapAnalysis = ({
+  recordingsRef,
+  version,
+  lapsRef,
+  scrubRef,
+  analysisLapRef,
+}: Props) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // null = follow the most recent complete lap until a chip is hovered.
+  const [selectedLap, setSelectedLap] = useState<number | null>(null);
+  // Mirrors the hover-reveal so the selected lap's brake ticks only show on
+  // the map while the panel is actually on screen.
+  const [open, setOpen] = useState(false);
+
+  const recordings = recordingsRef.current;
+  const laps = lapsRef.current;
+  // Every complete lap is reviewable, cut ones included — a lap the game threw
+  // out is where the driver went faster and where they went off, which is worth
+  // more than it costs. Invalidity is marked, never filtered.
+  const invalidLaps = new Set(laps.filter((l) => l.invalid).map((l) => l.lap));
+  const reviewableLaps = recordings.filter((r) => r.complete);
+  const reference = resolveReference(recordings, laps);
+  const latest = latestComplete(recordings);
+  const selected =
+    (selectedLap !== null
+      ? reviewableLaps.find((r) => r.lap === selectedLap)
+      : undefined) ?? latest;
+
+  // A sticky selection falls back to follow-latest when its recording is
+  // evicted by the lap cap or cleared by a reset — but not when the lap is
+  // invalidated, which now leaves it selected. (Render-time resolution above
+  // already falls back; this clears the stale state.)
+  useEffect(() => {
+    if (
+      selectedLap !== null &&
+      !recordingsRef.current.some((r) => r.complete && r.lap === selectedLap)
+    )
+      setSelectedLap(null);
+  }, [version, selectedLap, recordingsRef]);
+
+  // Publish the focused lap for the map's brake ticks — only while open.
+  useEffect(() => {
+    analysisLapRef.current = open && selected ? selected.lap : null;
+    return () => {
+      analysisLapRef.current = null;
+    };
+  }, [open, selected, analysisLapRef]);
+
+  // Both sector tables are derived on every render, not memoized by the
+  // recording version: a lap's invalid flag can land in the lap log a few
+  // frames after the recording is stored, and a memo keyed on the version
+  // would keep crediting a cut lap with best sectors (and a theoretical
+  // best) until the next lap completes. The math is a few hundred
+  // interpolations — negligible at the 30 Hz render rate.
+  const theoreticalMs = theoreticalBestMs(
+    bestSectors(recordings, laps, SECTOR_COUNT),
+  );
+  const owners = sectorOwners(recordings, laps, SECTOR_COUNT);
+
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const referenceRef = useRef(reference);
+  referenceRef.current = reference;
+  const versionRef = useRef(version);
+  versionRef.current = version;
+  const ownersRef = useRef(owners);
+  ownersRef.current = owners;
+  const scrubPosRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const traces = createTraceLayer(canvas);
+    if (!traces) return;
+    let rafId = 0;
+
+    // Dirty-gated rAF: repaint only when selection, reference, recordings
+    // version, scrub position, or canvas size actually changed.
+    let lastSel: LapRecording | null = null;
+    let lastRef: LapRecording | null = null;
+    let lastVersion = -1;
+    let lastOwners = "";
+    let lastMouse: number | null = null;
+    let lastW = 0;
+    let lastH = 0;
+    let lastDpr = 0;
+    let firstDraw = true;
+    let layerKey = "";
+
+    const draw = () => {
+      rafId = requestAnimationFrame(draw);
+      const dpr = window.devicePixelRatio || 1;
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      if (width === 0 || height === 0) return;
+      const sel = selectedRef.current;
+      const ref = referenceRef.current;
+      const v = versionRef.current;
+      const ok = ownersKey(ownersRef.current);
+      const dirty =
+        firstDraw ||
+        sel !== lastSel ||
+        ref !== lastRef ||
+        v !== lastVersion ||
+        ok !== lastOwners ||
+        scrubPosRef.current !== lastMouse ||
+        width !== lastW ||
+        height !== lastH ||
+        dpr !== lastDpr;
+      if (!dirty) return;
+      firstDraw = false;
+      lastSel = sel;
+      lastRef = ref;
+      lastVersion = v;
+      lastOwners = ok;
+      lastMouse = scrubPosRef.current;
+      lastW = width;
+      lastH = height;
+      lastDpr = dpr;
+
+      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      if (!sel) {
+        layerKey = "";
+        return;
+      }
+      const key = `${v}|${sel.lap}|${ref?.lap ?? -1}|${ok}|${width}x${height}@${dpr}`;
+      if (key !== layerKey) {
+        layerKey = key;
+        traces.render(sel, ref, ownersRef.current, width, height, dpr);
+      }
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(traces.layer, 0, 0);
+      ctx.restore();
+      if (scrubPosRef.current !== null)
+        drawScrubOverlay(
+          ctx,
+          scrubPosRef.current,
+          sel,
+          ref,
+          ownersRef.current,
+          width,
+          height,
+        );
+    };
+
+    const detachScrub = attachScrub(canvas, {
+      scrubPosRef,
+      selectedRef,
+      scrubRef,
+    });
+
+    rafId = requestAnimationFrame(draw);
+    return () => {
+      cancelAnimationFrame(rafId);
+      detachScrub();
+      scrubRef.current = null;
+    };
+  }, [scrubRef]);
+
+  const selectedInvalid = selected !== null && invalidLaps.has(selected.lap);
+  // Session best is strictly the fastest VALID lap in the log — an invalid
+  // lap must never be presented as "best", even when its raw time is lower.
+  const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
+  const sessionBestMs = validTimes.length > 0 ? Math.min(...validTimes) : null;
+
+  return (
+    <div
+      className={`${HOVER_GROUP_CLASS} relative shrink-0`}
+      onPointerEnter={(e) => {
+        if (!CLICK_MODE && e.pointerType === "mouse") setOpen(true);
+      }}
+      onPointerLeave={(e) => {
+        if (!CLICK_MODE && e.pointerType === "mouse") setOpen(false);
+      }}
+    >
+      <div
+        className={`absolute bottom-full left-0 z-10 w-full pb-2 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 ${
+          open
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+        }`}
+      >
+        <section className="flex max-h-[42vh] flex-col gap-2 overflow-y-auto rounded-lg border border-edge bg-page/40 p-3 shadow-xl backdrop-blur-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <p className="text-xs tracking-wide text-ink-muted uppercase">
+              {selected ? (
+                <>
+                  <span className={selectedInvalid ? "text-critical" : ""}>
+                    Lap {selected.lap}
+                    {selectedInvalid && " (inv)"}
+                  </span>
+                  {reference && reference !== selected && (
+                    <> vs Lap {reference.lap} (ref)</>
+                  )}
+                </>
+              ) : (
+                "Lap analysis"
+              )}
+            </p>
+            <div className="flex flex-wrap items-baseline gap-4 text-xs text-ink-muted">
+              {theoreticalMs !== null && (
+                <span>
+                  Theoretical{" "}
+                  <span className="font-semibold tabular-nums text-best">
+                    {formatLapTime(theoreticalMs)}
+                  </span>
+                </span>
+              )}
+              {sessionBestMs !== null && (
+                <span>
+                  Session best{" "}
+                  <span className="font-semibold tabular-nums text-ink-secondary">
+                    {formatLapTime(sessionBestMs)}
+                  </span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {reviewableLaps.length > 0 && (
+            <LapChips
+              reviewableLaps={reviewableLaps}
+              laps={laps}
+              selected={selected}
+              reference={reference}
+              onSelect={setSelectedLap}
+            />
+          )}
+
+          <div className="relative h-32 lg:h-36">
+            <canvas ref={canvasRef} className="size-full touch-none" />
+            {!selected && (
+              <p className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-ink-muted">
+                Complete a lap to unlock analysis — speed, pedal and delta
+                traces appear here
+              </p>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <div
+        className="flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60"
+        onPointerUp={(e) => {
+          if (isImmediateActivation(e)) setOpen((o) => !o);
+        }}
+      >
+        <span className="text-xs tracking-wide text-ink-muted uppercase">
+          Lap analysis
+        </span>
+        <span className="text-xs text-ink-muted tabular-nums">
+          {reviewableLaps.length === 0
+            ? "no laps recorded yet"
+            : `${reviewableLaps.length} lap${reviewableLaps.length === 1 ? "" : "s"}${
+                sessionBestMs !== null
+                  ? ` · best ${formatLapTime(sessionBestMs)}`
+                  : ""
+              }`}
+        </span>
+      </div>
+    </div>
+  );
+};

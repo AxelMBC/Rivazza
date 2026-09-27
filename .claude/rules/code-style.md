@@ -68,5 +68,6 @@ beside value imports from the same module rather than hoisted into its own block
   live with the module that produces them, not there.
 - A component gets its own folder when it grows children or helpers only it uses — reactively,
   not preemptively.
-- A file spanning more than two capabilities gets split. `web/src/components/TrackMap/` is the
-  worked example: one wiring `index.tsx`, one module per job.
+- A file spanning more than two capabilities gets split. `web/src/components/TrackMap/` and
+  `web/src/components/LapAnalysis/` are the worked examples: one wiring `index.tsx`, one module
+  per job.
