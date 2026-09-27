@@ -1,4 +1,4 @@
-import type { ConnectionStatus } from "../hooks/useTelemetry";
+import type { ConnectionStatus } from "../../hooks/useTelemetry";
 
 const STYLES: Record<
   ConnectionStatus,

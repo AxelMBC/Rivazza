@@ -1,6 +1,6 @@
 import type { TelemetryFrame } from "@rivazza/protocol";
 
-import type { InputSample } from "../hooks/useInputHistory";
+import type { InputSample } from "../../hooks/useInputHistory";
 
 import { GForceMeter } from "./GForceMeter";
 import { PedalBars } from "./PedalBars";

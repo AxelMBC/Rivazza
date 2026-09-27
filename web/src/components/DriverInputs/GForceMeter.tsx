@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import type { InputSample } from "../hooks/useInputHistory";
+import type { InputSample } from "../../hooks/useInputHistory";
 
 const MAX_G = 2.5;
 const RINGS = [1, 2];

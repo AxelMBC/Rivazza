@@ -1,4 +1,4 @@
-import { CLICK_MODE } from "../lib/interaction";
+import { CLICK_MODE } from "../../lib/interaction";
 
 const LABEL = CLICK_MODE ? "Click mode" : "Hover mode";
 const DOT_CLASS = CLICK_MODE ? "bg-accent" : "bg-ink-muted";
