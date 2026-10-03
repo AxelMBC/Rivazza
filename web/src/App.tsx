@@ -115,7 +115,7 @@ const App = () => {
           <DriverInputs
             telemetry={telemetry}
             historyRef={historyRef}
-            className="h-42 shrink-0 lg:col-start-1 lg:row-span-2 lg:row-start-3 lg:h-auto lg:min-h-0"
+            className="h-96 shrink-0 lg:col-start-1 lg:row-span-2 lg:row-start-3 lg:h-auto lg:min-h-0"
           />
 
           <LapAnalysis

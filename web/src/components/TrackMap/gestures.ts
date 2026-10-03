@@ -119,7 +119,6 @@ export const attachGestures = (
     if (level === 1) {
       zoomRef.current = ZOOM_RESET;
       navRef.current = null;
-      if (followRef.current === "detached") setFollow("off");
       return;
     }
     const ax = overInset ? canvas.clientWidth / 2 : e.offsetX;
@@ -136,9 +135,8 @@ export const attachGestures = (
     const rect = canvas.getBoundingClientRect();
     return { x: t.clientX - rect.left, y: t.clientY - rect.top };
   };
-  const detachFollow = () => {
-    const st = followRef.current;
-    if (st === "following" || st === "exiting") setFollow("detached");
+  const stopFollowing = () => {
+    if (followRef.current !== "off") setFollow("off");
   };
   const seedTouches = (touches: TouchList) => {
     lastSingle = touches.length === 1 ? touchPoint(touches[0]) : null;
@@ -210,7 +208,6 @@ export const attachGestures = (
       );
       if (level === 1) {
         zoomRef.current = ZOOM_RESET;
-        if (followRef.current === "detached") setFollow("off");
         return;
       }
       const anchored = zoomAround(zm, level, prev.mx, prev.my);
@@ -236,7 +233,7 @@ export const attachGestures = (
       navRef.current = null;
       const zm = zoomRef.current;
       if (zm.level <= 1) return;
-      detachFollow();
+      stopFollowing();
       zoomRef.current = {
         level: zm.level,
         ox: zm.ox + (p.x - prev.x),
@@ -258,7 +255,6 @@ export const attachGestures = (
       const zm = zoomRef.current;
       if (zm.level !== 1 && zm.level < ZOOM_SNAP_LEVEL) {
         zoomRef.current = ZOOM_RESET;
-        if (followRef.current === "detached") setFollow("off");
       }
     }
     tapStart = null;

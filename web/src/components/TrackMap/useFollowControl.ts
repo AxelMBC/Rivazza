@@ -6,7 +6,7 @@ import { SYNTHETIC_MOUSE_WINDOW_MS } from "../../lib/touch";
 
 import { FOLLOW_DWELL_MS, FOLLOW_WINDOW_M } from "./constants";
 
-export type FollowState = "off" | "following" | "detached" | "exiting";
+export type FollowState = "off" | "following" | "exiting";
 
 const createFollowControl = (
   telemetryRef: React.RefObject<TelemetryFrame | null>,
