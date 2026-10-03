@@ -6,7 +6,7 @@ TBD - created by syncing change track-map-overview-inset. Update Purpose after r
 ## Requirements
 
 ### Requirement: Overview inset appears while zoomed in and not tracking
-The track map SHALL draw an overview inset, a miniature of the whole track at the 1× fit framing, in the map's top-right corner below the pedal legend. The inset SHALL be shown only when all of these hold: the view is zoomed in by at least two wheel notches (a zoom level of about 1.3× or more, the same threshold for pinch), the follow camera is not tracking the car (follow mode off or detached), and the map uses a fixed-fit projection (map metadata or track-edge bounds). It SHALL be hidden otherwise, including at 1× and after a single notch, while follow mode is tracking or exiting, and in the fallback driven-line mode, whose auto-fit view has no fixed overview to show. The inset SHALL keep the canvas's aspect ratio, SHALL NOT exceed roughly a fifth of the canvas width, and SHALL sit on an opaque panel-surface background with a subtle border so the main map does not show through it.
+The track map SHALL draw an overview inset, a miniature of the whole track at the 1× fit framing, in the map's top-right corner below the pedal legend. The inset SHALL be shown only when all of these hold: the view is zoomed in by at least two wheel notches (a zoom level of about 1.3× or more, the same threshold for pinch), the follow camera is not tracking the car (follow mode off), the map uses a fixed-fit projection (map metadata or track-edge bounds), and the device's primary pointer is fine (a mouse or trackpad — desktops and laptops, including touchscreen laptops). It SHALL be hidden otherwise, including at 1× and after a single notch, while follow mode is tracking or exiting, and in the fallback driven-line mode, whose auto-fit view has no fixed overview to show. The inset SHALL keep the canvas's aspect ratio, SHALL NOT exceed roughly a fifth of the canvas width, and SHALL sit on an opaque panel-surface background with a subtle border so the main map does not show through it. On devices whose primary pointer is coarse (phones, tablets, iPads) the inset SHALL never be shown, because touch panning already reaches any point of the track while zoomed in.
 
 #### Scenario: Zooming past the threshold
 - **WHEN** follow mode is off and the user wheel-zooms in by two notches from the fit view on a track with map metadata
@@ -20,8 +20,12 @@ The track map SHALL draw an overview inset, a miniature of the whole track at th
 - **WHEN** the view is zoomed to 10× and follow mode starts tracking the car
 - **THEN** the inset disappears for as long as the camera is tracking or exiting
 
-#### Scenario: Detached follow shows the inset
-- **WHEN** a touch pan has detached follow mode at a zoom of two notches or more
+#### Scenario: Zooming in on a phone
+- **WHEN** a user on a phone or tablet pinch-zooms the map past the two-notch threshold with follow mode off
+- **THEN** no overview inset is drawn, and the whole map area stays pannable and pinchable
+
+#### Scenario: A touch pan out of follow shows the inset
+- **WHEN** on a device whose primary pointer is a mouse or trackpad, a touch pan has ended follow mode at a zoom of two notches or more
 - **THEN** the inset is shown
 
 #### Scenario: Fallback mode
@@ -40,7 +44,7 @@ The inset SHALL depict the track at the fit framing, scaled into the inset: the 
 - **THEN** its dot keeps moving on the inset, showing where it is relative to the viewport rectangle
 
 ### Requirement: Hovering the inset previews and navigates without a click
-While the cursor is over the inset, a ghost rectangle, the same size on the inset as the viewport rectangle, SHALL be drawn centred on the cursor. When the cursor rests on the inset (stays within a few pixels) for about 250 ms, the main view SHALL glide smoothly (eased, no snapping) so that the track point under the cursor becomes the centre of the main view, at the unchanged zoom level. Moving and resting again SHALL navigate again, retargeting a glide already in progress. Passing the cursor across the inset without resting SHALL NOT move the main view. Navigation SHALL require no click, drag, keyboard input, or browser-window focus. A navigation in the detached follow state SHALL leave follow mode detached, with its exit button still available.
+While the cursor is over the inset, a ghost rectangle, the same size on the inset as the viewport rectangle, SHALL be drawn centred on the cursor. When the cursor rests on the inset (stays within a few pixels) for about 250 ms, the main view SHALL glide smoothly (eased, no snapping) so that the track point under the cursor becomes the centre of the main view, at the unchanged zoom level. Moving and resting again SHALL navigate again, retargeting a glide already in progress. Passing the cursor across the inset without resting SHALL NOT move the main view. Navigation SHALL require no click, drag, keyboard input, or browser-window focus. Navigation from the inset SHALL leave follow mode off.
 
 #### Scenario: Jump across the track at the same zoom
 - **WHEN** the main view is zoomed to 12× on one corner and the cursor rests for about 250 ms on a corner at the far side of the inset
@@ -53,6 +57,10 @@ While the cursor is over the inset, a ghost rectangle, the same size on the inse
 #### Scenario: Navigating with the game focused
 - **WHEN** the browser window is unfocused (the game has focus) and the cursor rests on the inset
 - **THEN** the main view navigates, and the game keeps receiving controller input
+
+#### Scenario: Navigating after a pan ended follow
+- **WHEN** a touch pan has ended follow mode and the cursor rests on the inset
+- **THEN** the main view glides there and the button reads "Follow car"
 
 #### Scenario: Leaving the inset
 - **WHEN** the cursor leaves the inset
@@ -70,10 +78,10 @@ Wheel input with the cursor over the inset SHALL zoom the main view with the sam
 - **THEN** the inset disappears and further scrolling zooms the map around the cursor as usual
 
 ### Requirement: Tap and click on the inset navigate immediately where allowed
-On touch devices, a tap on the inset (a touch that ends within the tap slop) SHALL navigate the main view to the tapped point immediately, with the same glide and unchanged zoom. A touch gesture that starts on the inset SHALL NOT pan or pinch the main view. In a click-mode (demo) build, a mouse click on the inset SHALL navigate immediately with no dwell; hover SHALL still show the ghost rectangle. In a live build, clicks on the inset SHALL have no effect.
+On a fine-primary-pointer device with a touchscreen, a tap on the visible inset (a touch that ends within the tap slop) SHALL navigate the main view to the tapped point immediately, with the same glide and unchanged zoom. A touch gesture that starts on the inset SHALL NOT pan or pinch the main view. In a click-mode (demo) build, a mouse click on the inset SHALL navigate immediately with no dwell; hover SHALL still show the ghost rectangle. In a live build, clicks on the inset SHALL have no effect.
 
 #### Scenario: Tapping the inset
-- **WHEN** a touch user taps a point on the visible inset
+- **WHEN** a touchscreen-laptop user taps a point on the visible inset
 - **THEN** the main view glides to centre that point at the unchanged zoom
 
 #### Scenario: Clicking in a demo build

@@ -11,8 +11,8 @@
 
 ## 2. Verification
 
-- [ ] 2.1 Run `/opsx:verify` — bridge and web typecheck, lint, formatting and the spec deltas
+- [x] 2.1 Run `/opsx:verify` — bridge and web typecheck, lint, formatting and the spec deltas
 - [x] 2.2 At 375×667 and 375×553, the cluster and map are both fully visible, the map card is ~2× the cluster card, and the cluster is unclipped; desktop boxes at 1366×650 / 1920×945 are unchanged
-- [ ] 2.3 On a phone, pinch-zoom past two notches with follow off: no mini map; on a desktop with a mouse, wheel-zoom two notches: the mini map appears as before
-- [ ] 2.4 On a phone: tap Follow car, pan with one finger — tracking stops in place and the button reads "Follow car"; tapping it resumes tracking. The G-force card shows a large circular meter
-- [ ] 2.5 On an iPhone: scroll to the bottom, then back to the top — the header (track, car, driver) is fully visible again
+- [x] 2.3 On a phone, pinch-zoom past two notches with follow off: no mini map; on a desktop with a mouse, wheel-zoom two notches: the mini map appears as before
+- [x] 2.4 On a phone: tap Follow car, pan with one finger — tracking stops in place and the button reads "Follow car"; tapping it resumes tracking. The G-force card shows a large circular meter
+- [x] 2.5 On an iPhone: scroll to the bottom, then back to the top — the header (track, car, driver) is fully visible again

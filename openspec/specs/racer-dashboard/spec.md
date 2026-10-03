@@ -202,13 +202,13 @@ On the desktop layout (at and above the large breakpoint) the sidebar SHALL be a
 ### Requirement: Phone layout keeps the cluster and track map on the first screen
 Below the large breakpoint the dashboard SHALL render as a single column that scrolls as one page, ordered top to bottom: the instrument cluster, the track map, the lap-timing tiles, the supporting G-force/steering card, and the lap analysis. No dashboard card SHALL scroll inside its own box in this layout; the page scroll is the only scroll.
 
-The first screen — the visible viewport height left under the session header — SHALL be a fold holding exactly the instrument cluster and the track map: the cluster rendered in full (speedometer, tachometer, status lights, car glyph and pedal lamps, none clipped), and the track map filling the remaining fold height. The fold SHALL be sized against the small (browser-chrome-visible) viewport height, so the map's bottom edge stays on screen while a mobile browser's toolbars are showing. In this layout the cluster and the page SHALL use tighter padding and gaps than on desktop, so the track map keeps a usable minimum height of about 160 px; the cluster's gauges keep their desktop proportions. When the viewport is too short for the full cluster plus that minimum map height (for example a phone in landscape), the fold SHALL grow past the viewport rather than clip either element, and the page scrolls to reach the rest.
+The first screen — the visible viewport height left under the session header — SHALL be a fold split by height one third to the instrument cluster and two thirds to the track map. The cluster SHALL be rendered in full (speedometer, tachometer, status lights, car glyph and pedal lamps, none clipped) by scaling its contents down uniformly to fit its third, keeping their proportions and the speedometer's dominance over the tachometer; it SHALL never scale up beyond its desktop size. The fold SHALL be sized against the small (browser-chrome-visible) viewport height, so the map's bottom edge stays on screen while a mobile browser's toolbars are showing. When the viewport is too short for a usable fold (below about 384 px of fold height, for example a phone in landscape), the fold SHALL keep that minimum height and the page scrolls to reach the rest.
 
 The lap-timing tiles, the supporting card and the lap analysis SHALL follow below the fold at their natural heights, each fully reachable by scrolling the page. The supporting card's G-force meter SHALL stay square in this layout. The desktop layout at and above the large breakpoint SHALL be unaffected.
 
 #### Scenario: iPhone SE shows speed and position at once
 - **WHEN** the dashboard renders with a session active at 375×667 CSS pixels, and again at 375×553 (the same phone with the browser's toolbars showing)
-- **THEN** the whole instrument cluster and the whole track map card are visible without scrolling, the cluster has no internal scrollbar, and the track map is at least about 250 px tall at 375×667 and at least about 160 px tall at 375×553
+- **THEN** the whole instrument cluster and the whole track map card are visible without scrolling, the cluster has no internal scrollbar, and the track map card is about twice as tall as the cluster card
 
 #### Scenario: Scrolling reveals the rest of the dashboard
 - **WHEN** the user scrolls the page down from the first screen on a phone-width viewport
@@ -216,7 +216,7 @@ The lap-timing tiles, the supporting card and the lap analysis SHALL follow belo
 
 #### Scenario: Short landscape viewport degrades to scrolling
 - **WHEN** the dashboard renders at a phone landscape viewport such as 667×375
-- **THEN** neither the cluster nor the track map is clipped or collapsed below its minimum; the content past the viewport is reached by scrolling the page
+- **THEN** the fold keeps its minimum height with the same one-third/two-thirds split, nothing is clipped, and the content past the viewport is reached by scrolling the page
 
 #### Scenario: Track-map gestures stay on the map
 - **WHEN** a touch user pinches or pans on the track map in the phone layout

@@ -50,11 +50,15 @@ On activation, the view SHALL animate smoothly (eased, no snapping) from its cur
 - **THEN** the car is tracked over the driven-line rendering identically to the other modes
 
 ### Requirement: Exit button returns to the normal view with a zoom-out effect
-While follow mode is active (tracking, or detached by a touch pan), an exit button SHALL be shown in place of the follow button. In a build that can drive a live session, resting the cursor on it for 1 continuous second — same dwell, progress indicator, and cancel-on-leave behavior as the follow button — SHALL trigger a smooth animated zoom-out that ends exactly at the default 1× fit framing, after which the exit button is dismissed and the follow button returns. In a click-mode build a single click on the exit button SHALL trigger the same animated exit, with no dwell. The exit button SHALL be the only control on the follow overlay; zoom while tracking is driven by the wheel and pinch alone, in both interaction modes.
+While follow mode is active (tracking, or animating its exit), an exit button SHALL be shown in place of the follow button; a touch pan ends follow mode and dismisses it (see "Touch gestures detach tracking in place"). In a build that can drive a live session, resting the cursor on it for 1 continuous second — same dwell, progress indicator, and cancel-on-leave behavior as the follow button — SHALL trigger a smooth animated zoom-out that ends exactly at the default 1× fit framing, after which the exit button is dismissed and the follow button returns. In a click-mode build a single click on the exit button SHALL trigger the same animated exit, with no dwell. The exit button SHALL be the only control on the follow overlay; zoom while tracking is driven by the wheel and pinch alone, in both interaction modes.
 
 #### Scenario: Exiting follow mode
 - **WHEN** the cursor rests on the exit button for 1 second during follow mode in a live build
 - **THEN** the view animates out to exactly the fit view and the exit button disappears
+
+#### Scenario: Exit button after a pan
+- **WHEN** follow mode is tracking and the user pans the map with one finger
+- **THEN** the exit button is replaced by the follow button immediately
 
 #### Scenario: Exit dwell abandoned
 - **WHEN** the cursor leaves the exit button before 1 second in a live build
@@ -134,7 +138,7 @@ The follow framing SHALL have a widest bound that keeps the view zoomed in stric
 - **THEN** the view never renders a car-centered 1× framing; it leaves follow mode and lands on the fit view
 
 ### Requirement: Follow mode resets with the session
-Follow mode (tracking, detached, or mid-animation) SHALL end and the view SHALL reset to the 1× fit framing when the session changes or a session restart is detected, together with the existing lap-line and zoom reset. Any wheel or pinch adjustment to the follow framing SHALL be discarded at the same time, so the next follow activation starts from the default comfortable zoom. Follow mode SHALL NOT end on lap completion, and lap completion SHALL NOT discard a framing adjustment.
+Follow mode (tracking or mid-animation) SHALL end and the view SHALL reset to the 1× fit framing when the session changes or a session restart is detected, together with the existing lap-line and zoom reset. Any wheel or pinch adjustment to the follow framing SHALL be discarded at the same time, so the next follow activation starts from the default comfortable zoom. Follow mode SHALL NOT end on lap completion, and lap completion SHALL NOT discard a framing adjustment.
 
 #### Scenario: Restart while following
 - **WHEN** the user restarts the session in game during follow mode
@@ -179,19 +183,19 @@ On touch devices, a tap on the follow button SHALL activate follow mode immediat
 - **THEN** the hover dwell with progress indicator behaves exactly as it does for a mouse-only device
 
 ### Requirement: Touch gestures detach tracking in place
-A one-finger pan gesture on the map during follow tracking (or during the exit animation) SHALL stop the tracking immediately and hand the view to manual touch zoom/pan, seeded from the follow transform at that instant (no jump) — follow mode has no pan concept of its own, so a drag means the user wants to look elsewhere. A two-finger pinch SHALL NOT detach; it retargets the follow camera instead. In the detached state the exit button SHALL remain available, and pinching fully out to 1× SHALL reset to the fit framing and end follow mode.
+A one-finger pan gesture on the map during follow tracking (or during the exit animation) SHALL end follow mode immediately and hand the view to manual touch zoom/pan, seeded from the follow transform at that instant (no jump), with the button returning to "Follow car" — follow mode has no pan concept of its own, so a drag means the user wants to look elsewhere. There is no separate detached state, and the view stays at the panned zoom and offset rather than animating back to the fit framing. A two-finger pinch SHALL NOT end follow mode; it retargets the follow camera instead. Tapping "Follow car" afterwards SHALL resume tracking from the current view.
 
 #### Scenario: Pan during tracking
 - **WHEN** the user drags one finger across the canvas while the view is tracking the car
-- **THEN** tracking stops without a jump, the view pans with the finger, and the exit button stays visible
+- **THEN** tracking stops without a jump, the view pans with the finger, and the button changes from "Exit follow" to "Follow car"
 
 #### Scenario: Pinch during tracking does not detach
 - **WHEN** the user pinches while the view is tracking the car
 - **THEN** tracking continues and the pinch resizes the follow framing
 
-#### Scenario: Pinching fully out while detached
-- **WHEN** the user in the detached state pinches out until zoom reaches 1×
-- **THEN** the map shows the default fit framing and the exit button is dismissed
+#### Scenario: Pinching fully out after a pan
+- **WHEN** the user has ended follow mode with a pan and then pinches out until zoom reaches 1×
+- **THEN** the map shows the default fit framing and the button still reads "Follow car"
 
 ### Requirement: Pinch retargets the follow camera while tracking
 On touch devices, a two-finger pinch during follow tracking SHALL retarget the follow camera exactly as wheel input does — resizing the world window kept around the car, keeping tracking active, and staying centered on the car. Movement of the pinch midpoint SHALL NOT pan the view while tracking, since the camera owns the centering. Pinching out past the widest follow framing SHALL end follow mode and trigger the animated return to the 1× fit framing, the same rule as the wheel.
