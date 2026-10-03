@@ -10,6 +10,15 @@ const TYRE_POSITIONS = [
   { x: 37, y: 54 },
 ] as const;
 
+const [FRONT_LEFT, FRONT_RIGHT, REAR_LEFT, REAR_RIGHT] = TYRE_POSITIONS;
+
+const axle = (
+  left: (typeof TYRE_POSITIONS)[number],
+  right: (typeof TYRE_POSITIONS)[number],
+): string => `M${left.x + TYRE_WIDTH} ${left.y + TYRE_HEIGHT / 2} H${right.x}`;
+
+const AXLES_PATH = `${axle(FRONT_LEFT, FRONT_RIGHT)} ${axle(REAR_LEFT, REAR_RIGHT)}`;
+
 const tyreClass = (
   hasTelemetry: boolean,
   lit: boolean,
@@ -34,11 +43,7 @@ export const CarSlipGlyph = ({
       stroke="var(--color-edge)"
       strokeWidth={1.5}
     />
-    <path
-      d="M10 20 H38 M10 62 H38"
-      stroke="var(--color-edge)"
-      strokeWidth={1.5}
-    />
+    <path d={AXLES_PATH} stroke="var(--color-edge)" strokeWidth={1.5} />
     {TYRE_POSITIONS.map(({ x, y }, i) => (
       <rect
         key={WHEEL_LABELS[i]}
