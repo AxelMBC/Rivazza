@@ -71,6 +71,29 @@ The dashboard SHALL show throttle and brake as two on/off lights labeled "THR" a
 - **WHEN** no telemetry frame has been received
 - **THEN** both lights render dark, without errors
 
+### Requirement: Wheel slip lamps
+The instrument cluster's status-light group SHALL show four wheel-slip lamps in a 2×2 grid in car layout (FL FR on top, RL RR below), placed directly beneath the ABS and TC lights and styled like the other status lights. A lamp SHALL light in the warning color while its wheel's `tyreSlip` value is above the slip-on threshold, and SHALL go dark again only once that value falls below a lower slip-off threshold. The gap between the two thresholds stops a wheel hovering at the limit from flickering at the telemetry state rate. The slip-on threshold SHALL sit just past the tyre's grip peak (normalised slip ~1). Before any telemetry frame has been received, all four lamps SHALL render in the muted state that a disabled driving aid uses. The lamps SHALL update with the throttled telemetry state and SHALL NOT add a canvas or a repaint input.
+
+#### Scenario: Rear wheelspin
+- **WHEN** telemetry reports rear-left and rear-right slip above the slip-on threshold and fronts below it
+- **THEN** the RL and RR lamps are lit and FL and FR are dark
+
+#### Scenario: Front lock-up under braking
+- **WHEN** telemetry reports front-left slip above the slip-on threshold while braking
+- **THEN** the FL lamp is lit and the others are dark
+
+#### Scenario: Slip hovering at the limit
+- **WHEN** a lit wheel's slip dips below the slip-on threshold but stays above the slip-off threshold
+- **THEN** its lamp stays lit
+
+#### Scenario: Cornering at the limit without sliding
+- **WHEN** every wheel's slip stays below the slip-on threshold through a corner taken at the grip limit
+- **THEN** all four lamps stay dark
+
+#### Scenario: No telemetry
+- **WHEN** no telemetry frame has been received
+- **THEN** all four lamps render in the muted state, without errors
+
 ### Requirement: G-force meter
 The dashboard SHALL show a G-force meter plotting lateral (`accGHorizontal`) versus longitudinal (`accGFrontal`) acceleration as a dot inside concentric reference rings (at least 1G and 2G), with the dot's recent path faintly visible. The meter SHALL plot each sample's lateral and longitudinal G after smoothing them with an exponential moving average of about 50 ms, so single-frame kerb and bump spikes neither jerk the dot nor widen the ring scale, while sustained loads read within ~0.15G of the car's real acceleration. The dot SHALL show the load the driver feels: toward the outside of a corner, upward under braking and downward under acceleration. The meter's scale SHALL start with 1G and 2G rings and an outer edge 0.5G beyond the outermost ring. Each time the combined acceleration exceeds that edge, the meter SHALL add the next whole-G ring and move the edge out by 1G, up to a 5G outermost ring, so a crash spike cannot balloon the scale. The scale SHALL NOT shrink back while the dashboard stays mounted, so the rings never jump during a session.
 
@@ -150,7 +173,7 @@ On the desktop layout (at and above the large breakpoint) the sidebar SHALL be a
 - **THEN** the existing waiting screen is shown as before
 
 ### Requirement: Hover-revealed tyre detail overlay on the instrument cluster
-Hovering the instrument cluster SHALL fade in an overlay showing per-wheel tyre data in car layout (front-left / front-right on top, rear-left / rear-right below): tyre slip and wheel load (kN) from the telemetry frame's `tyreSlip` and `wheelLoad` arrays (ordered FL, FR, RL, RR). Slip values SHALL be color-graded from normal through warning to critical as slip magnitude rises. The overlay SHALL not intercept pointer events (informational only), SHALL update live while visible, and SHALL disappear when the pointer leaves the cluster. The gauges beneath SHALL keep animating while the overlay is shown.
+Hovering the instrument cluster SHALL fade in an overlay showing per-wheel tyre data in car layout (front-left / front-right on top, rear-left / rear-right below): tyre slip and wheel load (kN) from the telemetry frame's `tyreSlip` and `wheelLoad` arrays (ordered FL, FR, RL, RR). Slip values SHALL be color-graded from normal through warning to critical as slip magnitude rises, with the warning grade starting at the wheel-slip lamps' slip-on threshold, so the overlay and the lamps never disagree about which wheel is slipping. The overlay SHALL not intercept pointer events (informational only), SHALL update live while visible, and SHALL disappear when the pointer leaves the cluster. The gauges beneath SHALL keep animating while the overlay is shown.
 
 #### Scenario: Overlay appears on hover
 - **WHEN** the pointer moves over the instrument cluster
@@ -159,6 +182,10 @@ Hovering the instrument cluster SHALL fade in an overlay showing per-wheel tyre 
 #### Scenario: High slip highlighted
 - **WHEN** a wheel's slip magnitude is high (e.g. wheelspin or lock-up) while the overlay is visible
 - **THEN** that wheel's slip value renders in the warning/critical grading
+
+#### Scenario: Overlay agrees with the lamps
+- **WHEN** a wheel's slip crosses the slip-on threshold while the overlay is visible
+- **THEN** that wheel's slip value enters the warning grade at the same moment its lamp lights
 
 #### Scenario: Pointer leaves
 - **WHEN** the pointer leaves the cluster

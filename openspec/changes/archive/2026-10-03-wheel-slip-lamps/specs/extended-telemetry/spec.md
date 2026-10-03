@@ -1,10 +1,4 @@
-# extended-telemetry
-
-## Purpose
-
-Parse the full Assetto Corsa RTCarInfo UDP packet in the bridge and stream the extended fields (pedals, steering, G-forces, driving-aid flags, tyre data) to the web app over the existing WebSocket without breaking existing consumers.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Bridge parses the full RTCarInfo packet
 The bridge SHALL parse the complete 328-byte RTCarInfo struct and include the following additional fields in every `TelemetryFrame`: `clutch` (0–1), `steerAngle` (degrees, negative = left), `accGFrontal`, `accGHorizontal`, `accGVertical` (G units), `absEnabled`, `absInAction`, `tcEnabled`, `tcInAction`, `inPit`, `engineLimiterOn` (booleans), `carSlope` (radians), `tyreSlip` (see "Per-wheel slip comes from a source AC fills"), and `wheelLoad` (array of 4, newtons, front-left/front-right/rear-left/rear-right). This specification SHALL name each decoded flag exactly as its `TelemetryFrame` field is named, so a reader can grep the specification against the code and find it.
@@ -27,6 +21,8 @@ The three acceleration fields SHALL carry the axis their name states, not the na
 - **WHEN** the car brakes at ~3G in a straight line
 - **THEN** `accGFrontal` reads about −3 and `accGHorizontal` stays near 0
 
+## ADDED Requirements
+
 ### Requirement: Per-wheel slip comes from a source AC fills
 `TelemetryFrame.tyreSlip` SHALL be an array of 4 non-negative, finite slip magnitudes ordered front-left, front-right, rear-left, rear-right, decoded from RTCarInfo's normalised slip block at offset 164 (AC's `ndSlip`). Here ~1 is the tyre's grip peak: a straight reads ~0.05–0.3, cornering at the limit ~0.6–1.0, and a slide or drift well above 1. The bridge SHALL NOT read it from offset 148, which AC leaves at zero for every wheel even while the car is visibly sliding. Each value SHALL be capped at a fixed ceiling, and a non-finite value SHALL be sent as that ceiling. A locked wheel drives the normalisation toward a division by zero (values past 1e6 were observed), and a non-finite number does not survive JSON serialization.
 
@@ -48,25 +44,3 @@ The mock AC script SHALL write normalised slip at RTCarInfo offset 164: a below-
 #### Scenario: Mock drives the slip path
 - **WHEN** the mock and the bridge run together
 - **THEN** telemetry frames periodically carry `tyreSlip` values above the lamp threshold on the excursion's wheels, and near zero otherwise
-
-### Requirement: Extended frame streams over the existing WebSocket unchanged in shape
-The bridge SHALL stream the extended `TelemetryFrame` through the existing `{ type: 'telemetry', ... }` WebSocket message, adding fields without renaming or removing any existing field, and `TelemetryFrame` SHALL be declared once, in the shared `@rivazza/protocol` package, which both the bridge and the web app import.
-
-#### Scenario: Existing consumers keep working
-- **WHEN** the web app receives a telemetry message from an updated bridge
-- **THEN** all fields used by the current UI (`speedKmh`, `gear`, `rpm`, lap times, `gas`, `brake`, position fields) are still present with unchanged names and units
-
-#### Scenario: One declaration for both sides
-- **WHEN** `packages/protocol/src/index.ts` defines the extended `TelemetryFrame`
-- **THEN** the bridge and the web app both import that declaration, and neither workspace declares its own copy
-
-### Requirement: Broadcast rate sustains meter-scale line sampling
-The bridge SHALL deliver the newest telemetry frame to WebSocket clients at least 60 times per second while fresh frames are arriving at or above that rate, so that consecutive frames are no more than ~1 m apart at racing speeds and the track map's 1 m line-sampling intent holds everywhere on track. Delivery SHALL NOT rely solely on coarse OS timers (Windows quantizes short intervals to ~15.6 ms ticks, which caps a naive 60 Hz interval at ~32 Hz). The keep-only-newest-frame throttling model SHALL be preserved — the bridge still never queues or replays stale frames.
-
-#### Scenario: Sample spacing at top speed
-- **WHEN** the car travels at 200 km/h (~55.6 m/s) with the game flooding RTCarInfo packets
-- **THEN** clients receive frames spaced no more than ~1 m of travel apart
-
-#### Scenario: Newest-frame semantics unchanged
-- **WHEN** multiple RTCarInfo packets arrive between two broadcast ticks
-- **THEN** only the newest frame is broadcast and the rest are discarded

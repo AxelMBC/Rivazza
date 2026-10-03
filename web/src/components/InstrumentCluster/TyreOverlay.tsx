@@ -1,17 +1,10 @@
 import type { TelemetryFrame } from "@rivazza/protocol";
 
-// Index order must match the tyreSlip / wheelLoad arrays.
-const WHEEL_LABELS = ["FL", "FR", "RL", "RR"] as const;
-
-// tyreSlip sits near 0 while gripping and spikes during wheelspin or lock-up;
-// these grade the readout without needing exact units.
-const SLIP_WARNING = 1;
-const SLIP_CRITICAL = 3;
+import { SLIP_CRITICAL, SLIP_ON, WHEEL_LABELS } from "./useWheelSlipLamps";
 
 const slipClass = (slip: number): string => {
-  const s = Math.abs(slip);
-  if (s >= SLIP_CRITICAL) return "text-critical";
-  if (s >= SLIP_WARNING) return "text-warning";
+  if (slip >= SLIP_CRITICAL) return "text-critical";
+  if (slip >= SLIP_ON) return "text-warning";
   return "text-ink";
 };
 

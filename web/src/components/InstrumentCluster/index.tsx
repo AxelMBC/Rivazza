@@ -10,6 +10,7 @@ import { speedScale } from "../../lib/speedScale";
 
 import { AnalogGauge } from "./AnalogGauge";
 import { TyreOverlay } from "./TyreOverlay";
+import { useWheelSlipLamps, WHEEL_LABELS } from "./useWheelSlipLamps";
 
 const RPM_MAX = 10000;
 const REDLINE_FROM_RPM = 8500;
@@ -52,6 +53,7 @@ export const InstrumentCluster = ({
   const speed = speedScale(session.topSpeedKmh);
 
   const [tyresOpen, setTyresOpen] = useState(false);
+  const slipLamps = useWheelSlipLamps(telemetry);
 
   return (
     <section
@@ -111,6 +113,15 @@ export const InstrumentCluster = ({
               active={telemetry?.tcInAction ?? false}
               activeClass="bg-warning"
             />
+            {WHEEL_LABELS.map((label, i) => (
+              <StatusLight
+                key={label}
+                label={label}
+                enabled={telemetry !== null}
+                active={slipLamps[i]}
+                activeClass="bg-warning"
+              />
+            ))}
             <StatusLight
               label="PIT"
               className="col-span-2"

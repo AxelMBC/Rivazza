@@ -64,8 +64,16 @@ const readWheels = (buf: Buffer, offset: number): number[] => [
   buf.readFloatLE(offset + 12),
 ];
 
+// A locked wheel drives ndSlip past 1e6 or to Infinity, and JSON turns a
+// non-finite number into null.
+const SLIP_CAP = 50;
+
+const capSlip = (slip: number): number =>
+  Number.isFinite(slip) ? Math.min(Math.abs(slip), SLIP_CAP) : SLIP_CAP;
+
 // RTCarInfo struct with MSVC default alignment: char identifier + 3 pad,
 // 6 bools at 20..25 + 2 pad, 15 float[4] blocks from offset 84. Total 328.
+// tyreSlip is decoded from ndSlip @164: AC leaves its own tyreSlip @148 at zero.
 export const parseRTCarInfo = (buf: Buffer): TelemetryFrame => ({
   speedKmh: buf.readFloatLE(8),
   absEnabled: readBool(buf, 20),
@@ -89,7 +97,7 @@ export const parseRTCarInfo = (buf: Buffer): TelemetryFrame => ({
   rpm: buf.readFloatLE(68),
   steerAngle: buf.readFloatLE(72),
   gear: buf.readInt32LE(76),
-  tyreSlip: readWheels(buf, 148),
+  tyreSlip: readWheels(buf, 164).map(capSlip),
   wheelLoad: readWheels(buf, 180),
   normalizedPos: buf.readFloatLE(308),
   carSlope: buf.readFloatLE(312),

@@ -31,6 +31,7 @@ const CAR_INFO = {
   rpm: 68,
   steerAngle: 72,
   gear: 76,
+  ndSlip: 164,
   normalizedPos: 308,
   x: 316,
   y: 320,
@@ -41,6 +42,12 @@ const LAP_MS = 90000;
 const CUT_EVERY_S = 40;
 const CUT_WINDOW_S = 0.6;
 const FIRST_CUT_PHASE_S = 20;
+const SLIP_EVERY_S = 12;
+const SLIP_WINDOW_S = 1.5;
+const SLIP_PEAK = 4;
+const SLIP_BASELINE = 0.2;
+const REAR_WHEELS = [2, 3];
+const FRONT_WHEELS = [0, 1];
 
 const startPhysicsPage = async () => {
   if (process.platform !== 'win32') return null;
@@ -81,6 +88,14 @@ console.log(
     : '[mock] physics page off (needs Windows + koffi); udp telemetry only',
 );
 
+const slipFor = (seconds) => {
+  const phase = seconds % SLIP_EVERY_S;
+  const slipping = phase < SLIP_WINDOW_S;
+  const rise = SLIP_PEAK * Math.sin((Math.PI * phase) / SLIP_WINDOW_S);
+  const wheels = Math.floor(seconds / SLIP_EVERY_S) % 2 === 0 ? REAR_WHEELS : FRONT_WHEELS;
+  return [0, 1, 2, 3].map((i) => SLIP_BASELINE + (slipping && wheels.includes(i) ? rise : 0));
+};
+
 // magione map.ini: WIDTH=342.88 HEIGHT=861.583 X_OFFSET=187.289 Z_OFFSET=444.422
 // t follows wall-clock time because Windows quantizes the send timer.
 let t = 0;
@@ -104,6 +119,7 @@ const carInfo = () => {
   b.writeFloatLE(5000 + 2500 * Math.sin(t * 3), CAR_INFO.rpm);
   b.writeFloatLE(25 + 20 * Math.sin(t * 2), CAR_INFO.steerAngle);
   b.writeInt32LE(GEAR_THIRD, CAR_INFO.gear);
+  slipFor(t).forEach((slip, i) => b.writeFloatLE(slip, CAR_INFO.ndSlip + 4 * i));
   b.writeFloatLE((t / 30) % 1, CAR_INFO.normalizedPos);
   b.writeFloatLE(-15.8 + 120 * Math.cos(t), CAR_INFO.x);
   b.writeFloatLE(5.0, CAR_INFO.y);
