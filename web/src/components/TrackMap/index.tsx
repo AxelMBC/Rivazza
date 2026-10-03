@@ -7,6 +7,7 @@ import { formatLapTime } from "../../lib/format";
 import { CLICK_MODE } from "../../lib/interaction";
 import type { ScrubPoint, SectorOwner } from "../../lib/lapAnalysis";
 import { COLORED_LAPS, lapColor } from "../../lib/lapColors";
+import { hasCoarsePointer } from "../../lib/touch";
 
 import { createCamera, easeView, fallbackTarget } from "./camera";
 import {
@@ -267,8 +268,11 @@ export const TrackMap = ({
       }
     };
 
+    const finePointer = !hasCoarsePointer();
     const showsInset = () =>
-      zoomRef.current.level >= INSET_MIN_LEVEL && !cameraDrivesView();
+      finePointer &&
+      zoomRef.current.level >= INSET_MIN_LEVEL &&
+      !cameraDrivesView();
 
     let lastFrame: TelemetryFrame | null = null;
     let lastMouse: { x: number; y: number } | null = null;

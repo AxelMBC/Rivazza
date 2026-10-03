@@ -82,7 +82,7 @@ const App = () => {
 
       {session ? (
         <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 lg:grid lg:grid-cols-[24rem_1fr] lg:grid-rows-[auto_auto_minmax(0,1fr)_auto] lg:gap-x-4 lg:gap-y-3 lg:overflow-hidden lg:p-4">
-          <div className="flex h-full min-h-fit shrink-0 flex-col gap-3 lg:contents">
+          <div className="grid h-full min-h-96 shrink-0 grid-rows-[minmax(0,1fr)_minmax(0,2fr)] gap-3 lg:contents">
             <InstrumentCluster
               telemetry={telemetry}
               session={session}
@@ -99,7 +99,7 @@ const App = () => {
               analysisLapRef={analysisLapRef}
               recordingsRef={recordingsRef}
               recordingsVersion={recVersion}
-              className="min-h-40 lg:col-start-2 lg:row-span-3 lg:row-start-1 lg:min-h-0"
+              className="lg:col-start-2 lg:row-span-3 lg:row-start-1"
             />
           </div>
 
