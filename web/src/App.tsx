@@ -96,7 +96,7 @@ const App = () => {
             <DriverInputs
               telemetry={telemetry}
               historyRef={historyRef}
-              className="h-42 shrink-0 lg:h-auto lg:min-h-24 lg:flex-1"
+              className="h-42 shrink-0 lg:h-auto lg:min-h-0 lg:flex-1"
             />
           </div>
 

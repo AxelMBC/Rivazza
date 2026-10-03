@@ -9,25 +9,27 @@ import {
 import { speedScale } from "../../lib/speedScale";
 
 import { AnalogGauge } from "./AnalogGauge";
-import { SteeringBar } from "./SteeringBar";
 import { TyreOverlay } from "./TyreOverlay";
 
 const RPM_MAX = 10000;
 const REDLINE_FROM_RPM = 8500;
+const PEDAL_ON_THRESHOLD = 0.05;
 
 const StatusLight = ({
   label,
+  className = "",
   enabled,
   active,
   activeClass,
 }: {
   label: string;
+  className?: string;
   enabled: boolean;
   active: boolean;
   activeClass: string;
 }) => (
   <span
-    className={`rounded px-2 py-1 text-xs font-semibold tracking-wider transition-colors ${
+    className={`${className} rounded px-2 py-1 text-center text-xs font-semibold tracking-wider transition-colors ${
       active
         ? `${activeClass} text-page`
         : enabled
@@ -60,7 +62,7 @@ export const InstrumentCluster = ({
     >
       <TyreOverlay telemetry={telemetry} open={tyresOpen} />
 
-      <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
+      <div className="mx-auto grid max-w-md grid-cols-[2fr_1fr] items-center gap-3">
         <AnalogGauge
           min={0}
           max={speed.max}
@@ -68,7 +70,7 @@ export const InstrumentCluster = ({
           majorTickStep={speed.majorTickStep}
           label="km/h"
         >
-          <p className="rounded border border-hairline bg-page px-2 py-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">
+          <p className="rounded border border-hairline bg-page px-1.5 text-2xl font-bold tabular-nums whitespace-nowrap">
             {telemetry ? Math.round(telemetry.speedKmh) : "–"}
             <span className="ml-1 text-[0.65rem] font-normal text-ink-muted">
               km/h
@@ -76,47 +78,60 @@ export const InstrumentCluster = ({
           </p>
         </AnalogGauge>
 
-        <AnalogGauge
-          min={0}
-          max={RPM_MAX}
-          value={telemetry?.rpm ?? 0}
-          majorTickStep={1000}
-          redlineFrom={REDLINE_FROM_RPM}
-          formatTickLabel={(rpm) => String(rpm / 1000)}
-          label="rpm ×1000"
-          flash={limiter}
-        >
-          <p
-            className={`text-3xl font-bold tabular-nums ${
-              limiter ? "animate-pulse text-redline" : "text-accent"
-            }`}
+        <div className="flex flex-col gap-2">
+          <AnalogGauge
+            min={0}
+            max={RPM_MAX}
+            value={telemetry?.rpm ?? 0}
+            majorTickStep={1000}
+            redlineFrom={REDLINE_FROM_RPM}
+            formatTickLabel={(rpm) => String(rpm / 1000)}
+            label="rpm ×1000"
+            flash={limiter}
           >
-            {telemetry ? formatGear(telemetry.gear) : "–"}
-          </p>
-        </AnalogGauge>
-      </div>
+            <p
+              className={`text-xl font-bold tabular-nums ${
+                limiter ? "animate-pulse text-redline" : "text-accent"
+              }`}
+            >
+              {telemetry ? formatGear(telemetry.gear) : "–"}
+            </p>
+          </AnalogGauge>
 
-      <div className="mt-3 flex items-center gap-2">
-        <StatusLight
-          label="ABS"
-          enabled={telemetry?.absEnabled ?? false}
-          active={telemetry?.absInAction ?? false}
-          activeClass="bg-warning"
-        />
-        <StatusLight
-          label="TC"
-          enabled={telemetry?.tcEnabled ?? false}
-          active={telemetry?.tcInAction ?? false}
-          activeClass="bg-warning"
-        />
-        <StatusLight
-          label="PIT"
-          enabled={true}
-          active={telemetry?.inPit ?? false}
-          activeClass="bg-accent"
-        />
-
-        <SteeringBar telemetry={telemetry} />
+          <div className="grid grid-cols-2 gap-1.5">
+            <StatusLight
+              label="ABS"
+              enabled={telemetry?.absEnabled ?? false}
+              active={telemetry?.absInAction ?? false}
+              activeClass="bg-warning"
+            />
+            <StatusLight
+              label="TC"
+              enabled={telemetry?.tcEnabled ?? false}
+              active={telemetry?.tcInAction ?? false}
+              activeClass="bg-warning"
+            />
+            <StatusLight
+              label="PIT"
+              className="col-span-2"
+              enabled={true}
+              active={telemetry?.inPit ?? false}
+              activeClass="bg-accent"
+            />
+            <StatusLight
+              label="THR"
+              enabled={true}
+              active={(telemetry?.gas ?? 0) > PEDAL_ON_THRESHOLD}
+              activeClass="bg-good"
+            />
+            <StatusLight
+              label="BRK"
+              enabled={true}
+              active={(telemetry?.brake ?? 0) > PEDAL_ON_THRESHOLD}
+              activeClass="bg-critical"
+            />
+          </div>
+        </div>
       </div>
     </section>
   );

@@ -111,7 +111,7 @@ export const GForceMeter = ({
   }, [historyRef]);
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <p className="text-xs tracking-wide text-ink-muted uppercase">G-force</p>
       <canvas ref={canvasRef} className="mt-2 min-h-0 w-full flex-1" />
     </div>

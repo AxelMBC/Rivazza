@@ -3,7 +3,7 @@ import type { TelemetryFrame } from "@rivazza/protocol";
 import type { InputSample } from "../../hooks/useInputHistory";
 
 import { GForceMeter } from "./GForceMeter";
-import { PedalBars } from "./PedalBars";
+import { SteeringBar } from "./SteeringBar";
 
 export const DriverInputs = ({
   telemetry,
@@ -14,10 +14,12 @@ export const DriverInputs = ({
   historyRef: React.RefObject<InputSample[]>;
   className?: string;
 }) => (
-  <section
-    className={`grid grid-cols-[1fr_auto] grid-rows-1 gap-4 rounded-lg border border-edge bg-surface p-4 ${className}`}
-  >
-    <GForceMeter historyRef={historyRef} />
-    <PedalBars telemetry={telemetry} />
-  </section>
+  <div className={`[container-type:size] ${className}`}>
+    <section className="flex h-full flex-col justify-center gap-4 rounded-lg border border-edge bg-surface p-4">
+      <div className="flex min-h-0 flex-1 flex-col [@container(max-height:160px)]:hidden">
+        <GForceMeter historyRef={historyRef} />
+      </div>
+      <SteeringBar telemetry={telemetry} />
+    </section>
+  </div>
 );
