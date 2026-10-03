@@ -9,7 +9,8 @@ import {
 import { speedScale } from "../../lib/speedScale";
 
 import { AnalogGauge } from "./AnalogGauge";
-import { WHEEL_LABELS } from "./constants";
+import { CarSlipGlyph } from "./CarSlipGlyph";
+import { PedalLamp } from "./PedalLamp";
 import { TyreOverlay } from "./TyreOverlay";
 import { useWheelSlipLamps } from "./useWheelSlipLamps";
 
@@ -19,24 +20,22 @@ const PEDAL_ON_THRESHOLD = 0.05;
 
 const StatusLight = ({
   label,
-  className = "",
   enabled,
   active,
   activeClass,
 }: {
   label: string;
-  className?: string;
   enabled: boolean;
   active: boolean;
   activeClass: string;
 }) => (
   <span
-    className={`${className} rounded px-2 py-1 text-center text-xs font-semibold tracking-wider transition-colors ${
+    className={`rounded px-1.5 py-0.5 text-center text-xs font-semibold tracking-wider transition-colors ${
       active
         ? `${activeClass} text-page`
         : enabled
-          ? "bg-hairline text-ink-secondary"
-          : "bg-hairline text-ink-muted opacity-40"
+          ? "text-ink-secondary"
+          : "text-ink-muted opacity-40"
     }`}
   >
     {label}
@@ -101,7 +100,7 @@ export const InstrumentCluster = ({
             </p>
           </AnalogGauge>
 
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="grid grid-cols-3 gap-1">
             <StatusLight
               label="ABS"
               enabled={telemetry?.absEnabled ?? false}
@@ -114,31 +113,23 @@ export const InstrumentCluster = ({
               active={telemetry?.tcInAction ?? false}
               activeClass="bg-warning"
             />
-            {WHEEL_LABELS.map((label, i) => (
-              <StatusLight
-                key={label}
-                label={label}
-                enabled={telemetry !== null}
-                active={slipLamps[i]}
-                activeClass="bg-warning"
-              />
-            ))}
             <StatusLight
               label="PIT"
-              className="col-span-2"
               enabled={true}
               active={telemetry?.inPit ?? false}
               activeClass="bg-accent"
             />
-            <StatusLight
+          </div>
+
+          <div className="flex items-start justify-center gap-3">
+            <PedalLamp
               label="THR"
-              enabled={true}
               active={(telemetry?.gas ?? 0) > PEDAL_ON_THRESHOLD}
               activeClass="bg-good"
             />
-            <StatusLight
+            <CarSlipGlyph lamps={slipLamps} slip={telemetry?.tyreSlip} />
+            <PedalLamp
               label="BRK"
-              enabled={true}
               active={(telemetry?.brake ?? 0) > PEDAL_ON_THRESHOLD}
               activeClass="bg-critical"
             />
