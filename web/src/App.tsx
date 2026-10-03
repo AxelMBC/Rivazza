@@ -81,26 +81,14 @@ const App = () => {
       <SessionHeader session={session} status={status} />
 
       {session ? (
-        <main className="grid min-h-0 flex-1 grid-rows-[35fr_65fr] gap-4 p-4 lg:grid-cols-[24rem_1fr] lg:grid-rows-none">
-          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
-            <InstrumentCluster telemetry={telemetry} session={session} />
-
-            <LapTimes
+        <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 lg:grid lg:grid-cols-[24rem_1fr] lg:grid-rows-[auto_auto_minmax(0,1fr)_auto] lg:gap-x-4 lg:gap-y-3 lg:overflow-hidden lg:p-4">
+          <div className="flex h-full min-h-fit shrink-0 flex-col gap-3 lg:contents">
+            <InstrumentCluster
               telemetry={telemetry}
-              deltaMs={deltaMs}
-              lapsRef={lapHistoryRef}
-              currentLapInvalidRef={currentLapInvalidRef}
-              hoveredLapRef={hoveredLapRef}
+              session={session}
+              className="lg:col-start-1 lg:row-start-1"
             />
 
-            <DriverInputs
-              telemetry={telemetry}
-              historyRef={historyRef}
-              className="h-42 shrink-0 lg:h-auto lg:min-h-0 lg:flex-1"
-            />
-          </div>
-
-          <div className="flex min-h-0 flex-col gap-4">
             <TrackMap
               session={session}
               telemetryRef={telemetryRef}
@@ -111,16 +99,33 @@ const App = () => {
               analysisLapRef={analysisLapRef}
               recordingsRef={recordingsRef}
               recordingsVersion={recVersion}
-            />
-
-            <LapAnalysis
-              recordingsRef={recordingsRef}
-              version={recVersion}
-              lapsRef={lapHistoryRef}
-              scrubRef={scrubRef}
-              analysisLapRef={analysisLapRef}
+              className="min-h-40 lg:col-start-2 lg:row-span-3 lg:row-start-1 lg:min-h-0"
             />
           </div>
+
+          <LapTimes
+            telemetry={telemetry}
+            deltaMs={deltaMs}
+            lapsRef={lapHistoryRef}
+            currentLapInvalidRef={currentLapInvalidRef}
+            hoveredLapRef={hoveredLapRef}
+            className="lg:col-start-1 lg:row-start-2"
+          />
+
+          <DriverInputs
+            telemetry={telemetry}
+            historyRef={historyRef}
+            className="h-42 shrink-0 lg:col-start-1 lg:row-span-2 lg:row-start-3 lg:h-auto lg:min-h-0"
+          />
+
+          <LapAnalysis
+            recordingsRef={recordingsRef}
+            version={recVersion}
+            lapsRef={lapHistoryRef}
+            scrubRef={scrubRef}
+            analysisLapRef={analysisLapRef}
+            className="lg:col-start-2 lg:row-start-4 lg:mt-1"
+          />
         </main>
       ) : IS_DEMO ? (
         status === "waiting" ? (

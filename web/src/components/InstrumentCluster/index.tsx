@@ -45,9 +45,11 @@ const StatusLight = ({
 export const InstrumentCluster = ({
   telemetry,
   session,
+  className = "",
 }: {
   telemetry: TelemetryFrame | null;
   session: SessionInfo;
+  className?: string;
 }) => {
   const limiter = telemetry?.engineLimiterOn ?? false;
   const speed = speedScale(session.topSpeedKmh);
@@ -57,7 +59,7 @@ export const InstrumentCluster = ({
 
   return (
     <section
-      className={`${HOVER_GROUP_CLASS} relative rounded-lg border border-edge bg-surface p-4`}
+      className={`${HOVER_GROUP_CLASS} relative rounded-lg border border-edge bg-surface p-3 lg:p-4 ${className}`}
       onPointerUp={(e) => {
         if (isImmediateActivation(e)) setTyresOpen((o) => !o);
       }}
@@ -80,7 +82,7 @@ export const InstrumentCluster = ({
           </p>
         </AnalogGauge>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5 lg:gap-2">
           <AnalogGauge
             min={0}
             max={RPM_MAX}

@@ -130,12 +130,14 @@ export const LapTimes = ({
   lapsRef,
   currentLapInvalidRef,
   hoveredLapRef,
+  className = "",
 }: {
   telemetry: TelemetryFrame | null;
   deltaMs: number | null;
   lapsRef: React.RefObject<LapRecord[]>;
   currentLapInvalidRef: React.RefObject<boolean>;
   hoveredLapRef: React.RefObject<number | null>;
+  className?: string;
 }) => {
   const laps = lapsRef.current;
   const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
@@ -154,7 +156,7 @@ export const LapTimes = ({
   const [listOpen, setListOpen] = useState(false);
 
   return (
-    <section className="grid grid-cols-2 gap-2">
+    <section className={`grid grid-cols-2 gap-2 ${className}`}>
       <TimeTile
         label={`Lap ${telemetry ? telemetry.lapCount + 1 : "–"}`}
         value={formatLapTime(telemetry?.lapTimeMs)}

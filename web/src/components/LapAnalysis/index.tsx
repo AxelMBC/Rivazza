@@ -30,6 +30,7 @@ type Props = {
   lapsRef: React.RefObject<LapRecord[]>;
   scrubRef: React.RefObject<ScrubPoint | null>;
   analysisLapRef: React.RefObject<number | null>;
+  className?: string;
 };
 
 export const LapAnalysis = ({
@@ -38,6 +39,7 @@ export const LapAnalysis = ({
   lapsRef,
   scrubRef,
   analysisLapRef,
+  className = "",
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [selectedLap, setSelectedLap] = useState<number | null>(null);
@@ -186,7 +188,7 @@ export const LapAnalysis = ({
 
   return (
     <div
-      className={`${HOVER_GROUP_CLASS} relative shrink-0`}
+      className={`${HOVER_GROUP_CLASS} relative shrink-0 ${className}`}
       onPointerEnter={(e) => {
         if (!CLICK_MODE && e.pointerType === "mouse") setOpen(true);
       }}

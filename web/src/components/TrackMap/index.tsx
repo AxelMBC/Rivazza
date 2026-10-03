@@ -45,6 +45,7 @@ type Props = {
   analysisLapRef: React.RefObject<number | null>;
   recordingsRef: React.RefObject<LapRecording[]>;
   recordingsVersion: number;
+  className?: string;
 };
 
 type LegendEntry = {
@@ -64,6 +65,7 @@ export const TrackMap = ({
   analysisLapRef,
   recordingsRef,
   recordingsVersion,
+  className = "",
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const recordingsVersionRef = useRef(recordingsVersion);
@@ -446,7 +448,9 @@ export const TrackMap = ({
   ]);
 
   return (
-    <section className="relative flex min-h-0 flex-1 flex-col rounded-lg border border-edge bg-surface">
+    <section
+      className={`relative flex min-h-0 flex-1 flex-col rounded-lg border border-edge bg-surface ${className}`}
+    >
       <p className="absolute top-3 left-4 text-xs tracking-wide text-ink-muted uppercase">
         Track map
       </p>
