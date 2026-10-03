@@ -24,6 +24,14 @@ body,
   height: 100%;
 }
 
+/* iOS Safari otherwise scrolls the document itself by the toolbar height,
+   pushing the header off screen behind the dashboard's own scroller. */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   background: var(--color-page);
   color: var(--color-ink);
