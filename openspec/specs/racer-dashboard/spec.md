@@ -72,11 +72,11 @@ The dashboard SHALL show throttle and brake as two on/off lights labeled "THR" a
 - **THEN** both lights render dark, without errors
 
 ### Requirement: G-force meter
-The dashboard SHALL show a G-force meter plotting lateral (`accGHorizontal`) versus longitudinal (`accGFrontal`) acceleration as a dot inside concentric reference rings (at least 1G and 2G), with the dot's recent path faintly visible. The meter's scale SHALL start with 1G and 2G rings and an outer edge 0.5G beyond the outermost ring. Each time the combined acceleration exceeds that edge, the meter SHALL add the next whole-G ring and move the edge out by 1G, up to a 5G outermost ring, so a crash spike cannot balloon the scale. The scale SHALL NOT shrink back while the dashboard stays mounted, so the rings never jump during a session.
+The dashboard SHALL show a G-force meter plotting lateral (`accGHorizontal`) versus longitudinal (`accGFrontal`) acceleration as a dot inside concentric reference rings (at least 1G and 2G), with the dot's recent path faintly visible. The meter SHALL plot each sample's lateral and longitudinal G after smoothing them with an exponential moving average of about 50 ms, so single-frame kerb and bump spikes neither jerk the dot nor widen the ring scale, while sustained loads read within ~0.15G of the car's real acceleration. The dot SHALL show the load the driver feels: toward the outside of a corner, upward under braking and downward under acceleration. The meter's scale SHALL start with 1G and 2G rings and an outer edge 0.5G beyond the outermost ring. Each time the combined acceleration exceeds that edge, the meter SHALL add the next whole-G ring and move the edge out by 1G, up to a 5G outermost ring, so a crash spike cannot balloon the scale. The scale SHALL NOT shrink back while the dashboard stays mounted, so the rings never jump during a session.
 
 #### Scenario: Hard cornering
 - **WHEN** the car corners with sustained lateral acceleration of ~1.5G
-- **THEN** the dot sits between the 1G and 2G rings on the corresponding lateral side
+- **THEN** the dot sits between the 1G and 2G rings on the side away from the corner (right of centre in a left-hander)
 
 #### Scenario: High-downforce car exceeds the default scale
 - **WHEN** the combined acceleration first exceeds 2.5G
@@ -93,6 +93,14 @@ The dashboard SHALL show a G-force meter plotting lateral (`accGHorizontal`) ver
 #### Scenario: Road car never exceeds 2.5G
 - **WHEN** the combined acceleration stays at or below 2.5G for the whole session
 - **THEN** the meter keeps only the 1G and 2G rings, exactly as before
+
+#### Scenario: Braking
+- **WHEN** the car brakes in a straight line at ~3G
+- **THEN** the dot sits about 3G above the centre
+
+#### Scenario: Kerb strike
+- **WHEN** a single telemetry frame reads 1.5G more than the frames around it
+- **THEN** the dot moves roughly half as far as that frame's spike and settles back within about 100 ms
 
 ### Requirement: Live delta to best lap
 The dashboard SHALL record elapsed lap time against `normalizedPos` for each lap and, once a valid best lap recording exists, display a live delta (in seconds, signed, e.g. "−0.42" / "+1.03") comparing the current lap's elapsed time at the current track position with the best lap's elapsed time at the same position. Negative (faster) deltas SHALL render in a distinct positive color and positive (slower) deltas in a warning color. Until a complete best lap has been recorded, the delta SHALL show a neutral placeholder.

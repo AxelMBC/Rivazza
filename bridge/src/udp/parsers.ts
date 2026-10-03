@@ -72,8 +72,10 @@ export const parseRTCarInfo = (buf: Buffer): TelemetryFrame => ({
   tcEnabled: readBool(buf, 23),
   inPit: readBool(buf, 24),
   engineLimiterOn: readBool(buf, 25),
-  accGVertical: buf.readFloatLE(28),
-  accGHorizontal: buf.readFloatLE(32),
+  // AC's docs name offset 28 accG_vertical and 32 accG_horizontal, but 28
+  // carries lateral G and 32 vertical (checked against position-derived motion).
+  accGHorizontal: buf.readFloatLE(28),
+  accGVertical: buf.readFloatLE(32),
   accGFrontal: buf.readFloatLE(36),
   lapTimeMs: buf.readInt32LE(40),
   lastLapMs: buf.readInt32LE(44),
