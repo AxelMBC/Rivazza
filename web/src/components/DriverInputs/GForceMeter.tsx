@@ -2,8 +2,9 @@ import { useEffect, useRef } from "react";
 
 import type { InputSample } from "../../hooks/useInputHistory";
 
-const MAX_G = 2.5;
-const RINGS = [1, 2];
+const INITIAL_OUTER_RING_G = 2;
+const MAX_OUTER_RING_G = 5;
+const RING_HEADROOM_G = 0.5;
 
 export const GForceMeter = ({
   historyRef,
@@ -23,6 +24,7 @@ export const GForceMeter = ({
     let lastW = 0;
     let lastH = 0;
     let lastDpr = 0;
+    let outerRing = INITIAL_OUTER_RING_G;
 
     const draw = () => {
       rafId = requestAnimationFrame(draw);
@@ -46,6 +48,15 @@ export const GForceMeter = ({
       lastLen = history.length;
       lastT = newest?.t ?? -1;
 
+      const peak = Math.max(
+        0,
+        ...history.map((s) => Math.hypot(s.lateralG, s.longitudinalG)),
+      );
+      while (outerRing < MAX_OUTER_RING_G && peak > outerRing + RING_HEADROOM_G)
+        outerRing++;
+      const maxG = outerRing + RING_HEADROOM_G;
+      const rings = Array.from({ length: outerRing }, (_, i) => i + 1);
+
       if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
         canvas.width = width * dpr;
         canvas.height = height * dpr;
@@ -67,8 +78,8 @@ export const GForceMeter = ({
       ctx.stroke();
       ctx.fillStyle = "rgba(137, 135, 129, 0.8)";
       ctx.font = "10px system-ui";
-      for (const g of RINGS) {
-        const r = (g / MAX_G) * radius;
+      for (const g of rings) {
+        const r = (g / maxG) * radius;
         ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -79,11 +90,10 @@ export const GForceMeter = ({
       if (history.length === 0) return;
 
       const project = (s: InputSample) => ({
-        px:
-          cx + (Math.max(-MAX_G, Math.min(MAX_G, s.lateralG)) / MAX_G) * radius,
+        px: cx + (Math.max(-maxG, Math.min(maxG, s.lateralG)) / maxG) * radius,
         py:
           cy +
-          (Math.max(-MAX_G, Math.min(MAX_G, s.longitudinalG)) / MAX_G) * radius,
+          (Math.max(-maxG, Math.min(maxG, s.longitudinalG)) / maxG) * radius,
       });
 
       ctx.strokeStyle = "rgba(57, 135, 229, 0.35)";
