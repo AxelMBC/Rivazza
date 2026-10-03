@@ -9,8 +9,9 @@ import {
 import { speedScale } from "../../lib/speedScale";
 
 import { AnalogGauge } from "./AnalogGauge";
+import { WHEEL_LABELS } from "./constants";
 import { TyreOverlay } from "./TyreOverlay";
-import { useWheelSlipLamps, WHEEL_LABELS } from "./useWheelSlipLamps";
+import { useWheelSlipLamps } from "./useWheelSlipLamps";
 
 const RPM_MAX = 10000;
 const REDLINE_FROM_RPM = 8500;

@@ -1,6 +1,6 @@
 import type { TelemetryFrame } from "@rivazza/protocol";
 
-import { SLIP_CRITICAL, SLIP_ON, WHEEL_LABELS } from "./useWheelSlipLamps";
+import { SLIP_CRITICAL, SLIP_ON, WHEEL_LABELS } from "./constants";
 
 const slipClass = (slip: number): string => {
   if (slip >= SLIP_CRITICAL) return "text-critical";
