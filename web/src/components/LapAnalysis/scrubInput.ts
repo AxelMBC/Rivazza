@@ -34,9 +34,6 @@ export const attachScrub = (
     scrubRef.current = null;
   };
   const onMouseMove = (e: MouseEvent) => scrubAt(e.offsetX);
-  // Touch scrub: a finger drag moves the cursor exactly like mouse motion
-  // (preventDefault keeps the page from scrolling), lifting it clears like
-  // the mouse leaving.
   const onTouchScrub = (e: TouchEvent) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();

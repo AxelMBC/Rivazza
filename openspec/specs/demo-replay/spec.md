@@ -8,7 +8,7 @@ Record the bridge's `BridgeMessage` WebSocket stream to a file, and replay it in
 
 ### Requirement: Recorder captures the live BridgeMessage stream to a file
 
-The project SHALL provide a bridge-side recorder that connects to the running bridge as an ordinary WebSocket client and appends every received `BridgeMessage` (`status` | `session` | `telemetry` | `cut`) to a single recording file, each entry stamped with a relative arrival time (milliseconds since the first captured message) so original inter-frame timing can be reconstructed on replay. The recorder SHALL NOT modify or depend on the bridge's UDP ingestion or HTTP/WebSocket serving code — it is purely an additional consumer. The recording SHALL preserve message contents verbatim so replay is indistinguishable from the original session at the wire level.
+The project SHALL provide a bridge-side recorder that connects to the running bridge as an ordinary WebSocket client and appends every received `BridgeMessage` (`status` | `session` | `telemetry` | `cut`) to a single recording file, each entry stamped with a relative arrival time (milliseconds since the first captured message) so original inter-frame timing can be reconstructed on replay. The recorder SHALL NOT modify or depend on the bridge's UDP ingestion or HTTP/WebSocket serving code — it is purely an additional consumer. The recording SHALL preserve message contents verbatim so replay is indistinguishable from the original session at the wire level. Beside the recording the recorder SHALL write a companion `<name>.map.json` holding the track outline (map metadata and edges) fetched once from the bridge's HTTP API, because a demo build has no bridge to fetch it from.
 
 #### Scenario: Capturing a session
 

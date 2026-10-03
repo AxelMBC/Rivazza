@@ -43,25 +43,20 @@ export const createCamera = ({
   followLimitsRef,
   cameraDrivesView,
 }: CameraDeps) => {
-  // Follow cam keeps repainting while its camera is unsettled ('following'
-  // mid-glide or 'exiting'); a settled camera over a stationary car writes
-  // no new zoom object and the map idles exactly as before.
   let followAnimating = false;
   let navAnimating = false;
-  // Smoothed world position the follow cam tracks (and the dot renders at
-  // while following) — absorbs the uneven arrival of raw frames.
   let followPos: { x: number; z: number } | null = null;
-  // Where the camera sits relative to the car, in base-projection px. Null
-  // until the first tracking frame seeds it from the view being left behind.
   let camOffPx: { x: number; y: number } | null = null;
-  // Recent raw frames with arrival times, the interpolation source.
   let trail: { x: number; z: number; at: number }[] = [];
   let lastTrailFrame: TelemetryFrame | null = null;
 
-  // Ease zoomRef toward the follow target (car centered at a comfortable
-  // zoom) or back toward the fit view. Runs against the *base* projection
-  // of the active mode, before zoomed() reads zoomRef for the frame — the
-  // whole follow cam is just this mutation; every mode composes it for free.
+  const resetTracking = () => {
+    trail.length = 0;
+    lastTrailFrame = null;
+    followPos = null;
+    camOffPx = null;
+  };
+
   const followCamera = (
     base: Project,
     width: number,
@@ -71,21 +66,13 @@ export const createCamera = ({
     followAnimating = false;
     const st = followRef.current;
     if (st !== "following") {
-      // Stale buffer times would make a later re-entry interpolate across
-      // the idle gap; restart cleanly instead.
-      trail.length = 0;
-      lastTrailFrame = null;
-      followPos = null;
-      camOffPx = null;
+      resetTracking();
       if (st !== "exiting") return;
     }
     const zm = zoomRef.current;
     if (st === "following") {
       const frame = telemetryRef.current;
       if (!frame) return;
-      // Record raw frame arrivals, then render FOLLOW_DELAY_MS in the past
-      // by interpolating between the two buffered frames straddling that
-      // instant. A teleport (restart, pit) restarts the buffer — snap.
       if (frame !== lastTrailFrame) {
         lastTrailFrame = frame;
         const newest = trail[trail.length - 1];
@@ -94,7 +81,7 @@ export const createCamera = ({
           Math.hypot(frame.x - newest.x, frame.z - newest.z) > ANCHOR_SNAP_M
         ) {
           trail.length = 0;
-          camOffPx = { x: 0, y: 0 }; // snap with the car, don't sweep after it
+          camOffPx = { x: 0, y: 0 };
         }
         trail.push({ x: frame.x, z: frame.z, at: performance.now() });
         if (trail.length > 32) trail.shift();
@@ -114,8 +101,6 @@ export const createCamera = ({
           }
         }
       }
-      // Keep animating while the delayed point is still traversing the
-      // buffer, so motion continues between (and after) frame arrivals.
       if (
         !followPos ||
         Math.hypot(pos.x - followPos.x, pos.z - followPos.z) > 0.01
@@ -123,44 +108,22 @@ export const createCamera = ({
         followAnimating = true;
       followPos = pos;
       const car = base(followPos);
-      // Base px-per-meter (uniform, unrotated projections) sizes the
-      // comfortable zoom as a fixed world window, not a fixed multiplier.
       const unit = base({ x: followPos.x + 1, z: followPos.z });
       const pxPerMeter = Math.hypot(unit.px - car.px, unit.py - car.py);
       if (pxPerMeter <= 0) return;
-      // Bounds for the target window, derived here because only the camera
-      // holds the two terms they depend on. They are the exact inverses of
-      // the level limits, so the level below needs no clamp of its own:
-      // `maxWindow` is the window that would render at 1× — pulled in by
-      // FOLLOW_WINDOW_HEADROOM, since a car-centred view at exactly 1×
-      // contradicts what 1× means everywhere else (the fit framing).
       const span = Math.min(width, height);
       const maxWindow = (span / pxPerMeter) * FOLLOW_WINDOW_HEADROOM;
       const minWindow = Math.max(
         FOLLOW_MIN_WINDOW_M,
         span / (ZOOM_MAX * pxPerMeter),
       );
-      // Publish them for the wheel/pinch handlers, which cannot derive them:
-      // a request past `maxWindow` is what they read as "leave follow mode".
       followLimitsRef.current = { min: minWindow, max: maxWindow };
-      // Write the clamp back so input beyond a limit cannot accumulate — an
-      // unbounded ref would swallow the first several notches back. Settled,
-      // this rewrites an identical value and never re-dirties the frame.
       const window_ = Math.min(
         maxWindow,
         Math.max(minWindow, followWindowRef.current),
       );
       followWindowRef.current = window_;
       const targetLevel = span / (window_ * pxPerMeter);
-      // Where the camera sits relative to the car, decayed toward zero on its
-      // own clock. Easing the camera *toward* the car instead — a target that
-      // has moved again by the next frame — settles at an error of roughly
-      // speed × FOLLOW_TAU_S rather than at zero: ~18 m at racing speed,
-      // which is nothing across the fit view but is the entire canvas at a
-      // tight follow window, and the car leaves the screen. Decaying the
-      // offset cancels that term, so the car is pinned at the centre at any
-      // speed and any zoom, while entry is still one eased glide — it simply
-      // starts as one large offset.
       if (!camOffPx)
         camOffPx = {
           x: (width / 2 - zm.ox) / zm.level - car.px,
@@ -169,18 +132,16 @@ export const createCamera = ({
       const decay = Math.exp(-dt / FOLLOW_TAU_S);
       camOffPx = { x: camOffPx.x * decay, y: camOffPx.y * decay };
       const level = zm.level + (targetLevel - zm.level) * (1 - decay);
-      // Asymptotic easing — snap inside a sub-pixel epsilon so it terminates.
-      if (
+      const settled =
         Math.hypot(camOffPx.x, camOffPx.y) * level < 0.5 &&
-        Math.abs(targetLevel - level) < 0.001
-      ) {
+        Math.abs(targetLevel - level) < 0.001;
+      if (settled) {
         camOffPx = { x: 0, y: 0 };
         const pinned = {
           level: targetLevel,
           ox: width / 2 - car.px * targetLevel,
           oy: height / 2 - car.py * targetLevel,
         };
-        // A stationary car rewrites identical values, so the map still idles.
         if (
           zm.level !== pinned.level ||
           zm.ox !== pinned.ox ||
@@ -197,8 +158,6 @@ export const createCamera = ({
       followAnimating = true;
       return;
     }
-    // Exiting: the fit view is a static target, so there is no lag term to
-    // cancel — ease straight at it.
     const blend = 1 - Math.exp(-dt / FOLLOW_TAU_S);
     const level = zm.level + (ZOOM_RESET.level - zm.level) * blend;
     const ox = zm.ox + (ZOOM_RESET.ox - zm.ox) * blend;
@@ -208,7 +167,7 @@ export const createCamera = ({
       Math.abs(ox) < 0.5 &&
       Math.abs(oy) < 0.5
     ) {
-      zoomRef.current = ZOOM_RESET; // exact fit framing, as if never followed
+      zoomRef.current = ZOOM_RESET;
       setFollow("off");
       return;
     }
@@ -216,8 +175,6 @@ export const createCamera = ({
     followAnimating = true;
   };
 
-  // Inset navigation glides the view centre toward navRef at the unchanged
-  // level, with the follow cam's time constant so both glides feel alike.
   const navCamera = (width: number, height: number, dt: number) => {
     navAnimating = false;
     const target = navRef.current;
@@ -233,7 +190,6 @@ export const createCamera = ({
       x: c.x + (target.x - c.x) * blend,
       y: c.y + (target.y - c.y) * blend,
     };
-    // Asymptotic easing — snap inside a sub-pixel epsilon so it terminates.
     if (Math.hypot(target.x - next.x, target.y - next.y) * zm.level < 0.5) {
       zoomRef.current = centreZoomOn(target, zm.level, width, height);
       navRef.current = null;
@@ -243,8 +199,6 @@ export const createCamera = ({
     navAnimating = true;
   };
 
-  // While following, the dot renders at the smoothed tracked point so it
-  // moves in lockstep with the camera instead of stepping with raw frames.
   const dotWorld = (frame: TelemetryFrame): { x: number; z: number } =>
     followRef.current === "following" && followPos
       ? followPos
@@ -268,9 +222,6 @@ export const fallbackTarget = (
 ): View => {
   let target: View;
   if (noLapsYet && anchor) {
-    // First lap: camera locked on the starting point at a zoomed-out
-    // scale — no panning while the track shape is still unknown. Only
-    // zoom out (never in) if the track outgrows the window.
     const pad = 1 + VIEW_MARGIN * 2;
     target = {
       cx: anchor.x,
@@ -310,8 +261,6 @@ export const easeView = (
     view.cz += (target.cz - view.cz) * VIEW_EASE;
     view.ex += (target.ex - view.ex) * VIEW_EASE;
     view.ez += (target.ez - view.ez) * VIEW_EASE;
-    // The easing is asymptotic — snap once within a sub-pixel epsilon so
-    // it terminates and the map can go idle between telemetry frames.
     const eps = Math.max(target.ex, target.ez) * 1e-4;
     if (
       Math.abs(target.cx - view.cx) < eps &&

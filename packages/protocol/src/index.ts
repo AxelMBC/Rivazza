@@ -64,14 +64,10 @@ export type MapMeta = {
   scaleFactor: number;
 };
 
-// Edge polylines as [x, z] world-meter pairs. `closed` marks a circuit loop;
-// open splines (hillclimbs) get no closing segment.
 export type TrackEdges = {
   closed: boolean;
   left: [number, number][];
   right: [number, number][];
-  // Normalized track position (0-1) of each vertex, index-aligned one-to-one
-  // with `left` and `right` — the AI spline's own points, so a normalized
-  // position resolves onto real track geometry instead of a driven line.
+  // Normalized track position (0-1) of each vertex, index-aligned with `left` and `right`.
   pos: number[];
 };

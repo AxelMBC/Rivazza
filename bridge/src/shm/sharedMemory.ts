@@ -1,29 +1,24 @@
 import type { CutEvent, TelemetryFrame } from "@rivazza/protocol";
 
-// AC publishes SPageFilePhysics as a memory-mapped page on the local machine
-// (#pragma pack(4), rewritten every physics tick at ~333 Hz) — the same
-// interface SimHub and Crew Chief read. Every struct member before the fields
-// read here is a 4-byte scalar or float array, so these offsets are stable
-// magic numbers in the parsers.ts tradition — do not "clean them up".
+// SPageFilePhysics is #pragma pack(4) and every member before these is a
+// 4-byte scalar or float array, so the offsets are stable.
 const MAPPING_NAME = "Local\\acpmf_physics";
-const OFF_PACKET_ID = 0; // int32 — frozen while paused / in menus / closed
-const OFF_SPEED_KMH = 28; // float32
-const OFF_TYRES_OUT = 244; // int32 — the game's own lap-invalidation counter
-const READ_SIZE = 256; // covers every field above with headroom
+const OFF_PACKET_ID = 0; // frozen while paused, in menus, or closed
+const OFF_SPEED_KMH = 28;
+const OFF_TYRES_OUT = 244;
+const READ_SIZE = 256;
 
-// AC's static page names the loaded track and layout. The UDP handshake
-// doesn't report the layout subfolder for multi-layout tracks, so this is the
-// only reliable source (see resolveTrackAssetsForSession). ~800 B struct; a
-// 1 KB over-read stays inside the same committed page and is safe.
+// The UDP handshake omits the layout subfolder of multi-layout tracks; the
+// static page names it. ~800 B struct, so a 1 KB read stays in its page.
 const STATIC_MAPPING_NAME = "Local\\acpmf_static";
 const STATIC_READ_SIZE = 1024;
 
 const FILE_MAP_READ = 0x0004;
 
 const POLL_MS = 16; // ~60 Hz nominal; Windows floors short timers near 15.6 ms
-const OPEN_RETRY_MS = 3000; // same cadence as the UDP handshake retry
+const OPEN_RETRY_MS = 3000;
 const CUT_TYRES = 4; // AC invalidates a lap at four wheels beyond the limits
-const MIN_SPEED_KMH = 10; // garage / teleport states never count as cuts
+const MIN_SPEED_KMH = 10;
 
 type CutDetector = {
   getFrame: () => TelemetryFrame | null;
@@ -32,8 +27,8 @@ type CutDetector = {
 };
 
 type Kernel32 = {
-  openMapping: (name: string) => unknown; // HANDLE — null while AC isn't running locally
-  mapView: (handle: unknown) => unknown; // base pointer — null on failure
+  openMapping: (name: string) => unknown;
+  mapView: (handle: unknown) => unknown;
   copyOut: (dest: Buffer, view: unknown, len: number) => void;
   unmapView: (view: unknown) => void;
   closeHandle: (handle: unknown) => void;
@@ -82,8 +77,6 @@ let kernelPromise: Promise<Kernel32 | null> | null = null;
 const kernel32 = (): Promise<Kernel32 | null> =>
   (kernelPromise ??= loadKernel32());
 
-// Read on demand rather than polled: the static page only changes between
-// sessions.
 export const readStaticPage = async (): Promise<Buffer | null> => {
   if (process.platform !== "win32" || process.env.AC_SHM === "0") return null;
   const k32 = await kernel32();
@@ -105,8 +98,6 @@ export const readStaticPage = async (): Promise<Buffer | null> => {
   }
 };
 
-// Cuts are stamped from the newest UDP frame: at 60 Hz+ packet arrival that
-// position is at most ~1 m stale, sub-pixel at map scale.
 export const startCutDetection = (detector: CutDetector): (() => void) => {
   if (process.platform !== "win32") return () => {};
   if (process.env.AC_SHM === "0") {
@@ -128,8 +119,6 @@ export const startCutDetection = (detector: CutDetector): (() => void) => {
   const poll = (): void => {
     if (!k32 || view == null) return;
     k32.copyOut(page, view, READ_SIZE);
-    // A frozen packet id means paused, menus, replay, or a closed game —
-    // consume nothing so no stale transition can ever fire.
     const packetId = page.readInt32LE(OFF_PACKET_ID);
     if (packetId === lastPacketId) return;
     lastPacketId = packetId;
@@ -137,7 +126,6 @@ export const startCutDetection = (detector: CutDetector): (() => void) => {
     const tyresOut = page.readInt32LE(OFF_TYRES_OUT);
     const isOut = tyresOut >= CUT_TYRES;
     const onset = isOut && !wasOut;
-    // One event per excursion: re-arms only once back under four out.
     wasOut = isOut;
     if (!onset) return;
 
@@ -158,7 +146,7 @@ export const startCutDetection = (detector: CutDetector): (() => void) => {
   const tryOpen = (): void => {
     if (!k32 || stopped) return;
     handle = k32.openMapping(MAPPING_NAME);
-    if (handle == null) return; // AC not running here yet; retry keeps going
+    if (handle == null) return;
     view = k32.mapView(handle);
     if (view == null) {
       k32.closeHandle(handle);

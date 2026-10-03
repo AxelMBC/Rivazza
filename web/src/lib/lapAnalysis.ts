@@ -4,19 +4,11 @@ import type {
   LapTelemetrySample,
 } from "../hooks/useLapRecordings";
 
-// A recording must span the lap to count as complete or become the delta
-// reference — rejects out-laps and sessions joined mid-lap.
 export const COVERAGE_START = 0.05;
 export const COVERAGE_END = 0.95;
 
-// Fixed equal normalized-position slices. No corner metadata exists in the
-// assets the bridge reads, so equal sectors are as good as any segmentation.
-// The count is chosen to be nameable rather than fine: 8 puts a sector at
-// ~600 m on a typical circuit, which can be pointed at on the track map and
-// reasoned about as a section. Finer slices read as texture, not sectors, and
-// flatter the theoretical best with a time no achievable lap resembles.
-// Shared by the panel's ribbon and the map's division so the two cannot
-// disagree about how the lap is cut.
+// AC's track assets carry no corner metadata, so the slices are equal; 8 puts a
+// sector at ~600 m on a typical circuit, few enough to name on the map.
 export const SECTOR_COUNT = 8;
 
 export type ScrubPoint = {
@@ -28,7 +20,6 @@ export type ScrubPoint = {
 
 type PosTimed = { pos: number; timeMs: number };
 
-// -1 when pos falls outside the sampled span.
 const bracket = (samples: readonly PosTimed[], pos: number): number => {
   if (
     samples.length < 2 ||
@@ -59,7 +50,6 @@ export const interpolateTimeAt = (
   return a.timeMs + ((pos - a.pos) / span) * (b.timeMs - a.timeMs);
 };
 
-// Stepwise fields (gear, pedal state) must never be blended between samples.
 export const sampleNear = (
   samples: readonly LapTelemetrySample[],
   pos: number,
@@ -95,9 +85,6 @@ export const latestComplete = (
 const invalidLapSet = (laps: readonly LapRecord[]): Set<number> =>
   new Set(laps.filter((l) => l.invalid).map((l) => l.lap));
 
-// The comparison baseline: strictly the fastest valid complete recording.
-// An invalid lap must never stand in as "best"/reference — better to show
-// no delta than to compare against a lap the game rejected.
 export const resolveReference = (
   recordings: readonly LapRecording[],
   laps: readonly LapRecord[],
@@ -112,27 +99,20 @@ export const resolveReference = (
   return bestValid;
 };
 
-// Per-slice times from interpolated boundary crossings. The 0.0 boundary is
-// pinned to 0 ms (and 1.0 to the lap time) only when the recording genuinely
-// starts (ends) at the line — sampling never lands exactly on the boundary,
-// and without the pin the first and last slices would never resolve. Slices
-// the recording doesn't cover yield null, never a fabricated time.
 export const sectorTimes = (
   rec: LapRecording,
   count: number,
 ): (number | null)[] => {
   const samples = rec.samples;
+  const startsAtLine = samples.length > 0 && samples[0].pos <= COVERAGE_START;
+  const endsAtLine =
+    samples.length > 0 && samples[samples.length - 1].pos >= COVERAGE_END;
   const bounds: (number | null)[] = [];
   for (let i = 0; i <= count; i++) {
     let t = interpolateTimeAt(samples, i / count);
-    if (t === null && samples.length > 0) {
-      if (i === 0 && samples[0].pos <= COVERAGE_START) t = 0;
-      else if (
-        i === count &&
-        rec.timeMs !== null &&
-        samples[samples.length - 1].pos >= COVERAGE_END
-      )
-        t = rec.timeMs;
+    if (t === null) {
+      if (i === 0 && startsAtLine) t = 0;
+      else if (i === count && endsAtLine && rec.timeMs !== null) t = rec.timeMs;
     }
     bounds.push(t);
   }
@@ -145,9 +125,6 @@ export const sectorTimes = (
   return slices;
 };
 
-// Best time per slice across valid completed laps only — a cut lap must not
-// own a best sector. Partial (non-complete) recordings still contribute the
-// slices they genuinely covered.
 export const bestSectors = (
   recordings: readonly LapRecording[],
   laps: readonly LapRecord[],
@@ -167,12 +144,6 @@ export const bestSectors = (
 
 export type SectorOwner = { lap: number; timeMs: number; invalid: boolean };
 
-// Who holds the fastest time in each slice across ALL completed laps, cut ones
-// included — the ribbon's colors. Deliberately separate from `bestSectors`:
-// this table answers "who was quickest here", that one answers "what counts",
-// and only the latter may be summed into a theoretical best. Ties go to the
-// earlier lap (recordings are in lap order), so the ribbon never flickers
-// between two laps holding identical times.
 export const sectorOwners = (
   recordings: readonly LapRecording[],
   laps: readonly LapRecord[],
@@ -191,8 +162,6 @@ export const sectorOwners = (
   return owners;
 };
 
-// Sum of the per-slice bests — only once every slice has a valid time, so a
-// partial table never shows a fabricated optimal lap.
 export const theoreticalBestMs = (
   best: readonly (number | null)[],
 ): number | null => {

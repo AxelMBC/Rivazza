@@ -194,8 +194,8 @@ it was never a tweak. Stop and say so; `/opsx:propose` exists for that.
 
 ## Step 4 — Implement
 
-Make the edit, following `.claude/rules/code-style.md` (arrow functions, comments only for
-constraints outside the repo, Tailwind tokens).
+Make the edit, following `.claude/rules/code-style.md` (arrow functions, Tailwind tokens) and
+`.claude/rules/comments.md` (comments only for constraints outside the repo).
 
 Iterate with the individual commands from `.claude/workflow.yaml`'s `checks` block rather than
 running the whole gate each time — the bridge typecheck alone is the fast loop for a bridge edit:

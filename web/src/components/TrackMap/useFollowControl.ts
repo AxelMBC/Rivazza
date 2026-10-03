@@ -6,10 +6,6 @@ import { SYNTHETIC_MOUSE_WINDOW_MS } from "../../lib/touch";
 
 import { FOLLOW_DWELL_MS, FOLLOW_WINDOW_M } from "./constants";
 
-// Follow cam: hover-dwell armed (never a click — clicks would focus the
-// browser and steal controller input from the game). 'following' tracks the
-// car, 'detached' is manual zoom/pan after a touch drag interrupted a follow
-// (the exit button stays), 'exiting' animates back to the 1× fit view.
 export type FollowState = "off" | "following" | "detached" | "exiting";
 
 const createFollowControl = (
@@ -84,10 +80,6 @@ const createFollowControl = (
     }
   };
 
-  // Session change / restart ends follow mode with everything else, and any
-  // adjusted framing goes with it — the next follow starts comfortable again.
-  // The published bounds go too: the new session may be a different track, so
-  // "not known until the camera says so" is exactly true again.
   const resetFollow = () => {
     cancelDwell();
     followWindowRef.current = FOLLOW_WINDOW_M;
@@ -112,8 +104,6 @@ const createFollowControl = (
 
 export type FollowControl = ReturnType<typeof createFollowControl>;
 
-// `follow` is created once and never changes identity: everything on it reads
-// refs or calls state setters, so effects can list it without re-running.
 export const useFollowControl = (
   telemetryRef: React.RefObject<TelemetryFrame | null>,
 ) => {
@@ -123,7 +113,6 @@ export const useFollowControl = (
     createFollowControl(telemetryRef, setFollowUi, setDwelling),
   );
 
-  // The dwell timeout must not fire into an unmounted component.
   useEffect(() => follow.cancelDwell, [follow]);
 
   return { followUi, dwelling, follow };

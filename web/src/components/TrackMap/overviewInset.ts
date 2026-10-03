@@ -1,14 +1,12 @@
 export type Zoom = { level: number; ox: number; oy: number };
 export type Point = { x: number; y: number };
 export type Rect = { x: number; y: number; w: number; h: number };
-// `scale` maps base (1× fit) canvas pixels into inset pixels: at 1× the fit
-// framing is the whole canvas, so the inset is the canvas scaled down.
 export type Inset = Rect & { scale: number };
 
 const INSET_MAX_W = 220;
 const INSET_WIDTH_FRACTION = 0.2;
 const INSET_RIGHT = 16;
-const INSET_TOP = 36; // clears the pedal legend row above it
+const INSET_TOP = 36;
 
 export const insetRect = (width: number, height: number): Inset => {
   const w = Math.round(Math.min(INSET_MAX_W, width * INSET_WIDTH_FRACTION));

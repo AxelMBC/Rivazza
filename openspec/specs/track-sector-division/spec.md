@@ -162,7 +162,8 @@ the per-lap boundaries this capability exists to eliminate.
 The division SHALL NOT add a wakeup source to the track map's dirty-gated render loop. The boundary ticks and labels SHALL live in the cached track-surface layer, which SHALL be rebuilt only when
 the projection changes or when sector ownership changes — that is, when a lap completes or is
 invalidated — and never per frame. Only the scrub emphasis SHALL be drawn per repaint, and it SHALL
-cover a single sector.
+cover a single sector. Ownership is re-derived when a lap's log entry arrives as well as when its
+recording is stored, because the log entry lands a few frames later and may invalidate the lap.
 
 #### Scenario: Idle map
 - **WHEN** telemetry, pointer, zoom and canvas size are all unchanged

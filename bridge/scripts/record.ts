@@ -1,7 +1,3 @@
-// Usage:
-//   npm run record -w bridge -- --out ../web/public/demo/imola.json
-//   npm run record -w bridge -- --host 127.0.0.1 --port 3001 --duration 300
-// Stop with Ctrl-C (or let --duration elapse); the file is written on exit.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,15 +5,14 @@ import { fileURLToPath } from "node:url";
 import type { BridgeMessage } from "@rivazza/protocol";
 import { WebSocket } from "ws";
 
-// `npm run record -w bridge` runs with the CWD set to the bridge workspace, so
-// paths resolve against the repo root instead — otherwise --out would bury the
-// recording under bridge/ rather than where the web app reads it.
+// npm runs workspace scripts with the workspace as CWD.
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
   "..",
 );
 const DEFAULT_OUT = "web/public/demo/imola.json";
+const CLOSE_TIMEOUT_MS = 500;
 
 type Recording = { t: number; msg: BridgeMessage }[];
 
@@ -50,9 +45,6 @@ const durationSec = args.duration ? Number(args.duration) : null;
 
 const url = `ws://${host}:${port}/ws`;
 const httpBase = `http://${host}:${port}`;
-// Companion file holding the track outline the web app normally fetches from
-// the bridge's HTTP API; in demo mode there is no bridge, so TrackMap reads
-// this instead.
 const mapOutPath = outPath.replace(/\.json$/i, "") + ".map.json";
 const recording: Recording = [];
 let mapAssets: { meta: unknown; edges: unknown } | null = null;
@@ -149,11 +141,10 @@ socket.on("error", (err) => {
 const shutdown = (): void => {
   console.log("\n[record] stopping…");
   socket.close();
-  // Fallback in case close never fires.
   setTimeout(() => {
     write();
     process.exit(0);
-  }, 500);
+  }, CLOSE_TIMEOUT_MS);
 };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

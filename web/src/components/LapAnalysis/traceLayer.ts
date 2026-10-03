@@ -29,8 +29,6 @@ import {
 } from "./constants";
 
 export const createTraceLayer = (canvas: HTMLCanvasElement) => {
-  // Offscreen trace layer: rebuilt only when selection/reference/recordings
-  // change, so a scrub frame is a blit plus the cursor overlay.
   const traceLayer = document.createElement("canvas");
   const traceCtx = traceLayer.getContext("2d");
   if (!traceCtx) return null;
@@ -39,7 +37,7 @@ export const createTraceLayer = (canvas: HTMLCanvasElement) => {
     rec: LapRecording,
     width: number,
     strip: Strip,
-    value: (s: LapTelemetrySample) => number, // normalized 0..1
+    value: (s: LapTelemetrySample) => number,
     color: string,
     lineWidth: number,
   ) => {
@@ -79,8 +77,6 @@ export const createTraceLayer = (canvas: HTMLCanvasElement) => {
       const owner = owners[i];
       const x0 = plotX(i / SECTOR_COUNT, width);
       const x1 = plotX((i + 1) / SECTOR_COUNT, width);
-      // The last slice keeps its full width so the ribbon ends flush with
-      // the traces above it.
       const gap = i === SECTOR_COUNT - 1 ? 0 : SLICE_GAP;
       const w = x1 - x0 - gap;
       traceCtx.fillStyle = owner === null ? SLICE_UNOWNED : lapColor(owner.lap);
@@ -154,8 +150,6 @@ export const createTraceLayer = (canvas: HTMLCanvasElement) => {
     tracePolyline(sel, width, strips.pedals, (s) => s.gas, THROTTLE_TRACE, 1.5);
     tracePolyline(sel, width, strips.pedals, (s) => s.brake, BRAKE_TRACE, 1.5);
 
-    // Delta: selected minus reference at each selected sample's position.
-    // Losing time sinks below the zero line (red); gaining rises (green).
     let deltaRange = MIN_DELTA_RANGE_MS;
     const deltas: (number | null)[] = ref
       ? sel.samples.map((s) => {
@@ -213,8 +207,6 @@ export const createTraceLayer = (canvas: HTMLCanvasElement) => {
       width - PAD_X,
       strips.speed.top - 4,
     );
-    // With every complete lap cut there is no reference at all, and the
-    // delta strip is a bare zero line that reads as broken without this.
     traceCtx.fillText(
       ref ? `±${(deltaRange / 1000).toFixed(1)}s` : "no valid reference",
       width - PAD_X,

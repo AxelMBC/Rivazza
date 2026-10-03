@@ -80,7 +80,6 @@ export class ACClient extends EventEmitter<ACClientEvents> {
     }
   };
 
-  // No packets for a while means the session ended; AC won't tell us.
   private touchStaleTimer = (): void => {
     if (this.staleTimer) clearTimeout(this.staleTimer);
     this.staleTimer = setTimeout(() => {

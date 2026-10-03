@@ -3,16 +3,9 @@ import { SECTOR_COUNT } from "../../lib/lapAnalysis";
 import { VIEW_MARGIN } from "./constants";
 import type { MapData } from "./useTrackMapData";
 
-// A world point plus a unit direction pointing off the track. Projecting the
-// direction turns it into a screen offset that holds at any zoom.
 export type Anchor = { x: number; z: number; dx: number; dz: number };
 export type View = { cx: number; cz: number; ex: number; ez: number };
 
-// Index runs of the edge polylines, one per sector, from the normalized
-// positions the bridge ships with the edges. Adjacent runs share their
-// boundary vertex so the strokes meet with no seam; on a closed circuit the
-// last run wraps back to vertex 0. Positions are monotonic, so one pass finds
-// every run's start.
 const sectorVertexRuns = (
   pos: readonly number[],
   count: number,
@@ -37,11 +30,7 @@ const sectorVertexRuns = (
 
 export const buildTrackGeometry = (mapData: MapData | null) => {
   const edges = mapData?.edges ?? null;
-  // Track edges without map.ini: the ribbon's world bounds (plus margin)
-  // fix the viewport — the same never-moving guarantee as the metadata fit.
   let edgeView: View | null = null;
-  // The centre is also what decides which way a sector label faces, so the
-  // bounds are taken whenever edges exist, not only in the no-metadata case.
   let edgeCentre: { x: number; z: number } | null = null;
   if (edges) {
     let minX = Infinity;
@@ -66,7 +55,6 @@ export const buildTrackGeometry = (mapData: MapData | null) => {
       };
   }
 
-  // Static world-space ribbon geometry, built once per map.
   const traceInto = (
     path: Path2D,
     line: [number, number][],
@@ -84,11 +72,9 @@ export const buildTrackGeometry = (mapData: MapData | null) => {
   let sectorLabels: (Anchor | null)[] = [];
   let sectorTicks: (Anchor | null)[][] = [];
   if (edges) {
-    // Closed circuits fill as an annulus: the two edge rings run in
-    // opposite directions, so the nonzero rule leaves the infield empty.
-    // Open splines (hillclimbs) fill as a single strip.
     edgesFill = new Path2D();
     if (edges.closed) {
+      // Opposite-direction rings leave the infield empty under the nonzero rule.
       traceInto(edgesFill, edges.left, false, true);
       edgesFill.closePath();
       traceInto(edgesFill, edges.right, true, true);
@@ -113,11 +99,6 @@ export const buildTrackGeometry = (mapData: MapData | null) => {
       right: traceRun(edges.right, run),
     }));
 
-    // Anchors carry a world-unit direction pointing off the track, which
-    // projecting turns into a fixed screen offset at any zoom. Both edges at
-    // a sector's first vertex give the boundary ticks; the mid vertex of
-    // whichever edge faces away from the track's centre gives the label, so
-    // all eight land outside the circuit rather than some in the infield.
     const centre = edgeCentre;
     const anchorAt = (i: number, side: "left" | "right"): Anchor | null => {
       const [lx, lz] = edges.left[i];

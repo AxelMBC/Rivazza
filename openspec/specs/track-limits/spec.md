@@ -17,7 +17,7 @@ DPR) changes, or when the sector ownership the labels name changes. Driving-line
 render above the ribbon unchanged. When no edge data is available the map SHALL render
 exactly as before this capability.
 
-The edge strokes SHALL remain a single neutral tone and SHALL stay thin: they mark where the track ends, and any lap-identity color or extra width there competes with the driving lines they sit beneath. Sector boundaries SHALL be marked only outward of the edges, leaving both the asphalt and the strokes themselves clear. The edge polylines SHALL carry the normalized track position of each vertex, which is what allows a sector boundary to be located on the track's real geometry rather than approximated from a driven line.
+The edge strokes SHALL remain a single neutral tone and SHALL stay thin: they mark where the track ends, and any lap-identity color or extra width there competes with the driving lines they sit beneath. Sector boundaries SHALL be marked only outward of the edges, leaving both the asphalt and the strokes themselves clear. The edge polylines SHALL carry the normalized track position of each vertex, which is what allows a sector boundary to be located on the track's real geometry rather than approximated from a driven line. The web app fetches edge data from the bridge on every session change rather than trusting session flags, so a page holding a stale session still picks up edges the bridge has since resolved.
 
 #### Scenario: Ribbon under the lines
 - **WHEN** driving on a track with resolved edges

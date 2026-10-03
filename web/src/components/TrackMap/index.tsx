@@ -118,8 +118,6 @@ export const TrackMap = ({
       sectorTicks,
     } = buildTrackGeometry(mapData);
 
-    // The inset as last painted, null while hidden. Handlers hit-test against
-    // this, so the hit area is always exactly what is on screen.
     const insetRef: React.RefObject<Inset | null> = { current: null };
     const { followCamera, navCamera, dotWorld, followAnimating, navAnimating } =
       createCamera({
@@ -207,12 +205,6 @@ export const TrackMap = ({
     ) => {
       const hit = hitTestLaps(project);
       setCursor(hit.nearest >= 0 ? "pointer" : "default");
-      // The focused lap: cursor on its line, else its row hovered in the
-      // session-lap list, else the open analysis panel's selection. Whatever
-      // focused it, the treatment is identical — the line leaves the cached
-      // layer and redraws ON TOP with the emphasis stroke (a lap being
-      // inspected must never sit buried under later laps), and its brake
-      // ticks and cut markers reveal.
       const laps = previousLapsRef.current;
       let focus = hit.nearest;
       if (focus < 0) {
@@ -226,8 +218,6 @@ export const TrackMap = ({
       blitLayer(currentLayer);
       drawCurrentTail(project);
       if (focus >= 0) {
-        // Emphasis keeps the lap's identity color: thicker + full opacity
-        // (grey laps brighten to solid white) instead of a separate hue.
         const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
         const entry = laps[focus];
         const color =
@@ -245,9 +235,6 @@ export const TrackMap = ({
       drawScrubSector(project, affineOf(project), dpr);
       drawCutMarkers(project, focus);
       drawScrubMarker(project);
-      // Line-hover echo: a colored ring snapped to the nearest point on the
-      // hovered/tapped line — the direct-map twin of the scrub ring. Same
-      // pointer state on desktop (mouse) and mobile (a tap parks mouseRef).
       if (hit.marker) {
         const { px, py } = project(hit.marker);
         drawRing(px, py, hit.marker.color);
@@ -255,10 +242,6 @@ export const TrackMap = ({
       if (hit.nearest >= 0) drawHoverReadout(hit);
     };
 
-    // Keep the DOM legend in sync with the colored laps. Times can arrive a
-    // few frames after a lap completes (the lap log waits for a fresh
-    // lastLapMs), so the entries are rebuilt each frame and pushed to React
-    // state only when their key actually changes.
     const syncLegend = () => {
       const laps = previousLapsRef.current;
       const entries = laps
@@ -285,9 +268,6 @@ export const TrackMap = ({
     const showsInset = () =>
       zoomRef.current.level >= INSET_MIN_LEVEL && !cameraDrivesView();
 
-    // Dirty gating: repaint only when something rendered actually changed.
-    // Telemetry frames, mouse positions, and zoom states are fresh objects on
-    // every change, so identity comparison is a faithful change detector.
     let lastFrame: TelemetryFrame | null = null;
     let lastMouse: { x: number; y: number } | null = null;
     let lastZoom = zoomRef.current;
@@ -301,21 +281,16 @@ export const TrackMap = ({
     let lastH = 0;
     let lastDpr = 0;
     let firstDraw = true;
-    // Fallback mode keeps repainting while the auto-fit viewport eases.
-    let easing = false;
+    let fallbackEasing = false;
     let lastFollow: FollowState = followRef.current;
-    // A wheel/pinch retarget changes only the target window — nothing else the
-    // gate watches — and the gate runs *before* followCamera, so without this
-    // term the camera wouldn't run and the retarget would sit inert on an
-    // otherwise-idle frame (stationary car, no new telemetry, parked cursor).
     let lastFollowWindow = followWindowRef.current;
     let lastNav = navRef.current;
 
     let lastTickAt = performance.now();
     const draw = () => {
       rafId = requestAnimationFrame(draw);
-      // Wall-clock step for the time-based camera easing; capped so a
-      // background tab doesn't turn into one giant leap on return.
+      // Capped: rAF pauses in a background tab, so the first step back
+      // would otherwise be one giant leap.
       const tickAt = performance.now();
       const dt = Math.min(0.1, (tickAt - lastTickAt) / 1000);
       lastTickAt = tickAt;
@@ -341,7 +316,7 @@ export const TrackMap = ({
       const nav = navRef.current;
       const dirty =
         firstDraw ||
-        easing ||
+        fallbackEasing ||
         followAnimating() ||
         navAnimating() ||
         nav !== lastNav ||
@@ -396,7 +371,7 @@ export const TrackMap = ({
           ? { mode: "e", base: viewProjection(edgeView, width, height) }
           : null;
       if (fixedFit) {
-        easing = false;
+        fallbackEasing = false;
         const { base } = fixedFit;
         followCamera(base, width, height, dt);
         navCamera(width, height, dt);
@@ -404,7 +379,6 @@ export const TrackMap = ({
         const zm = zoomRef.current;
         insetRef.current = showsInset() ? insetRect(width, height) : null;
 
-        // Everything the projection depends on — a change invalidates layers.
         const fitKey = `${fixedFit.mode}|${width}x${height}@${dpr}`;
         const projKey = `${fitKey}|${zm.level},${zm.ox},${zm.oy}`;
         renderTrackLayer(project, projKey, width, height, dpr);
@@ -414,15 +388,10 @@ export const TrackMap = ({
         return;
       }
 
-      // No map data at all for this track: auto-fit the driven lines. The
-      // viewport eases toward the (margin-padded) bounds so the first lap
-      // doesn't pin the car dot against the canvas edges while the extent is
-      // still growing.
-      if (
-        !frame ||
-        (currentRef.current.length < 2 && previousLapsRef.current.length === 0)
-      ) {
-        easing = false;
+      const nothingDrivenYet =
+        currentRef.current.length < 2 && previousLapsRef.current.length === 0;
+      if (!frame || nothingDrivenYet) {
+        fallbackEasing = false;
         return;
       }
       const { view, easing: stillEasing } = easeView(
@@ -433,9 +402,7 @@ export const TrackMap = ({
           previousLapsRef.current.length === 0,
         ),
       );
-      easing = stillEasing;
-      // User zoom multiplies the eased auto-fit view; at 1× the automatic
-      // camera behaves exactly as before.
+      fallbackEasing = stillEasing;
       const base = viewProjection(view, width, height);
       followCamera(base, width, height, dt);
       const project: Project = zoomed(base, zoomRef);

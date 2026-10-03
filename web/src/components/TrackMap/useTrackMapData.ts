@@ -11,7 +11,6 @@ const probe = async <T>(url: string): Promise<T | null> => {
     const res = await fetch(url);
     return res.ok ? ((await res.json()) as T) : null;
   } catch {
-    // bridge unreachable; treated as no map data
     return null;
   }
 };
@@ -24,12 +23,8 @@ export const useTrackMapData = (session: SessionInfo) => {
     setMapData(null);
     setMapProbed(false);
 
-    // Always probe the bridge instead of trusting session flags — a page
-    // holding a stale session must still pick up bounds the bridge has now.
     let cancelled = false;
     const load = async () => {
-      // Demo mode has no bridge: the outline is a static file recorded next to
-      // the session (see lib/demo.ts). Everything downstream is identical.
       if (IS_DEMO) {
         const data = await probe<MapData>(DEMO_MAP_URL);
         if (cancelled) return;

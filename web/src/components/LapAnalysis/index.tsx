@@ -28,10 +28,7 @@ type Props = {
   recordingsRef: React.RefObject<LapRecording[]>;
   version: number;
   lapsRef: React.RefObject<LapRecord[]>;
-  // Written while scrubbing the traces; the track map echoes the point.
   scrubRef: React.RefObject<ScrubPoint | null>;
-  // The panel's selected lap while the panel is open (display lap number),
-  // null otherwise — the track map reveals that lap's braking ticks.
   analysisLapRef: React.RefObject<number | null>;
 };
 
@@ -43,17 +40,11 @@ export const LapAnalysis = ({
   analysisLapRef,
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  // null = follow the most recent complete lap until a chip is hovered.
   const [selectedLap, setSelectedLap] = useState<number | null>(null);
-  // Mirrors the hover-reveal so the selected lap's brake ticks only show on
-  // the map while the panel is actually on screen.
   const [open, setOpen] = useState(false);
 
   const recordings = recordingsRef.current;
   const laps = lapsRef.current;
-  // Every complete lap is reviewable, cut ones included — a lap the game threw
-  // out is where the driver went faster and where they went off, which is worth
-  // more than it costs. Invalidity is marked, never filtered.
   const invalidLaps = new Set(laps.filter((l) => l.invalid).map((l) => l.lap));
   const reviewableLaps = recordings.filter((r) => r.complete);
   const reference = resolveReference(recordings, laps);
@@ -63,10 +54,6 @@ export const LapAnalysis = ({
       ? reviewableLaps.find((r) => r.lap === selectedLap)
       : undefined) ?? latest;
 
-  // A sticky selection falls back to follow-latest when its recording is
-  // evicted by the lap cap or cleared by a reset — but not when the lap is
-  // invalidated, which now leaves it selected. (Render-time resolution above
-  // already falls back; this clears the stale state.)
   useEffect(() => {
     if (
       selectedLap !== null &&
@@ -75,7 +62,6 @@ export const LapAnalysis = ({
       setSelectedLap(null);
   }, [version, selectedLap, recordingsRef]);
 
-  // Publish the focused lap for the map's brake ticks — only while open.
   useEffect(() => {
     analysisLapRef.current = open && selected ? selected.lap : null;
     return () => {
@@ -83,12 +69,6 @@ export const LapAnalysis = ({
     };
   }, [open, selected, analysisLapRef]);
 
-  // Both sector tables are derived on every render, not memoized by the
-  // recording version: a lap's invalid flag can land in the lap log a few
-  // frames after the recording is stored, and a memo keyed on the version
-  // would keep crediting a cut lap with best sectors (and a theoretical
-  // best) until the next lap completes. The math is a few hundred
-  // interpolations — negligible at the 30 Hz render rate.
   const theoreticalMs = theoreticalBestMs(
     bestSectors(recordings, laps, SECTOR_COUNT),
   );
@@ -113,8 +93,6 @@ export const LapAnalysis = ({
     if (!traces) return;
     let rafId = 0;
 
-    // Dirty-gated rAF: repaint only when selection, reference, recordings
-    // version, scrub position, or canvas size actually changed.
     let lastSel: LapRecording | null = null;
     let lastRef: LapRecording | null = null;
     let lastVersion = -1;
@@ -203,8 +181,6 @@ export const LapAnalysis = ({
   }, [scrubRef]);
 
   const selectedInvalid = selected !== null && invalidLaps.has(selected.lap);
-  // Session best is strictly the fastest VALID lap in the log — an invalid
-  // lap must never be presented as "best", even when its raw time is lower.
   const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
   const sessionBestMs = validTimes.length > 0 ? Math.min(...validTimes) : null;
 

@@ -25,7 +25,7 @@ Whenever `map.ini` metadata is available (`boundsAvailable`), the track map SHAL
 - **THEN** the map image is not fetched or drawn; only the track-limits ribbon (if edges resolved), the metadata-projected driven lines, and the car dot appear
 
 ### Requirement: Heuristic camera only without bounds data
-The anchored, zoomed-out heuristic camera SHALL be used only when neither `map.ini` metadata nor track-edge data exists for the track, and the on-canvas note SHALL distinguish this case (drawing blind) from the bounds-known case (map metadata missing but scale known). The heuristic camera's projection SHALL use the same world-to-screen handedness as the `map.ini` transform — world +Z maps down-screen — so the driven line is never mirrored relative to the other rendering modes and turn direction on the map always matches turn direction in the car.
+The anchored, zoomed-out heuristic camera SHALL be used only when neither `map.ini` metadata nor track-edge data exists for the track, and the on-canvas note SHALL distinguish this case (drawing blind) from the bounds-known case (map metadata missing but scale known). The heuristic camera's projection SHALL use the same world-to-screen handedness as the `map.ini` transform — world +Z maps down-screen — so the driven line is never mirrored relative to the other rendering modes and turn direction on the map always matches turn direction in the car. Until the first lap completes the track's shape is unknown, so the heuristic camera stays anchored on the starting point at a zoomed-out scale, widening (never tightening) only if the driven line outgrows it.
 
 #### Scenario: Mod track without any map data
 - **WHEN** a session starts on a track with no `map.png`, no `map.ini`, and no usable `ai/fast_lane.ai`

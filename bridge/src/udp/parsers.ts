@@ -19,8 +19,11 @@ export const OperationId = {
   DISMISS: 3,
 } as const;
 
-// AC's UTF-16LE strings are fixed 50-wchar buffers that keep garbage after the
-// terminator (often a stray '%' or control bytes), so cut at the first control character or '%'.
+const DEVICE_IDENTIFIER = 1;
+const PROTOCOL_VERSION = 1;
+
+// AC's fixed 50-wchar UTF-16LE buffers keep garbage after the terminator,
+// often a stray '%' or control bytes.
 const readWideString = (buf: Buffer, offset: number, wchars = 50): string => {
   const raw = buf.toString("utf16le", offset, offset + wchars * 2);
   let end = raw.length;
@@ -36,8 +39,8 @@ const readWideString = (buf: Buffer, offset: number, wchars = 50): string => {
 
 export const buildHandshakePacket = (operationId: number): Buffer => {
   const buf = Buffer.alloc(12);
-  buf.writeInt32LE(1, 0); // identifier (platform)
-  buf.writeInt32LE(1, 4); // version
+  buf.writeInt32LE(DEVICE_IDENTIFIER, 0);
+  buf.writeInt32LE(PROTOCOL_VERSION, 4);
   buf.writeInt32LE(operationId, 8);
   return buf;
 };
@@ -54,7 +57,6 @@ export const parseHandshakerResponse = (buf: Buffer): HandshakerResponse => ({
 const readBool = (buf: Buffer, offset: number): boolean =>
   buf.readUInt8(offset) !== 0;
 
-// float[4] wheel block, ordered FL, FR, RL, RR.
 const readWheels = (buf: Buffer, offset: number): number[] => [
   buf.readFloatLE(offset),
   buf.readFloatLE(offset + 4),

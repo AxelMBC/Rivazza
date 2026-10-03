@@ -8,8 +8,7 @@ import type { MapMeta, TrackEdges } from "@rivazza/protocol";
 // count (must equal the point count), then count 72-byte extra records of
 // 18 floats where float [5] is sideLeft and [6] is sideRight — the measured
 // distances from the spline to the track edges. A grid lookup section
-// follows; it is ignored. Same garbage-tolerant philosophy as parsers.ts:
-// bad content never throws, it just yields no edges.
+// follows; it is ignored.
 const AI_VERSION = 7;
 const HEADER_SIZE = 16;
 const POINT_SIZE = 20;
@@ -17,13 +16,13 @@ const EXTRA_SIZE = 72;
 const SIDE_LEFT_OFFSET = 5 * 4;
 const SIDE_RIGHT_OFFSET = 6 * 4;
 
-const MAX_SIDE = 50; // m — hard clamp against garbage side values
-const MIN_POINTS = 50; // fewer can't describe a track (drift ships a 12-byte stub)
-const MIN_USABLE_RATIO = 0.7; // points that must have a positive track width
-const MIN_IN_BOUNDS_RATIO = 0.8; // spline points that must sit inside the map.ini world rect
-const BOUNDS_MARGIN = 0.1; // slack around the map.ini rect for the cross-check
-const CLOSED_GAP = 30; // m — endpoints closer than this make a closed loop
-const MIN_WIDTH = 0.5; // m — below this a point counts as width-less
+const MAX_SIDE_M = 50;
+const MIN_POINTS = 50; // AC's drift track ships a 12-byte stub
+const MIN_USABLE_RATIO = 0.7;
+const MIN_IN_BOUNDS_RATIO = 0.8;
+const BOUNDS_MARGIN = 0.1;
+const CLOSED_GAP_M = 30;
+const MIN_WIDTH_M = 0.5;
 
 type SplinePoint = {
   x: number;
@@ -32,8 +31,6 @@ type SplinePoint = {
   sideRight: number;
 };
 
-// Median-of-3 kills isolated one-point spikes in the side data without
-// flattening genuinely wide sections (drag strips, merge areas).
 const median3 = (values: number[]): number[] =>
   values.map((v, i) => {
     const a = values[Math.max(0, i - 1)];
@@ -43,8 +40,7 @@ const median3 = (values: number[]): number[] =>
 
 const roundCm = (v: number): number => Math.round(v * 100) / 100;
 
-// 1e-5 of a lap is ~5 cm on a 5 km circuit — finer than the map can draw, and
-// far finer than a sector boundary needs.
+// 1e-5 of a lap is ~5 cm on a 5 km circuit, below what the map can draw.
 const POS_PRECISION = 1e5;
 
 const parseSpline = (buf: Buffer): SplinePoint[] | null => {
@@ -63,7 +59,7 @@ const parseSpline = (buf: Buffer): SplinePoint[] | null => {
     const p = HEADER_SIZE + i * POINT_SIZE;
     const e = extraCountOffset + 4 + i * EXTRA_SIZE;
     const clamp = (v: number) =>
-      Number.isFinite(v) ? Math.min(MAX_SIDE, Math.max(0, v)) : 0;
+      Number.isFinite(v) ? Math.min(MAX_SIDE_M, Math.max(0, v)) : 0;
     lefts[i] = clamp(buf.readFloatLE(e + SIDE_LEFT_OFFSET));
     rights[i] = clamp(buf.readFloatLE(e + SIDE_RIGHT_OFFSET));
     points[i] = {
@@ -84,8 +80,7 @@ const parseSpline = (buf: Buffer): SplinePoint[] | null => {
   return points;
 };
 
-// A mod track can ship a fast_lane.ai copied verbatim from another track;
-// its coordinates then live in a different world region than the map.
+// Mod tracks sometimes ship a fast_lane.ai copied from another track.
 const insideMapBounds = (points: SplinePoint[], meta: MapMeta): boolean => {
   const spanX = meta.width * meta.scaleFactor;
   const spanZ = meta.height * meta.scaleFactor;
@@ -116,7 +111,7 @@ export const resolveTrackEdges = (
     return null;
   }
   const usable = points.filter(
-    (p) => p.sideLeft + p.sideRight > MIN_WIDTH,
+    (p) => p.sideLeft + p.sideRight > MIN_WIDTH_M,
   ).length;
   if (usable / points.length < MIN_USABLE_RATIO) {
     console.warn(
@@ -134,19 +129,14 @@ export const resolveTrackEdges = (
   const n = points.length;
   const first = points[0];
   const last = points[n - 1];
-  const closed = Math.hypot(first.x - last.x, first.z - last.z) < CLOSED_GAP;
+  const closed = Math.hypot(first.x - last.x, first.z - last.z) < CLOSED_GAP_M;
 
   const left: [number, number][] = new Array(n);
   const right: [number, number][] = new Array(n);
-  // Cumulative chord length, the basis for each vertex's normalized track
-  // position. The point record also carries AC's own `length` field, but it is
-  // as corruptible as every other field here and would need its own
-  // monotonicity checks plus this exact derivation as a fallback — so this is
-  // the derivation, with nothing in front of it. At AC's spline density the
-  // chord sum tracks arc length to well under the sample spacing.
+  // AC's own `length` field is as corruptible as the rest of the record, so
+  // track position comes from the cumulative chord length instead.
   const cum: number[] = new Array(n);
-  // Driver-left in world XZ is (dz, -dx) for unit travel direction (dx, dz);
-  // validated empirically (racing lines hug the inside edge at apexes).
+  // Driver-left is (dz, -dx), validated empirically against AC's world axes.
   let dx = 1;
   let dz = 0;
   for (let i = 0; i < n; i++) {
@@ -169,8 +159,6 @@ export const resolveTrackEdges = (
       roundCm(p.z + dx * p.sideRight),
     ];
   }
-  // A closed circuit's last segment runs back to point 0, so the lap is longer
-  // than the last cumulative value by exactly that leg.
   const total = closed
     ? cum[n - 1] + Math.hypot(first.x - last.x, first.z - last.z)
     : cum[n - 1];

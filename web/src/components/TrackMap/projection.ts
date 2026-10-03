@@ -8,9 +8,6 @@ import type { View } from "./trackGeometry";
 export type Projected = { px: number; py: number };
 export type Project = (p: { x: number; z: number }) => Projected;
 
-// Screen-space zoom over a base fit projection. Points (not the canvas
-// transform) are scaled, so stroke widths, the dot radius, and the hover
-// pick radius stay constant in screen pixels at every zoom level.
 export const zoomed =
   (base: Project, zoomRef: React.RefObject<Zoom>): Project =>
   (p) => {
@@ -19,12 +16,6 @@ export const zoomed =
     return { px: px * zm.level + zm.ox, py: py * zm.level + zm.oy };
   };
 
-// Every projection here is a uniform-scale, axis-aligned affine map
-// (px = k·x + tx, py = k·z + ty), so world-space Path2D geometry renders
-// in one native stroke under the canvas transform instead of a JS loop
-// per point — the flat per-frame cost that keeps a moving camera at
-// 60 fps. The coefficients are read off the live projection numerically
-// so this works identically in all three modes at any zoom state.
 export type Affine = { k: number; tx: number; ty: number };
 export const affineOf = (project: Project): Affine => {
   const o = project({ x: 0, z: 0 });
@@ -32,8 +23,6 @@ export const affineOf = (project: Project): Affine => {
   return { k: u.px - o.px, tx: o.px, ty: o.py };
 };
 
-// Stroke widths divide by the scale so they stay constant in screen
-// pixels at every zoom level — same guarantee as point-space rendering.
 export const strokeWorldPath = (
   target: CanvasRenderingContext2D,
   path: Path2D,
@@ -52,8 +41,6 @@ export const strokeWorldPath = (
   target.restore();
 };
 
-// World-space lap line, jumps as subpath breaks. Built once per lap and
-// reused at every zoom and camera state.
 export const buildLapPath = (samples: Sample[]): Path2D => {
   const path = new Path2D();
   samples.forEach((s, i) => {
@@ -63,9 +50,6 @@ export const buildLapPath = (samples: Sample[]): Path2D => {
   return path;
 };
 
-// map.ini pixel dimensions fix the viewport, so the framing is identical from
-// the very first frame. World (x, z) -> map.ini pixel space -> normalized ->
-// canvas.
 export const metaProjection = (
   meta: MapMeta,
   width: number,
@@ -88,10 +72,6 @@ export const metaProjection = (
   });
 };
 
-// A world-space view fitted to the canvas: the edge ribbon's fixed bounds, or
-// the driven lines' eased bounds when the track has no map data. World +Z maps
-// down-screen — the same handedness as the map.ini projection, so turn
-// direction is never mirrored between modes.
 export const viewProjection = (
   view: View,
   width: number,

@@ -19,10 +19,8 @@ export const createFrameThrottle = (
     if (!frameDirty || !latestFrame) return;
     const now = performance.now();
     if (now < nextDueAt) return;
-    // Catch up in interval steps while roughly on schedule; re-anchor after a
-    // long gap so a pause doesn't buy a burst of back-to-back sends.
-    nextDueAt =
-      now - nextDueAt > intervalMs ? now + intervalMs : nextDueAt + intervalMs;
+    const resumingAfterGap = now - nextDueAt > intervalMs;
+    nextDueAt = resumingAfterGap ? now + intervalMs : nextDueAt + intervalMs;
     frameDirty = false;
     send(latestFrame);
   };

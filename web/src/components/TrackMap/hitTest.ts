@@ -13,6 +13,10 @@ import {
 } from "./palette";
 import type { Project } from "./projection";
 
+// Samples are ~1 m apart, so a stride of 3 stays faithful to the line
+// while keeping the scan cheap over a full session of laps.
+const PICK_STRIDE = 3;
+
 type HitTestDeps = {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
@@ -32,8 +36,6 @@ export const createHitTest = ({
   insetRef,
   cameraDrivesView,
 }: HitTestDeps) => {
-  // Samples are ~1 m apart, so point distance is a faithful line distance;
-  // stepping by 3 keeps the scan cheap even with a full session of laps.
   type HoverRow = {
     lap: number;
     color: string;
@@ -42,8 +44,6 @@ export const createHitTest = ({
     brake: number;
     gear: number;
   };
-  // `marker` is the point on the nearest line closest to the cursor, in that
-  // line's rendered color — the ring echo that mirrors the analysis scrub.
   type HitResult = {
     nearest: number;
     rows: HoverRow[];
@@ -53,12 +53,6 @@ export const createHitTest = ({
   const hitTestLaps = (project: Project): HitResult => {
     const m = mouseRef.current;
     const laps = previousLapsRef.current;
-    // Follow mode picks nothing. The map sweeps under a parked cursor there,
-    // so lines pick *themselves* as the car drives past, and with more than
-    // one stored lap the readout, ring and emphasis thrash on every frame.
-    // Inspection while following goes through the analysis panel and the
-    // session lap list instead — their selections still reveal below, since
-    // they name a lap deliberately rather than catching whatever swept past.
     if (
       !m ||
       laps.length === 0 ||
@@ -74,7 +68,7 @@ export const createHitTest = ({
     laps.forEach(({ lap, samples }, index) => {
       let bestD = HOVER_RADIUS_SQ;
       let bestIdx = -1;
-      for (let i = 0; i < samples.length; i += 3) {
+      for (let i = 0; i < samples.length; i += PICK_STRIDE) {
         const { px, py } = project(samples[i]);
         const d = (px - m.x) ** 2 + (py - m.y) ** 2;
         if (d < bestD) {
@@ -86,8 +80,6 @@ export const createHitTest = ({
       if (bestD < nearestD) {
         nearestD = bestD;
         nearest = index;
-        // The ring keeps the same color the line takes when focused: its
-        // identity hue if colored, else the white grey-lap emphasis tone.
         const s = samples[bestIdx];
         marker = {
           x: s.x,
@@ -107,7 +99,7 @@ export const createHitTest = ({
         });
       }
     });
-    rows.reverse(); // laps store oldest-first; the readout lists newest first
+    rows.reverse();
     return { nearest, rows, marker };
   };
 

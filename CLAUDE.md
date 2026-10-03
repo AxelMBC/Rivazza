@@ -21,6 +21,9 @@ npm workspaces monorepo (`bridge`, `web`, plus the types-only `packages/protocol
 - `npm run dev:demo` — web app alone (:5173) replaying the committed recording; no bridge
 - `npm run build` — builds both workspaces
 - `npm run mock -w bridge` — fake AC on UDP 9996 streaming a car lapping Magione, for developing without the game. **Stop it before running the real game** (both bind 9996).
+- `npm run record -w bridge -- [--out web/public/demo/imola.json] [--host …] [--port 3001] [--duration <s>]` —
+  records the bridge's WebSocket stream (plus a `.map.json` track outline) for the demo build. Ctrl-C
+  or `--duration` ends it; the file is written on exit.
 - `npm run lint -w web` — oxlint (the only linter; the bridge has none)
 - `npm run build -w bridge` — bridge "build" is `tsc --noEmit` (type-check only; it runs via `tsx`, never compiled to JS)
 - `npm run build -w web` — `tsc -b && vite build`
@@ -148,8 +151,10 @@ Cross-cutting conventions live in `.claude/rules/`, loaded by Claude Code withou
 them there rather than restating them here:
 
 - **`git-workflow.md`** — commit format, the type→emoji table, branch creation. Loads every session.
-- **`code-style.md`** — comments, functions, imports, types and file layout, Tailwind tokens.
-  Loads only for `{bridge,web}/src/**`, `bridge/scripts/**` and `packages/*/src/**`.
+- **`comments.md`** — when a comment is allowed at all. Loads every session; the PostToolUse hook
+  `.claude/comment-check.ps1` flags each comment line an edit adds.
+- **`code-style.md`** — functions, imports, types and file layout, Tailwind tokens.
+  Loads only for `{bridge,web}/src/**`, `bridge/scripts/**`, `web/*.ts` and `packages/*/src/**`.
 - **`verification.md`** — what "verified" means in a repo with no test framework. Loads every session.
 
 Per-repo command configuration (branch conventions, the check commands `/opsx:verify` runs) is

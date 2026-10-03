@@ -46,8 +46,6 @@ wss.on("connection", (socket) => {
 const ac = new ACClient();
 
 ac.on("session", async (handshake) => {
-  // Layout resolution touches shared memory; a failure there must never take
-  // down the session and with it the UDP path.
   try {
     trackAssets = await resolveTrackAssetsForSession(
       handshake.trackName,

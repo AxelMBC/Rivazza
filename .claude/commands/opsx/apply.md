@@ -112,6 +112,8 @@ Implement tasks from an OpenSpec change.
    For each pending task:
    - Show which task is being worked on
    - Make the code changes required
+   - Add no comment that fails `.claude/rules/comments.md`'s test — a rationale the code can't carry
+     goes into the change's spec delta, not into the source
    - Keep changes minimal and focused
    - Mark task complete in the tasks file: `- [ ]` → `- [x]`
    - Continue to next task

@@ -2,25 +2,21 @@ import type { CutEvent, TelemetryFrame } from "@rivazza/protocol";
 import { useEffect, useRef } from "react";
 
 export type LapRecord = {
-  // Display lap number — matches the LAP tile convention (lapCount N completes "Lap N+1").
   lap: number;
   timeMs: number;
   invalid: boolean;
 };
 
-// The frame that increments lapCount may still carry the previous lap's
-// lastLapMs, so a completed lap is held pending until the value visibly
-// refreshes — or a few frames pass and the current value is trusted as-is
-// (covers back-to-back identical lap times).
 type PendingLap = {
   lap: number;
   pitDuring: boolean;
   cutDuring: boolean;
-  bestBefore: number; // bestLapMs in effect before the lap completed
-  lastLapBefore: number; // lastLapMs before the lap completed (staleness sentinel)
+  bestBefore: number;
+  lastLapBefore: number;
   framesWaited: number;
 };
 
+// Back-to-back identical lap times never visibly refresh lastLapMs.
 const PENDING_MAX_FRAMES = 3;
 
 export type LapHistory = {
@@ -41,8 +37,6 @@ export const useLapHistory = (
   const pitDuringRef = useRef(false);
   const pendingRef = useRef<PendingLap | null>(null);
   const cutDuringRef = useRef(false);
-  // Cuts are consumed incrementally; a replaced array identity (session
-  // change) restarts consumption from the top of the fresh list.
   const consumedCutsRef = useRef(0);
   const seenCutsRef = useRef<CutEvent[] | null>(null);
 
@@ -66,9 +60,6 @@ export const useLapHistory = (
     }
 
     const prevLap = lapCountRef.current;
-    // Same restart signature as the track map: AC's "restart session"
-    // doesn't re-handshake, so spot it by the lap counter or the current
-    // lap time running backwards.
     const restarted =
       prevLap !== null &&
       (telemetry.lapCount < prevLap ||
@@ -80,7 +71,6 @@ export const useLapHistory = (
       pitDuringRef.current = false;
       pendingRef.current = null;
       cutDuringRef.current = false;
-      // Unconsumed pre-restart cuts reference laps that no longer exist.
       consumedCutsRef.current = cuts.length;
     } else if (prevLap !== null && telemetry.lapCount > prevLap) {
       pendingRef.current = {
@@ -95,8 +85,6 @@ export const useLapHistory = (
       cutDuringRef.current = false;
     }
 
-    // A cut for the in-progress lap flags it live; one for a still-pending
-    // completed lap marks that record; anything else is a stale leftover.
     for (; consumedCutsRef.current < cuts.length; consumedCutsRef.current++) {
       const cut = cuts[consumedCutsRef.current];
       if (cut.lapCount === telemetry.lapCount) {
@@ -117,7 +105,6 @@ export const useLapHistory = (
           pending.framesWaited >= PENDING_MAX_FRAMES);
       if (fresh) {
         const timeMs = telemetry.lastLapMs;
-        // A would-be best the game didn't adopt means it rejected the lap.
         const wouldBeBest =
           pending.bestBefore <= 0 || timeMs < pending.bestBefore;
         const rejected = wouldBeBest && telemetry.bestLapMs !== timeMs;

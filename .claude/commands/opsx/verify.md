@@ -240,6 +240,21 @@ Finding nothing is also a result worth stating. This is the only point in the pi
 looks, so "scanned N new exports, no duplicates found" is information; silence is indistinguishable
 from not having run it.
 
+### Comment scan — the rule no linter enforces
+
+`.claude/rules/comments.md` has no automated check: tsc, oxlint and prettier all accept any
+comment. List every comment line the change adds:
+
+```bash
+git diff -U0 "origin/<git.default_base_branch>" -- bridge packages web/src web/*.ts \
+  | grep -E '^\+[^+]' | grep -E '^\+\s*(//|/\*|\*\s|\{/\*)|\S\s+//\s'
+```
+
+For each, apply the rule's test: can a reader recover it by reading the code harder? Report the
+ones that fail as `<path>:<line> — <comment> (restates code | belongs in spec | should be a
+named constant/predicate)`. Same posture as the duplication scan: **report, never fail, never
+fix**, and "N added comments, all load-bearing" is a result worth stating.
+
 The point is that "verified" never quietly means "the part a type-checker could reach passed." A
 green run with three open manual checks is a real and useful result — as long as the three are
 named.
@@ -331,6 +346,7 @@ VERIFY PASSED
   Format:      ✓ prettier --check
   Spec deltas: ✓ valid
   Duplication: ✓ <N> new exports scanned, none duplicated
+  Comments:    ✓ <N> added, all load-bearing
 
   Manual checks still open — not run by this command:
     □ <item>

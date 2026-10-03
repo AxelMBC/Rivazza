@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-// Angles are measured from 12 o'clock: the sweep runs bottom-left to bottom-right.
 const CX = 100;
 const CY = 100;
 const START_DEG = -120;
@@ -76,7 +75,6 @@ export const AnalogGauge = ({
   return (
     <div className="relative">
       <svg viewBox="0 0 200 200" className="h-auto w-full">
-        {/* Bezel ring and dark face */}
         <circle
           cx={CX}
           cy={CY}
@@ -102,7 +100,6 @@ export const AnalogGauge = ({
           strokeWidth={1}
         />
 
-        {/* Redline arc */}
         {redlineFrom !== undefined && (
           <path
             d={arcPath(
@@ -117,7 +114,6 @@ export const AnalogGauge = ({
           />
         )}
 
-        {/* Minor ticks */}
         {minorAngles.map((angle) => (
           <line
             key={angle}
@@ -127,7 +123,6 @@ export const AnalogGauge = ({
           />
         ))}
 
-        {/* Major ticks and numerals */}
         {majorValues.map((v) => {
           const angle = valueToAngle(v);
           const numeral = polarToCartesian(angle, NUMERAL_RADIUS);
@@ -159,7 +154,6 @@ export const AnalogGauge = ({
           );
         })}
 
-        {/* Unit label on the upper face */}
         {label && (
           <text
             x={CX}
@@ -174,7 +168,7 @@ export const AnalogGauge = ({
           </text>
         )}
 
-        {/* Needle: CSS transform so transitions interpolate between frames */}
+        {/* CSS transform, not the SVG attribute: only the former transitions */}
         <g
           className={flash ? "animate-pulse" : ""}
           style={{
@@ -191,7 +185,6 @@ export const AnalogGauge = ({
           />
         </g>
 
-        {/* Center hub */}
         <circle
           cx={CX}
           cy={CY}
@@ -203,7 +196,6 @@ export const AnalogGauge = ({
         <circle cx={CX} cy={CY} r={3} fill="var(--color-ink-muted)" />
       </svg>
 
-      {/* Lower-face window (odometer position) */}
       {children && (
         <div className="absolute left-1/2 top-[69%] -translate-x-1/2 -translate-y-1/2">
           {children}

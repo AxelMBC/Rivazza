@@ -51,8 +51,6 @@ export const drawScrubOverlay = (
   ctx.lineTo(x, bottom);
   ctx.stroke();
 
-  // The lap palette repeats every COLORED_LAPS laps, so past that the
-  // ribbon's colours alone cannot name a slice's owner.
   const owner = owners[slice];
   if (owner) {
     const head = `S${slice + 1} · Lap ${owner.lap} · `;

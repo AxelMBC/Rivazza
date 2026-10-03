@@ -77,9 +77,6 @@ export const createLayers = ({
   insetRef,
   dotWorld,
 }: LayerDeps) => {
-  // Offscreen layers so a typical frame is a few blits plus the segments
-  // added since the last one — instead of re-projecting and re-stroking
-  // every stored lap. All live only as long as this effect (mapData/session).
   const lapsLayer = document.createElement("canvas");
   const lapsLayerCtx = lapsLayer.getContext("2d");
   const currentLayer = document.createElement("canvas");
@@ -98,8 +95,6 @@ export const createLayers = ({
     }
   };
 
-  // Layers hold device pixels sized exactly like the main canvas, so they
-  // blit 1:1 in device space — pixel-identical to drawing directly.
   const blitLayer = (layer: HTMLCanvasElement) => {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -107,19 +102,12 @@ export const createLayers = ({
     ctx.restore();
   };
 
-  // Cache invalidation state. `appendedCount` is how many current-lap
-  // samples are already drawn into currentLayer.
   let lapsLayerKey = "";
   let currentLayerKey = "";
   let appendedCount = 0;
   let trackLayerKey = "";
   let insetLayerKey = "";
 
-  // The track-limits ribbon under everything else, and the sector division
-  // its edge strokes carry. Edge geometry is static for the session, so the
-  // layer re-renders only when the projection changes (zoom, resize, DPR) or
-  // when sector ownership does — a lap completing or being invalidated.
-  // Every other frame just re-blits it.
   const renderTrackLayer = (
     project: Project,
     projKey: string,
@@ -149,11 +137,6 @@ export const createLayers = ({
       trackLayerCtx.fill(edgesFill);
       trackLayerCtx.restore();
 
-      // The edge strokes are the actual track limits and stay neutral: a
-      // lap-identity hue here reads as another driving line and swamps the
-      // real ones. The division is carried by outward boundary ticks and by
-      // the labels, so nothing is drawn across the asphalt and the only
-      // saturated colour on the map is a lap's own line.
       sectorEdges.forEach((sector, s) => {
         for (const path of [sector.left, sector.right])
           strokeWorldPath(
@@ -178,8 +161,6 @@ export const createLayers = ({
     blitLayer(trackLayer);
   };
 
-  // All completed laps except the hovered one (kept out so the emphasis
-  // pass reproduces today's exact skip-and-redraw pixels).
   const renderLapsLayer = (
     project: Project,
     projKey: string,
@@ -195,7 +176,6 @@ export const createLayers = ({
     sizeLayer(lapsLayer, canvas.width, canvas.height);
     lapsLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     lapsLayerCtx.clearRect(0, 0, width, height);
-    // The most recent laps carry stable identity colors; older ones stay grey.
     const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
     const aff = affineOf(project);
     laps.forEach((entry, index) => {
@@ -213,17 +193,9 @@ export const createLayers = ({
     });
   };
 
-  // Current-lap geometry batched into one world-space Path2D per pedal
-  // color bucket — projection independent and append-only, so a moving
-  // camera restrokes a couple dozen cached paths instead of re-projecting
-  // and stroking every segment. `currentPathCount` is how many samples the
-  // buckets already contain.
   const currentPaths = new Map<number, Path2D>();
   let currentPathCount = 0;
 
-  // Current lap accumulates incrementally; a projection change (zoom,
-  // camera motion, resize) or shrink (rollover/reset) restrokes the cached
-  // bucket paths, while a same-projection frame appends only new segments.
   const renderCurrentLayer = (
     project: Project,
     projKey: string,
@@ -232,8 +204,6 @@ export const createLayers = ({
     dpr: number,
   ) => {
     const samples = currentRef.current;
-    // The newest TIP_HOLDBACK samples stay out of the layer — the live tip
-    // is drawn per frame by drawCurrentTail, clipped at the dot.
     const layerLen = Math.max(0, samples.length - TIP_HOLDBACK);
     if (layerLen < currentPathCount) {
       currentPaths.clear();
@@ -292,18 +262,12 @@ export const createLayers = ({
     appendedCount = layerLen;
   };
 
-  // The live tip of the current lap, drawn directly on the main canvas
-  // every repaint: the held-back samples, ending exactly at the dot. While
-  // following, the dot runs FOLLOW_DELAY_MS behind the raw stream, and
-  // without this clip the line pokes out ahead of it.
   const drawCurrentTail = (project: Project) => {
     const samples = currentRef.current;
     const frame = telemetryRef.current;
     if (!frame || samples.length === 0) return;
     const tip = dotWorld(frame);
     const from = Math.max(1, samples.length - TIP_HOLDBACK);
-    // Nearest held-back sample to the dot: segments beyond it are ahead of
-    // the dot and stay hidden (samples are ~1 m apart, so this is faithful).
     let end = samples.length - 1;
     let bestD = Infinity;
     for (let i = from - 1; i < samples.length; i++) {
@@ -336,8 +300,6 @@ export const createLayers = ({
     ctx.stroke();
   };
 
-  // The fit-framing track depiction, independent of zoom: zooming and
-  // gliding only re-blit it.
   const renderInsetLayer = (
     base: Project,
     fitKey: string,

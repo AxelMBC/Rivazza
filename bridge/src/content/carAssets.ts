@@ -3,8 +3,6 @@ import path from "node:path";
 
 import { AC_PATH } from "./acPath.js";
 
-// ui_car.json routinely carries raw control characters that make JSON.parse
-// throw, so the field is scanned out of the text rather than parsed.
 export const resolveCarTopSpeed = (carName: string): number | null => {
   const uiPath = path.join(
     AC_PATH,

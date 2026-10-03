@@ -2,13 +2,14 @@ import type { TelemetryFrame } from "@rivazza/protocol";
 import { useEffect, useRef } from "react";
 
 export type InputSample = {
-  t: number; // performance.now() at capture, ms
+  t: number;
   lateralG: number;
   longitudinalG: number;
 };
 
 const SMOOTHING_MS = 50;
-const CAPACITY = 60; // ~2s of samples at the ~30 Hz React state rate (see useTelemetry)
+// ~2 s at the ~30 Hz React state rate.
+const CAPACITY = 60;
 
 export const useInputHistory = (
   telemetry: TelemetryFrame | null,

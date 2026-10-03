@@ -61,9 +61,8 @@ export const resolveTrackAssets = (
     }
   }
 
-  // First existing fast_lane.ai wins with no fallthrough: on a multi-layout
-  // track the root spline describes a different layout, so a layout file that
-  // fails validation must not fall back to it.
+  // On a multi-layout track the root fast_lane.ai describes another layout,
+  // so a layout file that fails validation must not fall through to it.
   let edges: TrackEdges | null = null;
   for (const dir of candidates) {
     const aiPath = path.join(dir, "ai", "fast_lane.ai");
@@ -82,8 +81,8 @@ export const resolveTrackAssets = (
   return { meta, mapImagePath, edges };
 };
 
-// Multi-layout tracks (ks_highlands, ks_nurburgring, …) keep nothing at the
-// track root — every map.ini / fast_lane.ai lives under a per-layout folder.
+// Multi-layout tracks (ks_highlands, ks_nurburgring, …) keep every map.ini
+// and fast_lane.ai under a per-layout folder, nothing at the track root.
 const listTrackConfigs = (track: string): string[] => {
   const trackRoot = path.join(AC_PATH, "content", "tracks", track);
   let entries: fs.Dirent[];
@@ -102,11 +101,8 @@ const listTrackConfigs = (track: string): string[] => {
     );
 };
 
-// The static page's wchar fields are null-terminated, so tokens are matched
-// whole rather than as substrings: the layout "nordschleife" lives inside the
-// track id "ks_nordschleife", and a substring scan would wrongly resolve it
-// over the actually-loaded "endurance". Longest name first is only a
-// deterministic tie-break.
+// Whole-token match: the layout "nordschleife" is a substring of the track id
+// "ks_nordschleife", so a substring scan picks it over the loaded "endurance".
 const resolveLoadedLayout = async (
   configs: string[],
 ): Promise<string | null> => {

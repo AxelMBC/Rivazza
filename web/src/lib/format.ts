@@ -13,7 +13,6 @@ export const formatGear = (gear: number): string =>
 export const formatGearCompact = (gear: number): string =>
   gear >= 2 ? `G${gear - 1}` : formatGear(gear);
 
-// "ks_brands_hatch" -> "Brands Hatch"
 export const prettifyName = (id: string): string =>
   id
     .replace(/^ks_/, "")

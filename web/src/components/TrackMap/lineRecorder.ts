@@ -31,8 +31,6 @@ const freshBounds = () => ({
   maxZ: -Infinity,
 });
 
-// Line state outlives the render effect, which re-runs when map data arrives
-// mid-session: recreating the lap counter there would miss a lap completion.
 export const createLineRecorder = () => {
   const currentRef = { current: [] as Sample[] };
   const previousLapsRef = { current: [] as StoredLap[] };
@@ -45,8 +43,6 @@ export const createLineRecorder = () => {
   let lapTime = 0;
   let consumedCuts = 0;
   let seenCuts: CutEvent[] | null = null;
-  // Counts every mutation of previousLapsRef (push/shift/reset) because at
-  // MAX_LAPS a rollover keeps the array length constant.
   let lapsVersion = 0;
 
   const reset = () => {
@@ -59,14 +55,30 @@ export const createLineRecorder = () => {
     anchorRef.current = null;
   };
 
+  const attachNewCuts = (cutList: CutEvent[], lapCount: number) => {
+    if (cutList !== seenCuts) {
+      seenCuts = cutList;
+      consumedCuts = 0;
+    }
+    for (; consumedCuts < cutList.length; consumedCuts++) {
+      const cut = cutList[consumedCuts];
+      if (cut.lapCount === lapCount) {
+        currentCutRef.current ??= { x: cut.x, z: cut.z };
+      } else {
+        const stored = previousLapsRef.current.find(
+          (l) => l.lap === cut.lapCount + 1,
+        );
+        if (stored) stored.cut ??= { x: cut.x, z: cut.z };
+      }
+    }
+  };
+
   const ingest = (
     frame: TelemetryFrame,
     cutList: CutEvent[],
     onRestart: () => void,
   ) => {
     const prevLap = lap;
-    // AC's "restart session" doesn't re-handshake — spot it by the lap
-    // counter or the current lap time running backwards.
     const restarted =
       prevLap !== null &&
       (frame.lapCount < prevLap ||
@@ -74,11 +86,8 @@ export const createLineRecorder = () => {
     if (restarted) {
       onRestart();
       lapsVersion++;
-      // Unconsumed pre-restart cuts reference laps that no longer exist.
       consumedCuts = cutList.length;
     } else if (prevLap !== null && frame.lapCount > prevLap) {
-      // Lap finished: keep it among the grey reference lines underneath.
-      // Display convention matches the LAP tile: lapCount N is "Lap N+1".
       previousLapsRef.current.push({
         lap: prevLap + 1,
         samples: currentRef.current,
@@ -93,26 +102,7 @@ export const createLineRecorder = () => {
     lap = frame.lapCount;
     lapTime = frame.lapTimeMs;
 
-    // Attach newly arrived cuts: the in-progress lap takes the first one,
-    // a just-completed stored lap picks up a boundary straggler, and
-    // everything else is dropped — a later cut for a lap that already died
-    // (the tyres-out counter chatters across one excursion), or a
-    // pre-restart leftover matching no lap at all.
-    if (cutList !== seenCuts) {
-      seenCuts = cutList;
-      consumedCuts = 0;
-    }
-    for (; consumedCuts < cutList.length; consumedCuts++) {
-      const cut = cutList[consumedCuts];
-      if (cut.lapCount === frame.lapCount) {
-        currentCutRef.current ??= { x: cut.x, z: cut.z };
-      } else {
-        const stored = previousLapsRef.current.find(
-          (l) => l.lap === cut.lapCount + 1,
-        );
-        if (stored) stored.cut ??= { x: cut.x, z: cut.z };
-      }
-    }
+    attachNewCuts(cutList, frame.lapCount);
 
     const samples = currentRef.current;
     const last = samples[samples.length - 1];

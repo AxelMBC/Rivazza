@@ -1,5 +1,3 @@
-// Hues deliberately avoid the green / red / yellow reserved for the current
-// lap's pedal gradient.
 export const LAP_PALETTE = [
   "#3f8efc",
   "#a06bf5",
