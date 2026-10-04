@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import http from "node:http";
+import { pipeline } from "node:stream";
 
 import type { TrackAssets } from "./content/trackAssets.js";
 
@@ -62,5 +63,5 @@ export const createTrackAssetServer = (
     const imagePath = assets ? route.pick(assets) : null;
     if (!imagePath) return sendNotFound(res);
     res.writeHead(200, { "Content-Type": "image/png" });
-    fs.createReadStream(imagePath).pipe(res);
+    pipeline(fs.createReadStream(imagePath), res, () => {});
   });

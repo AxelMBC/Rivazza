@@ -18,6 +18,13 @@ const AC_PORT = Number(process.env.AC_PORT ?? 9996);
 const HANDSHAKE_RETRY_MS = 3000;
 const STALE_SESSION_MS = 5000;
 
+const isSingleFolderName = (name: string): boolean =>
+  !/[\\/:]/.test(name) && !/^\.*$/.test(name);
+
+const namesContentFolders = (session: HandshakerResponse): boolean =>
+  [session.trackName, session.carName].every(isSingleFolderName) &&
+  (session.trackConfig === "" || isSingleFolderName(session.trackConfig));
+
 type ACClientEvents = {
   session: [HandshakerResponse];
   telemetry: [TelemetryFrame];
@@ -29,20 +36,37 @@ export class ACClient extends EventEmitter<ACClientEvents> {
   private state: "handshaking" | "subscribed" = "handshaking";
   private retryTimer: NodeJS.Timeout | null = null;
   private staleTimer: NodeJS.Timeout | null = null;
+  private connectTimer: NodeJS.Timeout | null = null;
+  private connected = false;
 
   start = (): void => {
-    this.socket.on("message", this.onMessage);
-    this.socket.on("error", (err) => {
-      console.error("[ac] socket error:", err.message);
-    });
-    this.beginHandshaking();
+    this.socket.on("error", this.onSocketError);
+    this.socket.once("connect", this.onConnect);
+    this.connect();
   };
 
   stop = (): void => {
+    if (this.connectTimer) clearTimeout(this.connectTimer);
     if (this.retryTimer) clearInterval(this.retryTimer);
     if (this.staleTimer) clearTimeout(this.staleTimer);
     if (this.state === "subscribed") this.send(OperationId.DISMISS);
     this.socket.close();
+  };
+
+  private connect = (): void => {
+    this.socket.connect(AC_PORT, AC_HOST);
+  };
+
+  private onConnect = (): void => {
+    this.connected = true;
+    this.socket.on("message", this.onMessage);
+    this.beginHandshaking();
+  };
+
+  private onSocketError = (err: Error): void => {
+    console.error("[ac] socket error:", err.message);
+    if (this.connected) return;
+    this.connectTimer = setTimeout(this.connect, HANDSHAKE_RETRY_MS);
   };
 
   private beginHandshaking = (): void => {
@@ -62,6 +86,12 @@ export class ACClient extends EventEmitter<ACClientEvents> {
       msg.length === HANDSHAKE_RESPONSE_SIZE
     ) {
       const session = parseHandshakerResponse(msg);
+      if (!namesContentFolders(session)) {
+        console.warn(
+          `[ac] ignoring handshake with unusable names: ${JSON.stringify(session)}`,
+        );
+        return;
+      }
       console.log(
         `[ac] session: ${session.trackName}${session.trackConfig ? `/${session.trackConfig}` : ""} | ${session.carName} | ${session.driverName}`,
       );
@@ -90,6 +120,6 @@ export class ACClient extends EventEmitter<ACClientEvents> {
   };
 
   private send = (operationId: number): void => {
-    this.socket.send(buildHandshakePacket(operationId), AC_PORT, AC_HOST);
+    this.socket.send(buildHandshakePacket(operationId));
   };
 }

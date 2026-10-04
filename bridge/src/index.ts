@@ -7,7 +7,7 @@ import {
   type TrackAssets,
 } from "./content/trackAssets.js";
 import { createFrameThrottle } from "./frameThrottle.js";
-import { startCutDetection } from "./shm/sharedMemory.js";
+import { startCutDetection } from "./shm/cutDetection.js";
 import { createTrackAssetServer } from "./trackAssetServer.js";
 import { ACClient } from "./udp/acClient.js";
 
@@ -17,10 +17,16 @@ const BROADCAST_INTERVAL_MS = 1000 / BROADCAST_HZ;
 
 let session: SessionInfo | null = null;
 let trackAssets: TrackAssets | null = null;
+let sessionGeneration = 0;
 
 const server = createTrackAssetServer(() => trackAssets);
 
 const wss = new WebSocketServer({ server, path: "/ws" });
+
+wss.on("error", (err) => {
+  console.error(`[bridge] cannot serve on port ${PORT}:`, err.message);
+  process.exit(1);
+});
 
 const broadcast = (message: BridgeMessage): void => {
   const payload = JSON.stringify(message);
@@ -34,6 +40,7 @@ const throttle = createFrameThrottle(BROADCAST_INTERVAL_MS, (frame) =>
 );
 
 wss.on("connection", (socket) => {
+  socket.on("error", () => socket.terminate());
   const hello: BridgeMessage[] = session
     ? [
         { type: "status", state: "connected" },
@@ -46,18 +53,21 @@ wss.on("connection", (socket) => {
 const ac = new ACClient();
 
 ac.on("session", async (handshake) => {
+  const generation = ++sessionGeneration;
+  let assets: TrackAssets | null = null;
   try {
-    trackAssets = await resolveTrackAssetsForSession(
+    assets = await resolveTrackAssetsForSession(
       handshake.trackName,
       handshake.trackConfig,
     );
   } catch (err) {
     console.warn(
       "[map] track asset resolution failed:",
-      (err as Error).message,
+      err instanceof Error ? err.message : String(err),
     );
-    trackAssets = null;
   }
+  if (generation !== sessionGeneration) return;
+  trackAssets = assets;
   session = {
     track: handshake.trackName,
     trackConfig: handshake.trackConfig,
@@ -73,6 +83,7 @@ ac.on("session", async (handshake) => {
 });
 
 ac.on("waiting", () => {
+  sessionGeneration++;
   session = null;
   trackAssets = null;
   throttle.clear();

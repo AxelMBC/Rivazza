@@ -3,7 +3,7 @@ import path from "node:path";
 
 import type { MapMeta, TrackEdges } from "@rivazza/protocol";
 
-import { readStaticPage } from "../shm/sharedMemory.js";
+import { readStaticPageTokens } from "../shm/kernel32.js";
 
 import { AC_PATH } from "./acPath.js";
 import { resolveTrackEdges } from "./aiSpline.js";
@@ -106,14 +106,7 @@ const listTrackConfigs = (track: string): string[] => {
 const resolveLoadedLayout = async (
   configs: string[],
 ): Promise<string | null> => {
-  const page = await readStaticPage();
-  if (!page) return null;
-  const tokens = new Set(
-    page
-      .toString("utf16le")
-      .split(/[^A-Za-z0-9_-]+/)
-      .filter(Boolean),
-  );
+  const tokens = await readStaticPageTokens();
   return (
     [...configs]
       .sort((a, b) => b.length - a.length)

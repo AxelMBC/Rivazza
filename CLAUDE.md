@@ -81,7 +81,7 @@ interval only sweeping up the trailing frame. On the web side, `useTelemetry` up
 so text readouts re-render at half rate while canvas rAF consumers keep full fidelity. New WS
 clients get a `hello` (current status + session) on connect.
 
-**Cut detection (`bridge/src/shm/sharedMemory.ts`).** Windows/same-PC only. `koffi` (the repo's
+**Cut detection (`bridge/src/shm/cutDetection.ts`, mapping in `shm/kernel32.ts`).** Windows/same-PC only. `koffi` (the repo's
 only native dependency) maps AC's `Local\acpmf_physics` shared-memory page and polls it at
 ~60 Hz with offset-based Buffer reads (`packetId`@0, `speedKmh`@28, `numberOfTyresOut`@244 —
 magic numbers in the parsers.ts tradition). `numberOfTyresOut` is the game's own

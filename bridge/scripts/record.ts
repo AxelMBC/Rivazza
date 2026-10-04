@@ -35,7 +35,7 @@ const parseArgs = (argv: string[]): Record<string, string> => {
 };
 
 const args = parseArgs(process.argv.slice(2));
-const host = args.host ?? process.env.AC_HOST ?? "127.0.0.1";
+const host = args.host ?? "127.0.0.1";
 const port = args.port ?? process.env.BRIDGE_PORT ?? "3001";
 const rawOut = args.out ?? DEFAULT_OUT;
 const outPath = path.isAbsolute(rawOut)
