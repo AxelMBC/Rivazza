@@ -120,15 +120,16 @@ every 1.5s) and exposes telemetry two ways: React state (`telemetry`) for normal
 `telemetryRef` for `requestAnimationFrame` loops (the track map) that must read every frame without
 triggering re-renders. When adding high-frequency canvas visuals, read the ref, not the state.
 
-**Derived-data hooks (`web/src/hooks/`).** `useInputHistory` (G-force ring buffer), `useLapHistory`
-(session lap log), and `useLapDelta` (live delta vs. fastest recorded lap) all follow the same
-pattern: bookkeeping in an effect keyed on the throttled `telemetry` state, result exposed as a
-ref so canvas rAF loops can read it. AC's protocol sends no lap list and no invalid-lap flag, so
-`useLapHistory` reconstructs laps from `lapCount` ticks and infers validity heuristically (a
-would-be PB the game didn't adopt = cut lap; pit-lane touch = invalid), with shared-memory cut
-events as the authoritative override when available. Also note: AC's "restart
-session" does **not** re-handshake — restarts are detected by the lap counter or lap clock running
-backwards, a signature duplicated in `useLapHistory`, `useLapDelta`, and `TrackMap`
+**Derived-data hooks (`web/src/hooks/`).** `useInputHistory` (G-force ring buffer) and
+`useLapHistory` (session lap log) follow the same pattern: bookkeeping in an effect keyed on the
+throttled `telemetry` state, result exposed as a ref so canvas rAF loops can read it. AC's protocol
+sends no lap list and no invalid-lap flag, so `useLapHistory` reconstructs laps from `lapCount`
+ticks and infers validity heuristically (a would-be PB the game didn't adopt = cut lap; pit-lane
+touch = invalid), with shared-memory cut events as the authoritative override when available. The
+live delta has no hook of its own: `LapTimes` reads it off the analysis panel's reference lap
+(`resolveReference` over `useLapRecordings`). Also note: AC's "restart session" does **not**
+re-handshake — restarts are detected by the lap counter or lap clock running backwards, a
+signature duplicated in `useLapHistory`, `useLapRecordings`, and `TrackMap`
 (`TrackMap/lineRecorder.ts`). Keep them in sync if you change one.
 
 **Track map projection (`web/src/components/TrackMap/`).** `pixel = (world + OFFSET) / SCALE_FACTOR`

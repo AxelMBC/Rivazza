@@ -19,9 +19,12 @@ type PendingLap = {
 // Back-to-back identical lap times never visibly refresh lastLapMs.
 const PENDING_MAX_FRAMES = 3;
 
+export type SettledLapLog = { lapCount: number; bestLapMs: number };
+
 export type LapHistory = {
   lapsRef: React.RefObject<LapRecord[]>;
   currentLapInvalidRef: React.RefObject<boolean>;
+  settledRef: React.RefObject<SettledLapLog>;
 };
 
 export const useLapHistory = (
@@ -37,6 +40,7 @@ export const useLapHistory = (
   const pitDuringRef = useRef(false);
   const pendingRef = useRef<PendingLap | null>(null);
   const cutDuringRef = useRef(false);
+  const settledRef = useRef<SettledLapLog>({ lapCount: 0, bestLapMs: 0 });
   const consumedCutsRef = useRef(0);
   const seenCutsRef = useRef<CutEvent[] | null>(null);
 
@@ -56,6 +60,7 @@ export const useLapHistory = (
       pitDuringRef.current = false;
       pendingRef.current = null;
       cutDuringRef.current = false;
+      settledRef.current = { lapCount: 0, bestLapMs: 0 };
       return;
     }
 
@@ -119,6 +124,13 @@ export const useLapHistory = (
       }
     }
 
+    if (!pendingRef.current) {
+      settledRef.current = {
+        lapCount: telemetry.lapCount,
+        bestLapMs: telemetry.bestLapMs,
+      };
+    }
+
     pitDuringRef.current = pitDuringRef.current || telemetry.inPit;
     lapCountRef.current = telemetry.lapCount;
     lapTimeRef.current = telemetry.lapTimeMs;
@@ -126,5 +138,5 @@ export const useLapHistory = (
     prevLastRef.current = telemetry.lastLapMs;
   }, [telemetry, cutsRef, cutSeq]);
 
-  return { lapsRef, currentLapInvalidRef: cutDuringRef };
+  return { lapsRef, currentLapInvalidRef: cutDuringRef, settledRef };
 };

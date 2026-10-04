@@ -1,13 +1,4 @@
 {
-  "extraKnownMarketplaces": {
-    "axl": {
-      "source": {
-        "source": "git",
-        "url": "git@github.com:AxelMBC/axl-plugin.git"
-      }
-    }
-  },
-  "enabledPlugins": { "axl@axl": true, "atenea@venteks": false },
   "permissions": {
     "allow": [
       "Bash(npm run *)",
@@ -20,7 +11,6 @@
       "PowerShell(npm ls *)",
       "PowerShell(npx tsc *)",
       "PowerShell(npx tsx *)",
-
       "Bash(git status *)",
       "Bash(git diff *)",
       "Bash(git log *)",
@@ -46,5 +36,18 @@
       "PowerShell(git switch *)",
       "PowerShell(git branch *)"
     ]
+  },
+  "enabledPlugins": {
+    "axl@axl": true,
+    "atenea@venteks": false
+  },
+  "extraKnownMarketplaces": {
+    "axl": {
+      "source": {
+        "source": "git",
+        "url": "git@github.com:AxelMBC/axl-plugin.git"
+      },
+      "autoUpdate": true
+    }
   }
 }

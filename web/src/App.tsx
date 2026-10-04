@@ -7,7 +7,6 @@ import { LapTimes } from "./components/LapTimes";
 import { SessionHeader } from "./components/SessionHeader";
 import { TrackMap } from "./components/TrackMap";
 import { useInputHistory } from "./hooks/useInputHistory";
-import { useLapDelta } from "./hooks/useLapDelta";
 import { useLapHistory } from "./hooks/useLapHistory";
 import { useLapRecordings } from "./hooks/useLapRecordings";
 import { useTelemetry, type ConnectionStatus } from "./hooks/useTelemetry";
@@ -63,13 +62,12 @@ const App = () => {
   } = useTelemetry();
 
   const historyRef = useInputHistory(telemetry);
-  const deltaMs = useLapDelta(telemetry);
 
-  const { lapsRef: lapHistoryRef, currentLapInvalidRef } = useLapHistory(
-    telemetry,
-    cutsRef,
-    cutSeq,
-  );
+  const {
+    lapsRef: lapHistoryRef,
+    currentLapInvalidRef,
+    settledRef,
+  } = useLapHistory(telemetry, cutsRef, cutSeq);
   const { recordingsRef, version: recVersion } = useLapRecordings(
     subscribeFrame,
     session,
@@ -106,9 +104,10 @@ const App = () => {
 
           <LapTimes
             telemetry={telemetry}
-            deltaMs={deltaMs}
             lapsRef={lapHistoryRef}
+            recordingsRef={recordingsRef}
             currentLapInvalidRef={currentLapInvalidRef}
+            settledRef={settledRef}
             hoveredLapRef={hoveredLapRef}
             className="lg:col-start-1 lg:row-start-2"
           />

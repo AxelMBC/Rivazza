@@ -1,9 +1,11 @@
 import type { TelemetryFrame } from "@rivazza/protocol";
 import { useState } from "react";
 
-import type { LapRecord } from "../hooks/useLapHistory";
+import type { LapRecord, SettledLapLog } from "../hooks/useLapHistory";
+import type { LapRecording } from "../hooks/useLapRecordings";
 import { formatLapTime } from "../lib/format";
 import { HOVER_GROUP_CLASS, isImmediateActivation } from "../lib/interaction";
+import { interpolateTimeAt, resolveReference } from "../lib/lapAnalysis";
 
 const TimeTile = ({
   label,
@@ -124,25 +126,43 @@ const LapListPanel = ({
   );
 };
 
+const liveDeltaMs = (
+  telemetry: TelemetryFrame | null,
+  reference: LapRecording | null,
+): number | null => {
+  if (!telemetry || !reference) return null;
+  const refTimeMs = interpolateTimeAt(
+    reference.samples,
+    telemetry.normalizedPos,
+  );
+  return refTimeMs === null ? null : telemetry.lapTimeMs - refTimeMs;
+};
+
 export const LapTimes = ({
   telemetry,
-  deltaMs,
   lapsRef,
+  recordingsRef,
   currentLapInvalidRef,
+  settledRef,
   hoveredLapRef,
   className = "",
 }: {
   telemetry: TelemetryFrame | null;
-  deltaMs: number | null;
   lapsRef: React.RefObject<LapRecord[]>;
+  recordingsRef: React.RefObject<LapRecording[]>;
   currentLapInvalidRef: React.RefObject<boolean>;
+  settledRef: React.RefObject<SettledLapLog>;
   hoveredLapRef: React.RefObject<number | null>;
   className?: string;
 }) => {
   const laps = lapsRef.current;
   const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
   const validBest = validTimes.length > 0 ? Math.min(...validTimes) : null;
-  const gameBest = telemetry?.bestLapMs ?? 0;
+  const lapAwaitingVerdict =
+    telemetry !== null && telemetry.lapCount > settledRef.current.lapCount;
+  const gameBest = lapAwaitingVerdict
+    ? settledRef.current.bestLapMs
+    : (telemetry?.bestLapMs ?? 0);
 
   const gameBestInvalid =
     gameBest > 0 && laps.some((l) => l.invalid && l.timeMs === gameBest);
@@ -152,6 +172,15 @@ export const LapTimes = ({
     : gameBest > 0
       ? gameBest
       : validBest;
+
+  const judgedLaps = new Set(laps.map((l) => l.lap));
+  const deltaMs = liveDeltaMs(
+    telemetry,
+    resolveReference(
+      recordingsRef.current.filter((r) => judgedLaps.has(r.lap)),
+      laps,
+    ),
+  );
 
   const [listOpen, setListOpen] = useState(false);
 
