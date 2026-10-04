@@ -1,6 +1,6 @@
 {
-    "base": "master",
-    "protected": ["master", "dev"],
+    "base": "dev",
+    "protected": ["dev", "master"],
     "prefixes": { "feature": "feat/", "fix": "fix/" },
     "checks": [
         { "name": "typecheck bridge", "run": "npm run build -w bridge" },

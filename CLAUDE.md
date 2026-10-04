@@ -158,7 +158,7 @@ creation. A new repaint input is one more term in the gate in `index.tsx`, not a
   no commits, comments, what "verified" means — and runs the commit/worktree guard and the comment check.
 - **`.claude/rules/code-style.md`** — functions, imports, types and file layout, Tailwind tokens.
   Loads only for `{bridge,web}/src/**`, `bridge/scripts/**`, `web/*.ts` and `packages/*/src/**`.
-- **`.claude/axl.json`** — base branch (`master`), protected branches, the checks and the formatter.
+- **`.claude/axl.json`** — base branch (`dev`), protected branches, the checks and the formatter.
 
 ## Spec workflow
 
