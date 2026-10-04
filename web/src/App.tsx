@@ -92,6 +92,7 @@ const App = () => {
             <TrackMap
               session={session}
               telemetryRef={telemetryRef}
+              subscribeFrame={subscribeFrame}
               lapsRef={lapHistoryRef}
               cutsRef={cutsRef}
               hoveredLapRef={hoveredLapRef}

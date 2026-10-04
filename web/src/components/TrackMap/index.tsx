@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { LapRecord } from "../../hooks/useLapHistory";
 import type { LapRecording } from "../../hooks/useLapRecordings";
+import type { Telemetry } from "../../hooks/useTelemetry";
 import { formatLapTime } from "../../lib/format";
 import { CLICK_MODE } from "../../lib/interaction";
 import type { ScrubPoint, SectorOwner } from "../../lib/lapAnalysis";
@@ -39,6 +40,7 @@ import { useTrackMapData } from "./useTrackMapData";
 type Props = {
   session: SessionInfo;
   telemetryRef: React.RefObject<TelemetryFrame | null>;
+  subscribeFrame: Telemetry["subscribeFrame"];
   lapsRef: React.RefObject<LapRecord[]>;
   cutsRef: React.RefObject<CutEvent[]>;
   hoveredLapRef: React.RefObject<number | null>;
@@ -59,6 +61,7 @@ type LegendEntry = {
 export const TrackMap = ({
   session,
   telemetryRef,
+  subscribeFrame,
   lapsRef,
   cutsRef,
   hoveredLapRef,
@@ -94,6 +97,14 @@ export const TrackMap = ({
   }, [lines, follow]);
 
   useEffect(() => resetLines(), [session, resetLines]);
+
+  useEffect(
+    () =>
+      subscribeFrame((frame) =>
+        lines.ingest(frame, cutsRef.current, resetLines),
+      ),
+    [subscribeFrame, lines, cutsRef, resetLines],
+  );
 
   useEffect(() => {
     const {
@@ -367,8 +378,6 @@ export const TrackMap = ({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
-      if (frame) lines.ingest(frame, cutList, resetLines);
-
       syncLegend();
 
       const fixedFit = mapData?.meta
@@ -448,7 +457,6 @@ export const TrackMap = ({
     recordingsRef,
     follow,
     lines,
-    resetLines,
   ]);
 
   return (

@@ -44,7 +44,7 @@ The dashboard SHALL keep a full-rate (per-message) telemetry reference for canva
 
 #### Scenario: Track map fidelity unaffected
 - **WHEN** telemetry arrives at 60 Hz
-- **THEN** the track map's line sampling still sees every frame via the full-rate reference, keeping ~1-meter segment spacing at speed
+- **THEN** the track map's line sampling still sees every frame through the per-message frame subscription, keeping ~1-meter segment spacing at speed
 
 ### Requirement: Input-history windows match their documented durations at the state rate
 The input-history buffer SHALL cover the G-force meter's recent path, approximately 2 seconds at the throttled state rate, and SHALL hold no more samples than that path draws.
@@ -52,3 +52,18 @@ The input-history buffer SHALL cover the G-force meter's recent path, approximat
 #### Scenario: G-force path length
 - **WHEN** the driver has been on track for more than 2 seconds
 - **THEN** the G-force meter's faint path covers approximately the last 2 seconds of lateral/longitudinal acceleration, and the buffer holds no older samples
+
+### Requirement: Track map line recording is independent of repainting
+The track map SHALL record its driven line from every received telemetry frame at the moment the message arrives, not from its rAF repaint loop, so the recorded line is the same whether the map repainted for every frame, skipped frames between vsyncs, or did not repaint at all because the browser suspended rAF (hidden tab, minimized or fully occluded window). Lap rollover, session-restart detection and cut-marker attachment SHALL happen in that same per-message path. The rAF loop SHALL only draw what has been recorded, and its cached current-lap layer SHALL be rebuilt whenever the current lap's samples belong to a different lap than the ones it cached, regardless of how many samples or laps were recorded since the previous repaint.
+
+#### Scenario: Map hidden while driving
+- **WHEN** the dashboard's tab is hidden or its window is fully covered for part of a lap and then shown again
+- **THEN** the current lap's line covers the stretch driven while hidden with ~1 m sample spacing, with no gap and no straight chord across it
+
+#### Scenario: Map hidden for longer than a lap
+- **WHEN** the map is not repainted while one or more laps are completed and the new current lap has already grown past the previous lap's sample count
+- **THEN** on the next repaint the completed laps appear as stored laps and the current-lap line shows only the new lap's samples, with no segment left over from the previous lap
+
+#### Scenario: Two frames between vsyncs
+- **WHEN** two telemetry frames arrive between consecutive repaints
+- **THEN** both frames are offered to the line recorder, and the 1 m distance gate alone decides which become samples

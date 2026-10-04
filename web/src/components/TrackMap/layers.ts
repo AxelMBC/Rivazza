@@ -195,6 +195,7 @@ export const createLayers = ({
 
   const currentPaths = new Map<number, Path2D>();
   let currentPathCount = 0;
+  let cachedSamples: Sample[] | null = null;
 
   const renderCurrentLayer = (
     project: Project,
@@ -205,7 +206,9 @@ export const createLayers = ({
   ) => {
     const samples = currentRef.current;
     const layerLen = Math.max(0, samples.length - TIP_HOLDBACK);
-    if (layerLen < currentPathCount) {
+    const newLap = samples !== cachedSamples;
+    if (newLap) {
+      cachedSamples = samples;
       currentPaths.clear();
       currentPathCount = 0;
     }
@@ -223,7 +226,7 @@ export const createLayers = ({
     }
     currentPathCount = Math.max(currentPathCount, layerLen);
 
-    if (projKey !== currentLayerKey || layerLen < appendedCount) {
+    if (projKey !== currentLayerKey || newLap) {
       currentLayerKey = projKey;
       sizeLayer(currentLayer, canvas.width, canvas.height);
       currentLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
