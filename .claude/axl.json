@@ -1,0 +1,14 @@
+{
+    "base": "master",
+    "protected": ["master", "dev"],
+    "prefixes": { "feature": "feat/", "fix": "fix/" },
+    "checks": [
+        { "name": "typecheck bridge", "run": "npm run build -w bridge" },
+        { "name": "typecheck web", "run": "npx tsc -b web --noEmit" },
+        { "name": "lint web", "run": "npm run lint -w web" },
+        { "name": "format", "run": "npm run format:check" }
+    ],
+    "format": "npm run format",
+    "specsDir": "openspec",
+    "claudeCommits": false
+}

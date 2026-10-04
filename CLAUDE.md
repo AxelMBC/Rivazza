@@ -41,8 +41,15 @@ script inlines them, so keep the two in step.
 while `web` pins TypeScript 6.0.3 in `web/node_modules`, and only running with cwd `web/` puts the
 right compiler on PATH. `--loglevel=error` silences the same yarn-leaked warnings there instead.
 
-There is **no test framework** in this repo — do not invent test commands. What verification does
-mean here is `.claude/rules/verification.md`.
+There is **no test framework** in this repo — no vitest, no jest, no `npm test`. Do not invent one,
+and do not put "run the tests" in a `tasks.md`. The automated gate is the four read-only checks in
+`.claude/axl.json`. The web typecheck is `npx tsc -b web --noEmit` on purpose: `npm run build -w web`
+also runs `vite build` (writes `web/dist/`), and `npm exec -w web -- tsc` swallows tsc's exit code, so
+it passes on red.
+
+Type-checking proves little about whether the dot moves. Anything that needs real frames, a canvas
+repaint or a hover-revealed panel is a manual check, run with the procedure in
+`.claude/skills/verify/SKILL.md` (mock + dev servers + puppeteer against Edge, ~4 minutes).
 
 ## Bridge configuration (env vars)
 
@@ -147,23 +154,15 @@ creation. A new repaint input is one more term in the gate in `index.tsx`, not a
 
 ## Where the rest of the guidance lives
 
-Cross-cutting conventions live in `.claude/rules/`, loaded by Claude Code without an import — read
-them there rather than restating them here:
-
-- **`git-workflow.md`** — commit format, the type→emoji table, branch creation. Loads every session.
-- **`comments.md`** — when a comment is allowed at all. Loads every session; the PostToolUse hook
-  `.claude/comment-check.ps1` flags each comment line an edit adds.
-- **`code-style.md`** — functions, imports, types and file layout, Tailwind tokens.
+- The **axl** plugin (`.claude/settings.json` enables it) injects the base rules every session —
+  no commits, comments, what "verified" means — and runs the commit/worktree guard and the comment check.
+- **`.claude/rules/code-style.md`** — functions, imports, types and file layout, Tailwind tokens.
   Loads only for `{bridge,web}/src/**`, `bridge/scripts/**`, `web/*.ts` and `packages/*/src/**`.
-- **`verification.md`** — what "verified" means in a repo with no test framework. Loads every session.
-
-Per-repo command configuration (branch conventions, the check commands `/opsx:verify` runs) is
-`.claude/workflow.yaml`. The authoritative record of behaviour is `openspec/specs/`.
+- **`.claude/axl.json`** — base branch (`master`), protected branches, the checks and the formatter.
 
 ## Spec workflow
 
-This project uses **OpenSpec** (spec-driven). Live specs are in `openspec/specs/`; changes are
-proposed/applied/archived via the `/opsx:*` commands in `.claude/commands/opsx/` — `explore`,
-`propose`, `apply`, `verify`, `sync`, `archive`, plus `tweak` (small delta-only changes) and
-`audit-drift` (spec maintenance). Consult the relevant spec in `openspec/specs/` before changing a
-documented feature.
+Spec-driven, in the OpenSpec layout: live specs in `openspec/specs/`, changes in `openspec/changes/`,
+run through `/axl:explore`, `/axl:propose`, `/axl:tweak`, `/axl:apply`, `/axl:verify` and
+`/axl:archive`. `openspec/specs/` is the authoritative record of behaviour — consult the relevant
+spec before changing a documented feature.

@@ -1,32 +1,15 @@
 {
+  "extraKnownMarketplaces": {
+    "axl": {
+      "source": {
+        "source": "git",
+        "url": "git@github.com:AxelMBC/axl-plugin.git"
+      }
+    }
+  },
+  "enabledPlugins": { "axl@axl": true, "atenea@venteks": false },
   "permissions": {
-    "deny": [
-      "Bash(git commit)",
-      "Bash(git commit *)",
-      "PowerShell(git commit)",
-      "PowerShell(git commit *)",
-
-      "EnterWorktree",
-      "Bash(git worktree add *)",
-      "PowerShell(git worktree add *)"
-    ],
     "allow": [
-      "Bash(openspec list *)",
-      "Bash(openspec status *)",
-      "Bash(openspec instructions *)",
-      "Bash(openspec validate *)",
-      "Bash(openspec show *)",
-      "Bash(openspec new *)",
-      "Bash(openspec --version)",
-      "Bash(npx openspec *)",
-      "PowerShell(openspec list *)",
-      "PowerShell(openspec status *)",
-      "PowerShell(openspec instructions *)",
-      "PowerShell(openspec validate *)",
-      "PowerShell(openspec show *)",
-      "PowerShell(openspec new *)",
-      "PowerShell(npx openspec *)",
-
       "Bash(npm run *)",
       "Bash(npm ls *)",
       "Bash(npm --prefix web exec -- tsc *)",
@@ -62,30 +45,6 @@
       "PowerShell(git fetch *)",
       "PowerShell(git switch *)",
       "PowerShell(git branch *)"
-    ]
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash|PowerShell|Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/guard-workflow.ps1\""
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/comment-check.ps1\""
-          }
-        ]
-      }
     ]
   }
 }

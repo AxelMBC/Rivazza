@@ -16,10 +16,6 @@ capabilities under `openspec/specs/` — not repeated here.
   hex/color values.
 - React 19, Vite, strict TypeScript throughout.
 
-## Comments
-
-The comment rule is `.claude/rules/comments.md` — it loads every session, not only here.
-
 ## Functions
 
 **All functions are arrow functions**, including React components. The only exceptions are cases
