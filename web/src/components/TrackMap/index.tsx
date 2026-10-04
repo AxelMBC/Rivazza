@@ -1,13 +1,14 @@
 import type { CutEvent, SessionInfo, TelemetryFrame } from "@rivazza/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { LapRecord } from "../../hooks/useLapHistory";
+import type { LapRecord, LapStatus } from "../../hooks/useLapHistory";
 import type { LapRecording } from "../../hooks/useLapRecordings";
 import type { Telemetry } from "../../hooks/useTelemetry";
 import { formatLapTime } from "../../lib/format";
 import { CLICK_MODE } from "../../lib/interaction";
 import type { ScrubPoint, SectorOwner } from "../../lib/lapAnalysis";
 import { COLORED_LAPS, lapColor } from "../../lib/lapColors";
+import { isPitLap, lapStatusTag } from "../../lib/lapStatus";
 import { hasCoarsePointer } from "../../lib/touch";
 
 import { createCamera, easeView, fallbackTarget } from "./camera";
@@ -55,7 +56,7 @@ type LegendEntry = {
   lap: number;
   color: string;
   timeMs: number | null;
-  invalid: boolean;
+  status: LapStatus | undefined;
 };
 
 export const TrackMap = ({
@@ -266,12 +267,12 @@ export const TrackMap = ({
             lap,
             color: lapColor(lap),
             timeMs: record?.timeMs ?? null,
-            invalid: record?.invalid ?? false,
+            status: record?.status,
           };
         })
         .reverse();
       const key = entries
-        .map((e) => `${e.lap}:${e.timeMs}:${e.invalid}`)
+        .map((e) => `${e.lap}:${e.timeMs}:${e.status}`)
         .join("|");
       if (key !== legendKeyRef.current) {
         legendKeyRef.current = key;
@@ -494,25 +495,37 @@ export const TrackMap = ({
       </div>
       {legend.length > 0 && (
         <div className="pointer-events-none absolute right-4 bottom-3 flex flex-col gap-1 text-xs">
-          {legend.map((entry) => (
-            <span
-              key={entry.lap}
-              className="flex items-center justify-end gap-1.5"
-            >
+          {legend.map((entry) => {
+            const tag = lapStatusTag(entry.status);
+            return (
               <span
-                className="inline-block size-2 rounded-full"
-                style={{ background: entry.color }}
-              />
-              <span className="text-ink-muted">Lap {entry.lap}</span>
-              {entry.timeMs != null && (
+                key={entry.lap}
+                className="flex items-center justify-end gap-1.5"
+              >
                 <span
-                  className={`tabular-nums ${entry.invalid ? "text-critical" : "text-ink-secondary"}`}
-                >
-                  {formatLapTime(entry.timeMs)}
+                  className="inline-block size-2 rounded-full"
+                  style={{ background: entry.color }}
+                />
+                <span className="text-ink-muted">
+                  Lap {entry.lap}
+                  {tag && isPitLap(entry.status) && (
+                    <span
+                      className={`ml-1.5 text-[0.65rem] uppercase ${tag.toneClass}`}
+                    >
+                      {tag.text}
+                    </span>
+                  )}
                 </span>
-              )}
-            </span>
-          ))}
+                {entry.timeMs != null && (
+                  <span
+                    className={`tabular-nums ${tag?.toneClass ?? "text-ink-secondary"}`}
+                  >
+                    {formatLapTime(entry.timeMs)}
+                  </span>
+                )}
+              </span>
+            );
+          })}
         </div>
       )}
       <div className="pointer-events-none absolute bottom-3 left-4 flex items-center gap-1.5">

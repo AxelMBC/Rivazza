@@ -17,6 +17,7 @@ import {
   theoreticalBestMs,
   type ScrubPoint,
 } from "../../lib/lapAnalysis";
+import { lapStatusTag } from "../../lib/lapStatus";
 
 import { ownersKey } from "./constants";
 import { LapChips } from "./LapChips";
@@ -47,7 +48,6 @@ export const LapAnalysis = ({
 
   const recordings = recordingsRef.current;
   const laps = lapsRef.current;
-  const invalidLaps = new Set(laps.filter((l) => l.invalid).map((l) => l.lap));
   const reviewableLaps = recordings.filter((r) => r.complete);
   const reference = resolveReference(recordings, laps);
   const latest = latestComplete(recordings);
@@ -182,8 +182,13 @@ export const LapAnalysis = ({
     };
   }, [scrubRef]);
 
-  const selectedInvalid = selected !== null && invalidLaps.has(selected.lap);
-  const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
+  const selectedTag =
+    selected === null
+      ? null
+      : lapStatusTag(laps.find((l) => l.lap === selected.lap)?.status);
+  const validTimes = laps
+    .filter((l) => l.status === "valid")
+    .map((l) => l.timeMs);
   const sessionBestMs = validTimes.length > 0 ? Math.min(...validTimes) : null;
 
   return (
@@ -208,9 +213,9 @@ export const LapAnalysis = ({
             <p className="text-xs tracking-wide text-ink-muted uppercase">
               {selected ? (
                 <>
-                  <span className={selectedInvalid ? "text-critical" : ""}>
+                  <span className={selectedTag?.toneClass ?? ""}>
                     Lap {selected.lap}
-                    {selectedInvalid && " (inv)"}
+                    {selectedTag && ` (${selectedTag.text})`}
                   </span>
                   {reference && reference !== selected && (
                     <> vs Lap {reference.lap} (ref)</>

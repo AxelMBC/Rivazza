@@ -6,6 +6,7 @@ import type { LapRecording } from "../hooks/useLapRecordings";
 import { formatLapTime } from "../lib/format";
 import { HOVER_GROUP_CLASS, isImmediateActivation } from "../lib/interaction";
 import { interpolateTimeAt, resolveReference } from "../lib/lapAnalysis";
+import { lapStatusTag } from "../lib/lapStatus";
 
 const TimeTile = ({
   label,
@@ -55,7 +56,9 @@ const LapListPanel = ({
   hoveredLapRef: React.RefObject<number | null>;
   open: boolean;
 }) => {
-  const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
+  const validTimes = laps
+    .filter((l) => l.status === "valid")
+    .map((l) => l.timeMs);
   const bestValid = validTimes.length > 0 ? Math.min(...validTimes) : null;
 
   return (
@@ -83,42 +86,45 @@ const LapListPanel = ({
           <p className="text-sm text-ink-muted">No laps completed yet</p>
         ) : (
           <ul className="space-y-1">
-            {laps.map((l) => (
-              <li
-                key={l.lap}
-                className="flex items-center justify-between gap-6 text-sm"
-                onMouseEnter={() => {
-                  hoveredLapRef.current = l.lap;
-                }}
-                onMouseLeave={() => {
-                  hoveredLapRef.current = null;
-                }}
-                onPointerUp={(e) => {
-                  if (e.pointerType === "touch") hoveredLapRef.current = l.lap;
-                }}
-              >
-                <span className="text-ink-muted">
-                  Lap {l.lap}
-                  {l.invalid && (
-                    <span className="ml-2 text-[0.65rem] uppercase text-critical">
-                      inv
-                    </span>
-                  )}
-                </span>
-
-                <span
-                  className={`font-semibold tabular-nums ${
-                    l.invalid
-                      ? "text-critical"
-                      : l.timeMs === bestValid
-                        ? "text-best"
-                        : "text-ink"
-                  }`}
+            {laps.map((l) => {
+              const tag = lapStatusTag(l.status);
+              return (
+                <li
+                  key={l.lap}
+                  className="flex items-center justify-between gap-6 text-sm"
+                  onMouseEnter={() => {
+                    hoveredLapRef.current = l.lap;
+                  }}
+                  onMouseLeave={() => {
+                    hoveredLapRef.current = null;
+                  }}
+                  onPointerUp={(e) => {
+                    if (e.pointerType === "touch")
+                      hoveredLapRef.current = l.lap;
+                  }}
                 >
-                  {formatLapTime(l.timeMs)}
-                </span>
-              </li>
-            ))}
+                  <span className="text-ink-muted">
+                    Lap {l.lap}
+                    {tag && (
+                      <span
+                        className={`ml-2 text-[0.65rem] uppercase ${tag.toneClass}`}
+                      >
+                        {tag.text}
+                      </span>
+                    )}
+                  </span>
+
+                  <span
+                    className={`font-semibold tabular-nums ${
+                      tag?.toneClass ??
+                      (l.timeMs === bestValid ? "text-best" : "text-ink")
+                    }`}
+                  >
+                    {formatLapTime(l.timeMs)}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -156,7 +162,9 @@ export const LapTimes = ({
   className?: string;
 }) => {
   const laps = lapsRef.current;
-  const validTimes = laps.filter((l) => !l.invalid).map((l) => l.timeMs);
+  const validTimes = laps
+    .filter((l) => l.status === "valid")
+    .map((l) => l.timeMs);
   const validBest = validTimes.length > 0 ? Math.min(...validTimes) : null;
   const lapAwaitingVerdict =
     telemetry !== null && telemetry.lapCount > settledRef.current.lapCount;
@@ -164,10 +172,11 @@ export const LapTimes = ({
     ? settledRef.current.bestLapMs
     : (telemetry?.bestLapMs ?? 0);
 
-  const gameBestInvalid =
-    gameBest > 0 && laps.some((l) => l.invalid && l.timeMs === gameBest);
+  const gameBestNotValid =
+    gameBest > 0 &&
+    laps.some((l) => l.status !== "valid" && l.timeMs === gameBest);
 
-  const bestLapMs = gameBestInvalid
+  const bestLapMs = gameBestNotValid
     ? validBest
     : gameBest > 0
       ? gameBest

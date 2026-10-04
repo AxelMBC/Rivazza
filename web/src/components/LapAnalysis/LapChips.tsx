@@ -2,6 +2,7 @@ import type { LapRecord } from "../../hooks/useLapHistory";
 import type { LapRecording } from "../../hooks/useLapRecordings";
 import { formatLapTime } from "../../lib/format";
 import { lapColor } from "../../lib/lapColors";
+import { lapStatusTag } from "../../lib/lapStatus";
 
 type Props = {
   reviewableLaps: LapRecording[];
@@ -20,7 +21,7 @@ export const LapChips = ({
 }: Props) => (
   <div className="flex gap-1.5 overflow-x-auto pb-0.5">
     {[...reviewableLaps].reverse().map((rec) => {
-      const record = laps.find((l) => l.lap === rec.lap);
+      const tag = lapStatusTag(laps.find((l) => l.lap === rec.lap)?.status);
       const isSelected = selected === rec;
       return (
         <span
@@ -41,19 +42,18 @@ export const LapChips = ({
           />
           <span className="text-ink-muted">
             Lap {rec.lap}
-            {record?.invalid && (
-              <span className="ml-1.5 text-[0.65rem] uppercase text-critical">
-                inv
+            {tag && (
+              <span
+                className={`ml-1.5 text-[0.65rem] uppercase ${tag.toneClass}`}
+              >
+                {tag.text}
               </span>
             )}
           </span>
           <span
             className={`font-semibold tabular-nums ${
-              record?.invalid
-                ? "text-critical"
-                : rec === reference
-                  ? "text-best"
-                  : "text-ink-secondary"
+              tag?.toneClass ??
+              (rec === reference ? "text-best" : "text-ink-secondary")
             }`}
           >
             {formatLapTime(rec.timeMs)}

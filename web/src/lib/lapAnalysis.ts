@@ -4,6 +4,8 @@ import type {
   LapTelemetrySample,
 } from "../hooks/useLapRecordings";
 
+import { isPitLap } from "./lapStatus";
+
 export const COVERAGE_START = 0.05;
 export const COVERAGE_END = 0.95;
 
@@ -82,17 +84,17 @@ export const latestComplete = (
   return null;
 };
 
-const invalidLapSet = (laps: readonly LapRecord[]): Set<number> =>
-  new Set(laps.filter((l) => l.invalid).map((l) => l.lap));
+const notValidLapSet = (laps: readonly LapRecord[]): Set<number> =>
+  new Set(laps.filter((l) => l.status !== "valid").map((l) => l.lap));
 
 export const resolveReference = (
   recordings: readonly LapRecording[],
   laps: readonly LapRecord[],
 ): LapRecording | null => {
-  const invalid = invalidLapSet(laps);
+  const notValid = notValidLapSet(laps);
   let bestValid: LapRecording | null = null;
   for (const rec of recordings) {
-    if (!rec.complete || rec.timeMs === null || invalid.has(rec.lap)) continue;
+    if (!rec.complete || rec.timeMs === null || notValid.has(rec.lap)) continue;
     if (bestValid === null || rec.timeMs < (bestValid.timeMs ?? Infinity))
       bestValid = rec;
   }
@@ -130,10 +132,10 @@ export const bestSectors = (
   laps: readonly LapRecord[],
   count: number,
 ): (number | null)[] => {
-  const invalid = invalidLapSet(laps);
+  const notValid = notValidLapSet(laps);
   const best: (number | null)[] = new Array<number | null>(count).fill(null);
   for (const rec of recordings) {
-    if (rec.timeMs === null || invalid.has(rec.lap)) continue;
+    if (rec.timeMs === null || notValid.has(rec.lap)) continue;
     sectorTimes(rec, count).forEach((t, i) => {
       const b = best[i];
       if (t !== null && (b === null || t < b)) best[i] = t;
@@ -149,14 +151,16 @@ export const sectorOwners = (
   laps: readonly LapRecord[],
   count: number,
 ): (SectorOwner | null)[] => {
-  const invalid = invalidLapSet(laps);
+  const statusByLap = new Map(laps.map((l) => [l.lap, l.status]));
   const owners = new Array<SectorOwner | null>(count).fill(null);
   for (const rec of recordings) {
-    if (rec.timeMs === null) continue;
+    const status = statusByLap.get(rec.lap);
+    if (rec.timeMs === null || isPitLap(status)) continue;
+    const invalid = status === "invalid";
     sectorTimes(rec, count).forEach((t, i) => {
       const owner = owners[i];
       if (t !== null && (owner === null || t < owner.timeMs))
-        owners[i] = { lap: rec.lap, timeMs: t, invalid: invalid.has(rec.lap) };
+        owners[i] = { lap: rec.lap, timeMs: t, invalid };
     });
   }
   return owners;

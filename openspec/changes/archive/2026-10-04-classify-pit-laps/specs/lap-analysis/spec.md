@@ -1,9 +1,4 @@
-# lap-analysis
-
-## Purpose
-TBD - created by syncing change lap-telemetry-recording. Update Purpose after review.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Analysis panel with distance-aligned traces
 The dashboard SHALL include a lap analysis panel rendering four stacked canvas strips sharing a normalized-track-position x-axis: speed (km/h), pedals (throttle and brake overlaid, 0–100%), time delta (± seconds, zero-centered), and the mini-sector ownership ribbon. All four SHALL be projected from a single shared horizontal mapping so that a given normalized track position falls at the same x in every strip. The three trace strips SHALL plot the selected lap overlaid on the reference lap (speed and pedals show both laps; the delta strip shows selected minus reference). The reference lap SHALL be strictly the fastest valid, complete recorded lap of the session — an invalid lap or a pit lap SHALL never serve as reference or be presented as the session best, even when its raw time is lower. When no valid complete lap exists the selected lap SHALL render alone and the delta strip SHALL state that there is no valid lap to compare against rather than showing a bare zero line. Before any complete recorded lap exists the panel SHALL show an empty state instead of blank charts. When the selected lap is invalid, the panel's header SHALL mark it in the critical tone; when it is a pit lap, the header SHALL name it with its `OUT` or `IN` tag in the secondary text tone. The ribbon strip SHALL keep a fixed thickness independent of panel height, with the three trace strips absorbing the remaining height at fixed proportions. Canvas rendering SHALL be dirty-gated — repaint only when selection, reference, scrub position, recording contents, or canvas size change — and the ribbon's colors, which depend only on the recordings, SHALL live in the cached trace layer so that a scrub frame remains a blit plus an overlay. Because a lap's status can reach the lap log a few frames after its recording is stored, the ribbon's cache key and the sector tables track lap status directly rather than only the recordings' version.
@@ -40,25 +35,6 @@ The dashboard SHALL include a lap analysis panel rendering four stacked canvas s
 - **WHEN** the pointer moves across the plotting area without the selection, reference, recordings or canvas size changing
 - **THEN** the cached trace layer including the ribbon is reused and only the cursor, band and readout are redrawn
 
-### Requirement: Panel collapsed to a bar until hovered
-The analysis panel SHALL NOT occupy dashboard space by default: the track map keeps its full area and the panel renders as a slim always-visible bar (title plus a summary such as lap count and session best). The bar's lap count SHALL describe the full selection list, counting invalid laps alongside valid ones. Hovering the bar SHALL pop the full panel out as an overlay floating above the bar (over the map), which stays open while the pointer remains inside the bar or panel and closes when the pointer leaves — no click, keyboard, or window focus at any point. The session best shown in the bar and panel SHALL be the fastest valid lap only.
-
-#### Scenario: Idle dashboard keeps the map dominant
-- **WHEN** the pointer is elsewhere on the dashboard
-- **THEN** only the slim bar is visible and the track map has its full height
-
-#### Scenario: Hover opens, leave closes
-- **WHEN** the pointer moves onto the bar and then up into the opened panel
-- **THEN** the panel stays open throughout, and it closes when the pointer leaves the panel
-
-#### Scenario: Invalid fastest lap is not the session best
-- **WHEN** the raw-fastest lap is invalid and a slower valid lap exists
-- **THEN** the bar and panel show the valid lap's time as session best
-
-#### Scenario: Bar count includes invalid laps
-- **WHEN** the session has three valid complete laps and one invalid complete lap
-- **THEN** the bar reports four laps and a session best drawn from the valid three
-
 ### Requirement: Lap selection list
 The panel SHALL list every complete recorded lap of the session — valid, invalid and pit laps alike — with lap number and recorded time, the fastest valid lap in the best-lap accent. An invalid lap SHALL be visually marked as invalid wherever it appears (an `INV` tag beside its lap number and its time in the critical tone), matching the session lap list's cue, so it can never be mistaken for a target time. A pit lap SHALL carry an `OUT` or `IN` tag beside its lap number, with the tag and its time in the secondary text tone, matching the session lap list's cue. Selection SHALL be hover-only — hovering a row selects that lap for analysis, and the selection persists after the pointer leaves (the last-hovered lap stays selected); no click, keyboard, or window focus is required for any part of it. The selection SHALL default to the most recent complete lap regardless of status, and SHALL follow new laps as they complete until the driver has hovered a row.
 
@@ -85,37 +61,3 @@ The panel SHALL list every complete recorded lap of the session — valid, inval
 #### Scenario: Selection works without window focus
 - **WHEN** the browser window is unfocused (the game has focus) and the pointer moves over a lap row
 - **THEN** that lap becomes the analyzed lap
-
-### Requirement: Hover scrub with cross-lap readout and track-map marker
-Hovering the trace strips SHALL show a shared vertical cursor at that track position spanning **all four strips**, including the mini-sector ribbon, with numeric readouts for both laps (speed, throttle, brake, gear, and the delta value), interpolated between bracketing samples. The mini-sector slice containing the scrubbed position SHALL be highlighted as a translucent vertical band spanning all four strips, so the hovered speed, pedal and delta values are visibly attributed to a named sector. The band SHALL NOT obscure the traces or ribbon colors it overlays. The scrub position SHALL be published through a shared ref so the track map draws a marker at the corresponding point on the selected lap's line while scrubbing. **The scrubbed sector SHALL be published on that same channel alongside the position**, so the map can emphasize that sector on the track; the panel remains the one place a pointer position is resolved to a sector, and the map never re-derives it. Scrubbing SHALL work with hover alone — no click, no keyboard, no window focus — and the cursor, band, sector readout, map marker and the map's sector emphasis SHALL all appear and disappear together when the pointer enters and leaves the strips.
-
-#### Scenario: Scrubbing a corner
-- **WHEN** the pointer hovers the speed strip at a position mid-corner
-- **THEN** all four strips show the cursor at that position, the containing sector's column is banded across all of them, the readouts show both laps' values, and the track map marks the matching point on the selected lap's line
-
-#### Scenario: Cursor reaches the ribbon
-- **WHEN** the pointer scrubs to any track position
-- **THEN** the vertical cursor extends unbroken from the top of the speed strip through the bottom of the sector ribbon
-
-#### Scenario: Panel band and map emphasis name the same sector
-- **WHEN** the pointer rests at a track position and the panel bands one slice column
-- **THEN** the sector published to the map is that same sector, so the map's emphasis and the panel's band never disagree
-
-#### Scenario: Scrub ends
-- **WHEN** the pointer leaves the trace strips
-- **THEN** the cursor, the sector band, the sector readout, the track-map marker and the map's sector emphasis all disappear
-
-#### Scenario: Scrubbing over the ribbon itself
-- **WHEN** the pointer moves over the sector ribbon rather than over a trace strip
-- **THEN** it scrubs exactly as it does over the traces, producing the same cursor, band, readouts and map marker
-
-### Requirement: Invalid lap reveals its cuts on the track map
-Selecting an invalid lap in the analysis panel SHALL publish that lap through the shared analysis-lap channel exactly as a valid selection does, so the track map reveals that lap's driven line together with the cut markers recorded on it. The driver SHALL therefore be able to see where a lap was invalidated by selecting it, with hover alone and no window focus.
-
-#### Scenario: Seeing why a lap was invalidated
-- **WHEN** the driver hovers the row of a lap that was invalidated by a cut
-- **THEN** the track map shows that lap's line with its cut markers
-
-#### Scenario: Selection cleared
-- **WHEN** the panel closes or the pointer leaves it
-- **THEN** the map stops revealing that lap's line and markers

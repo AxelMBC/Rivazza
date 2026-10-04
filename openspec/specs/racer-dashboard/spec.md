@@ -153,7 +153,7 @@ The dashboard SHALL show a G-force meter plotting lateral (`accGHorizontal`) ver
 - **THEN** the dot moves roughly half as far as that frame's spike and settles back within about 100 ms
 
 ### Requirement: Live delta to best lap
-The dashboard SHALL display a live delta (in seconds, signed, e.g. "−0.42" / "+1.03") comparing the current lap's elapsed time at the current `normalizedPos` with the reference lap's elapsed time at the same position. The reference SHALL be the fastest complete recorded lap of the session that the lap log has not marked invalid — the same lap the analysis panel uses as its reference — so an invalidated lap SHALL never become the delta reference, however fast. A just-completed lap SHALL qualify only once the lap log has recorded its validity, so a lap later found invalid never drives the delta, even for a frame. When the session restarts and its recordings are discarded, the reference SHALL be discarded with them. Negative (faster) deltas SHALL render in a distinct positive color and positive (slower) deltas in a warning color. While no reference exists, the delta SHALL show a neutral placeholder.
+The dashboard SHALL display a live delta (in seconds, signed, e.g. "−0.42" / "+1.03") comparing the current lap's elapsed time at the current `normalizedPos` with the reference lap's elapsed time at the same position. The reference SHALL be the fastest complete recorded lap of the session that the lap log has marked valid — the same lap the analysis panel uses as its reference — so neither an invalidated lap nor a pit lap SHALL ever become the delta reference, however fast. A just-completed lap SHALL qualify only once the lap log has recorded its status, so a lap later found not valid never drives the delta, even for a frame. When the session restarts and its recordings are discarded, the reference SHALL be discarded with them. Negative (faster) deltas SHALL render in a distinct positive color and positive (slower) deltas in a warning color. While no reference exists, the delta SHALL show a neutral placeholder.
 
 #### Scenario: Faster than best lap
 - **WHEN** the current lap is 0.42s ahead of the reference lap at the same track position
@@ -167,8 +167,8 @@ The dashboard SHALL display a live delta (in seconds, signed, e.g. "−0.42" / "
 - **WHEN** a valid lap completes with a time lower than the current reference
 - **THEN** that lap's recording becomes the reference for subsequent deltas
 
-#### Scenario: Only lap so far is invalid
-- **WHEN** the only complete lap of the session was marked invalid (a cut, or the pit out-lap)
+#### Scenario: Only lap so far is not valid
+- **WHEN** the only complete lap of the session was marked invalid (a cut) or recorded as a pit lap (the out-lap)
 - **THEN** the delta shows the neutral placeholder, matching the Best-lap tile
 
 #### Scenario: Invalid lap faster than the reference

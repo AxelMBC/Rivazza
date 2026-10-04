@@ -1,6 +1,7 @@
 import type { LapRecord } from "../../hooks/useLapHistory";
 import { formatGearCompact, formatLapTime } from "../../lib/format";
 import { COLORED_LAPS, lapColor } from "../../lib/lapColors";
+import { isPitLap } from "../../lib/lapStatus";
 
 import { DEAD_ZONE, HOVER_RADIUS_SQ } from "./constants";
 import type { StoredLap } from "./lineRecorder";
@@ -10,6 +11,7 @@ import {
   bucketKey,
   HOVERED_GREY_LAP,
   INVALID_TIME,
+  PIT_TIME,
 } from "./palette";
 import type { Project } from "./projection";
 
@@ -124,7 +126,12 @@ export const createHitTest = ({
       return [
         {
           text: ` — ${formatLapTime(record.timeMs)}`,
-          color: record.invalid ? INVALID_TIME : "#ffffff",
+          color:
+            record.status === "invalid"
+              ? INVALID_TIME
+              : isPitLap(record.status)
+                ? PIT_TIME
+                : "#ffffff",
         },
       ];
     };

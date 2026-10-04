@@ -1,7 +1,11 @@
 import type { SessionInfo, TelemetryFrame } from "@rivazza/protocol";
 import { useEffect, useRef, useState } from "react";
 
-import { COVERAGE_END, COVERAGE_START } from "../lib/lapAnalysis";
+import {
+  COVERAGE_END,
+  COVERAGE_START,
+  resolveReference,
+} from "../lib/lapAnalysis";
 
 import type { LapRecord } from "./useLapHistory";
 
@@ -141,16 +145,7 @@ export const useLapRecordings = (
           const recordings = recordingsRef.current;
           recordings.push(rec);
           if (recordings.length > MAX_RECORDED_LAPS) {
-            const invalid = new Set(
-              lapsRef.current.filter((l) => l.invalid).map((l) => l.lap),
-            );
-            let best: LapRecording | null = null;
-            for (const r of recordings) {
-              if (!r.complete || r.timeMs === null || invalid.has(r.lap))
-                continue;
-              if (best === null || r.timeMs < (best.timeMs ?? Infinity))
-                best = r;
-            }
+            const best = resolveReference(recordings, lapsRef.current);
             const idx = recordings.findIndex((r) => r !== best);
             recordings.splice(Math.max(0, idx), 1);
           }

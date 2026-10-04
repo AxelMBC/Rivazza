@@ -6,6 +6,7 @@ export const TRACK_EDGE = "rgba(255, 255, 255, 0.28)";
 export const PREVIOUS_LAP = "rgba(255, 255, 255, 0.45)";
 export const HOVERED_GREY_LAP = "#ffffff";
 export const INVALID_TIME = "#f0554b"; // --color-critical, brightened for small canvas text
+export const PIT_TIME = "#c3c2b7"; // --color-ink-secondary
 export const TRACK_EDGE_WIDTH = 1.25;
 export const SECTOR_EDGE_HOVER = "rgba(255, 255, 255, 0.95)";
 export const SECTOR_TICK_LEN = 7;

@@ -1,14 +1,24 @@
 import type { CutEvent, TelemetryFrame } from "@rivazza/protocol";
 import { useEffect, useRef } from "react";
 
+export const LAP_STATUS = {
+  valid: "valid",
+  invalid: "invalid",
+  out: "out",
+  in: "in",
+} as const;
+
+export type LapStatus = (typeof LAP_STATUS)[keyof typeof LAP_STATUS];
+
 export type LapRecord = {
   lap: number;
   timeMs: number;
-  invalid: boolean;
+  status: LapStatus;
 };
 
 type PendingLap = {
   lap: number;
+  pitAtStart: boolean;
   pitDuring: boolean;
   cutDuring: boolean;
   bestBefore: number;
@@ -18,6 +28,14 @@ type PendingLap = {
 
 // Back-to-back identical lap times never visibly refresh lastLapMs.
 const PENDING_MAX_FRAMES = 3;
+
+const settleStatus = (pending: PendingLap, rejected: boolean): LapStatus => {
+  if (pending.cutDuring) return LAP_STATUS.invalid;
+  if (pending.pitDuring)
+    return pending.pitAtStart ? LAP_STATUS.out : LAP_STATUS.in;
+  if (rejected) return LAP_STATUS.invalid;
+  return LAP_STATUS.valid;
+};
 
 export type SettledLapLog = { lapCount: number; bestLapMs: number };
 
@@ -37,6 +55,7 @@ export const useLapHistory = (
   const lapTimeRef = useRef(0);
   const prevBestRef = useRef(0);
   const prevLastRef = useRef(0);
+  const pitAtStartRef = useRef(false);
   const pitDuringRef = useRef(false);
   const pendingRef = useRef<PendingLap | null>(null);
   const cutDuringRef = useRef(false);
@@ -57,6 +76,7 @@ export const useLapHistory = (
       lapTimeRef.current = 0;
       prevBestRef.current = 0;
       prevLastRef.current = 0;
+      pitAtStartRef.current = false;
       pitDuringRef.current = false;
       pendingRef.current = null;
       cutDuringRef.current = false;
@@ -80,6 +100,7 @@ export const useLapHistory = (
     } else if (prevLap !== null && telemetry.lapCount > prevLap) {
       pendingRef.current = {
         lap: prevLap + 1,
+        pitAtStart: pitAtStartRef.current,
         pitDuring: pitDuringRef.current,
         cutDuring: cutDuringRef.current,
         bestBefore: prevBestRef.current,
@@ -89,6 +110,9 @@ export const useLapHistory = (
       pitDuringRef.current = false;
       cutDuringRef.current = false;
     }
+
+    if (prevLap === null || restarted || telemetry.lapCount > prevLap)
+      pitAtStartRef.current = telemetry.inPit;
 
     for (; consumedCutsRef.current < cuts.length; consumedCutsRef.current++) {
       const cut = cuts[consumedCutsRef.current];
@@ -116,7 +140,7 @@ export const useLapHistory = (
         lapsRef.current.push({
           lap: pending.lap,
           timeMs,
-          invalid: pending.pitDuring || pending.cutDuring || rejected,
+          status: settleStatus(pending, rejected),
         });
         pendingRef.current = null;
       } else {

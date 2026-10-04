@@ -27,7 +27,7 @@ The slice count SHALL be a single shared value, so the analysis panel's ribbon a
 - **THEN** the analysis panel's ribbon and the track map's division both change together, from the same value
 
 ### Requirement: Sector ownership table
-Alongside the valid-only best-sector table, the panel SHALL derive a sector **ownership** table across every complete recorded lap of the session, valid and invalid alike: for each mini-sector, the lap holding the lowest recorded time for that slice, together with that time and whether that lap is invalid. Ties SHALL resolve to a single owner deterministically. Slices no lap has covered SHALL have no owner rather than a fabricated one. The ownership table SHALL be derived on demand and SHALL NOT feed the valid-only best-sector table or the theoretical best.
+Alongside the valid-only best-sector table, the panel SHALL derive a sector **ownership** table across every complete recorded lap of the session that is not a pit lap, valid and invalid alike: for each mini-sector, the lap holding the lowest recorded time for that slice, together with that time and whether that lap is invalid. Pit laps (`out` and `in`) SHALL own no slice, however fast their time for it, because a time set leaving or entering the pit lane says nothing about the driver's pace. Ties SHALL resolve to a single owner deterministically. Slices no eligible lap has covered SHALL have no owner rather than a fabricated one. The ownership table SHALL be derived on demand and SHALL NOT feed the valid-only best-sector table or the theoretical best.
 
 #### Scenario: Fastest slice belongs to a cut lap
 - **WHEN** an invalid lap has the lowest time for a slice and a valid lap has the next lowest
@@ -36,6 +36,14 @@ Alongside the valid-only best-sector table, the panel SHALL derive a sector **ow
 #### Scenario: Uncovered slice
 - **WHEN** no recorded lap covers a slice
 - **THEN** that slice has no owner
+
+#### Scenario: Only an out-lap so far
+- **WHEN** the session's only complete recorded lap is an `out` lap
+- **THEN** no slice has an owner
+
+#### Scenario: In-lap is fastest in a slice
+- **WHEN** an `in` lap has the lowest time for a slice and a valid lap has the next lowest
+- **THEN** the valid lap owns that slice
 
 ### Requirement: Sector ownership ribbon
 The analysis panel SHALL render a mini-sector strip in which each slice is colored by its owner in the ownership table: every owned slice SHALL take its owning lap's identity color, so that ownership is the strip's primary signal regardless of validity. A slice owned by an invalid lap SHALL additionally be marked as invalid — its fill subdued relative to a valid owner's, and a band of the critical (red) tone along one edge of the slice — so that a time the driver set but did not keep is distinguishable at a glance without discarding the identity of the lap that set it. The invalid marking SHALL NOT depend on rendered text, so that it survives at any panel width. Slices with no owner SHALL render in an inert tone. The strip SHALL be independent of which lap is selected for analysis, and SHALL be tall enough for its colors to be distinguished at a glance. All colors SHALL come from semantic design tokens or the shared lap-identity palette.
