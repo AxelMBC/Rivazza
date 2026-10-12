@@ -1,30 +1,26 @@
 import type { CutEvent, SessionInfo, TelemetryFrame } from "@rivazza/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { LapRecord, LapStatus } from "../../hooks/useLapHistory";
+import type { LapRecord } from "../../hooks/useLapHistory";
 import type { LapRecording } from "../../hooks/useLapRecordings";
 import type { Telemetry } from "../../hooks/useTelemetry";
-import { formatLapTime } from "../../lib/format";
-import { CLICK_MODE } from "../../lib/interaction";
 import type { ScrubPoint, SectorOwner } from "../../lib/lapAnalysis";
 import { COLORED_LAPS, lapColor } from "../../lib/lapColors";
-import { isPitLap, lapStatusTag } from "../../lib/lapStatus";
 import { hasCoarsePointer } from "../../lib/touch";
 
 import { createCamera, easeView, fallbackTarget } from "./camera";
-import {
-  DWELL_FILL_CLASS,
-  INSET_MIN_LEVEL,
-  LINE_WIDTH,
-  ZOOM_RESET,
-} from "./constants";
+import { INSET_MIN_LEVEL, LINE_WIDTH, ZOOM_RESET } from "./constants";
+import { FollowButton } from "./FollowButton";
 import { attachGestures } from "./gestures";
 import { createHitTest } from "./hitTest";
+import { LapLegend } from "./LapLegend";
 import { createLayers } from "./layers";
+import { legendEntries, legendKey, type LegendEntry } from "./legend";
 import { createLineRecorder } from "./lineRecorder";
 import { createMarkers } from "./markers";
 import { insetRect, type Inset, type Point, type Zoom } from "./overviewInset";
-import { BRAKE, COAST, HOVERED_GREY_LAP, rgb, THROTTLE } from "./palette";
+import { HOVERED_GREY_LAP } from "./palette";
+import { PedalKey } from "./PedalKey";
 import {
   affineOf,
   buildLapPath,
@@ -35,7 +31,7 @@ import {
   type Project,
 } from "./projection";
 import { buildTrackGeometry, type View } from "./trackGeometry";
-import { useFollowControl, type FollowState } from "./useFollowControl";
+import { useFollowControl } from "./useFollowControl";
 import { useTrackMapData } from "./useTrackMapData";
 
 type Props = {
@@ -50,13 +46,6 @@ type Props = {
   recordingsRef: React.RefObject<LapRecording[]>;
   recordingsVersion: number;
   className?: string;
-};
-
-type LegendEntry = {
-  lap: number;
-  color: string;
-  timeMs: number | null;
-  status: LapStatus | undefined;
 };
 
 export const TrackMap = ({
@@ -258,22 +247,8 @@ export const TrackMap = ({
     };
 
     const syncLegend = () => {
-      const laps = previousLapsRef.current;
-      const entries = laps
-        .slice(Math.max(0, laps.length - COLORED_LAPS))
-        .map(({ lap }) => {
-          const record = lapsRef.current.find((l) => l.lap === lap);
-          return {
-            lap,
-            color: lapColor(lap),
-            timeMs: record?.timeMs ?? null,
-            status: record?.status,
-          };
-        })
-        .reverse();
-      const key = entries
-        .map((e) => `${e.lap}:${e.timeMs}:${e.status}`)
-        .join("|");
+      const entries = legendEntries(previousLapsRef.current, lapsRef.current);
+      const key = legendKey(entries);
       if (key !== legendKeyRef.current) {
         legendKeyRef.current = key;
         setLegend(entries);
@@ -286,23 +261,8 @@ export const TrackMap = ({
       zoomRef.current.level >= INSET_MIN_LEVEL &&
       !cameraDrivesView();
 
-    let lastFrame: TelemetryFrame | null = null;
-    let lastMouse: { x: number; y: number } | null = null;
-    let lastZoom = zoomRef.current;
-    let lastCuts: CutEvent[] | null = null;
-    let lastCutCount = 0;
-    let lastHoveredLap: number | null = null;
-    let lastScrub: ScrubPoint | null = null;
-    let lastAnalysisLap: number | null = null;
-    let lastRecVersion = -1;
-    let lastW = 0;
-    let lastH = 0;
-    let lastDpr = 0;
-    let firstDraw = true;
+    let lastInputs: readonly unknown[] | null = null;
     let fallbackEasing = false;
-    let lastFollow: FollowState = followRef.current;
-    let lastFollowWindow = followWindowRef.current;
-    let lastNav = navRef.current;
 
     let lastTickAt = performance.now();
     const draw = () => {
@@ -332,44 +292,33 @@ export const TrackMap = ({
       const followState = followRef.current;
       const followWindow = followWindowRef.current;
       const nav = navRef.current;
+      const inputs = [
+        nav,
+        followState,
+        followWindow,
+        frame,
+        mouse,
+        zoom,
+        cutList,
+        cutList.length,
+        hoveredLap,
+        scrub,
+        analysisLap,
+        recVersion,
+        width,
+        height,
+        dpr,
+      ];
+      const previous = lastInputs;
       const dirty =
-        firstDraw ||
+        previous === null ||
         fallbackEasing ||
         followAnimating() ||
         navAnimating() ||
-        nav !== lastNav ||
-        followState !== lastFollow ||
-        followWindow !== lastFollowWindow ||
-        frame !== lastFrame ||
-        mouse !== lastMouse ||
-        zoom !== lastZoom ||
-        cutList !== lastCuts ||
-        cutList.length !== lastCutCount ||
-        hoveredLap !== lastHoveredLap ||
-        scrub !== lastScrub ||
-        analysisLap !== lastAnalysisLap ||
-        recVersion !== lastRecVersion ||
-        width !== lastW ||
-        height !== lastH ||
-        dpr !== lastDpr;
+        inputs.some((v, i) => v !== previous[i]);
       if (!dirty) return;
-      firstDraw = false;
-      lastFollow = followState;
-      lastFollowWindow = followWindow;
-      lastNav = nav;
-      lastFrame = frame;
-      lastMouse = mouse;
-      lastZoom = zoom;
-      lastCuts = cutList;
-      lastCutCount = cutList.length;
-      lastHoveredLap = hoveredLap;
-      lastScrub = scrub;
-      lastAnalysisLap = analysisLap;
-      lastRecVersion = recVersion;
+      lastInputs = inputs;
       syncSectorTables();
-      lastW = width;
-      lastH = height;
-      lastDpr = dpr;
       insetRef.current = null;
 
       if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
@@ -471,95 +420,15 @@ export const TrackMap = ({
         {mapProbed && !mapData && (
           <span>No map file — drawing your driving line</span>
         )}
-        <span className="flex items-center gap-1">
-          <span
-            className="inline-block size-2 rounded-full"
-            style={{ background: rgb(THROTTLE) }}
-          />
-          Throttle
-        </span>
-        <span className="flex items-center gap-1">
-          <span
-            className="inline-block size-2 rounded-full"
-            style={{ background: rgb(COAST) }}
-          />
-          Coast
-        </span>
-        <span className="flex items-center gap-1">
-          <span
-            className="inline-block size-2 rounded-full"
-            style={{ background: rgb(BRAKE) }}
-          />
-          Brake
-        </span>
+        <PedalKey />
       </div>
-      {legend.length > 0 && (
-        <div className="pointer-events-none absolute right-4 bottom-3 flex flex-col gap-1 text-xs">
-          {legend.map((entry) => {
-            const tag = lapStatusTag(entry.status);
-            return (
-              <span
-                key={entry.lap}
-                className="flex items-center justify-end gap-1.5"
-              >
-                <span
-                  className="inline-block size-2 rounded-full"
-                  style={{ background: entry.color }}
-                />
-                <span className="text-ink-muted">
-                  Lap {entry.lap}
-                  {tag && isPitLap(entry.status) && (
-                    <span
-                      className={`ml-1.5 text-[0.65rem] uppercase ${tag.toneClass}`}
-                    >
-                      {tag.text}
-                    </span>
-                  )}
-                </span>
-                {entry.timeMs != null && (
-                  <span
-                    className={`tabular-nums ${tag?.toneClass ?? "text-ink-secondary"}`}
-                  >
-                    {formatLapTime(entry.timeMs)}
-                  </span>
-                )}
-              </span>
-            );
-          })}
-        </div>
-      )}
-      <div className="pointer-events-none absolute bottom-3 left-4 flex items-center gap-1.5">
-        {(followUi === "off" ? hasFrame : followUi !== "exiting") && (
-          <button
-            type="button"
-            onMouseEnter={follow.startDwell}
-            onMouseLeave={follow.leaveDwell}
-            onPointerDown={(e) => {
-              if (e.pointerType === "touch") e.preventDefault();
-            }}
-            onPointerUp={follow.onFollowActivate}
-            title={
-              CLICK_MODE
-                ? followUi === "off"
-                  ? "Click to follow the car"
-                  : "Click to leave follow mode"
-                : "Rest the cursor here for 1 second — no click needed"
-            }
-            className={`pointer-events-auto relative overflow-hidden rounded border border-edge bg-surface px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink-secondary ${
-              CLICK_MODE ? "cursor-pointer" : ""
-            }`}
-          >
-            {followUi === "off" ? "Follow car" : "Exit follow"}
-            <span
-              className={`absolute inset-x-0 bottom-0 h-0.5 bg-accent ${
-                dwelling
-                  ? `w-full transition-[width] ease-linear ${DWELL_FILL_CLASS}`
-                  : "w-0"
-              }`}
-            />
-          </button>
-        )}
-      </div>
+      <LapLegend entries={legend} />
+      <FollowButton
+        followUi={followUi}
+        dwelling={dwelling}
+        hasFrame={hasFrame}
+        follow={follow}
+      />
       <canvas ref={canvasRef} className="size-full touch-none" />
     </section>
   );
