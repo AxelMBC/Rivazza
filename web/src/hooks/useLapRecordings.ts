@@ -6,6 +6,7 @@ import {
   COVERAGE_START,
   resolveReference,
 } from "../lib/lapAnalysis";
+import { classifyLapTransition } from "../lib/lapTransition";
 
 import type { LapRecord } from "./useLapHistory";
 
@@ -86,25 +87,24 @@ export const useLapRecordings = (
 
   useEffect(() => {
     const onFrame = (frame: TelemetryFrame) => {
-      const prevLap = lapCountRef.current;
-      const restarted =
-        prevLap !== null &&
-        (frame.lapCount < prevLap ||
-          (frame.lapCount === prevLap &&
-            frame.lapTimeMs + 1000 < lapTimeRef.current));
+      const transition = classifyLapTransition(
+        lapCountRef.current,
+        lapTimeRef.current,
+        frame,
+      );
 
-      if (restarted) {
+      if (transition.kind === "restart") {
         recordingsRef.current = [];
         currentRef.current = freshLap(frame.lapCount + 1);
         pendingRef.current = null;
         overflowedRef.current = false;
         wrappedRef.current = null;
         setVersion((n) => n + 1);
-      } else if (prevLap !== null && frame.lapCount > prevLap) {
+      } else if (transition.kind === "tick") {
         const wrapped = wrappedRef.current;
         wrappedRef.current = null;
         if (wrapped) {
-          wrapped.rec.lap = prevLap + 1;
+          wrapped.rec.lap = transition.completedLap;
           pendingRef.current = {
             rec: wrapped.rec,
             overflowed: wrapped.overflowed,
@@ -113,7 +113,7 @@ export const useLapRecordings = (
           };
           currentRef.current.lap = frame.lapCount + 1;
         } else {
-          currentRef.current.lap = prevLap + 1;
+          currentRef.current.lap = transition.completedLap;
           pendingRef.current = {
             rec: currentRef.current,
             overflowed: overflowedRef.current,
@@ -123,7 +123,7 @@ export const useLapRecordings = (
           currentRef.current = freshLap(frame.lapCount + 1);
           overflowedRef.current = false;
         }
-      } else if (prevLap === null) {
+      } else if (transition.kind === "first") {
         currentRef.current.lap = frame.lapCount + 1;
       }
 

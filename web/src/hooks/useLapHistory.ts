@@ -1,6 +1,8 @@
 import type { CutEvent, TelemetryFrame } from "@rivazza/protocol";
 import { useEffect, useRef } from "react";
 
+import { classifyLapTransition } from "../lib/lapTransition";
+
 export const LAP_STATUS = {
   valid: "valid",
   invalid: "invalid",
@@ -84,22 +86,21 @@ export const useLapHistory = (
       return;
     }
 
-    const prevLap = lapCountRef.current;
-    const restarted =
-      prevLap !== null &&
-      (telemetry.lapCount < prevLap ||
-        (telemetry.lapCount === prevLap &&
-          telemetry.lapTimeMs + 1000 < lapTimeRef.current));
+    const transition = classifyLapTransition(
+      lapCountRef.current,
+      lapTimeRef.current,
+      telemetry,
+    );
 
-    if (restarted) {
+    if (transition.kind === "restart") {
       lapsRef.current = [];
       pitDuringRef.current = false;
       pendingRef.current = null;
       cutDuringRef.current = false;
       consumedCutsRef.current = cuts.length;
-    } else if (prevLap !== null && telemetry.lapCount > prevLap) {
+    } else if (transition.kind === "tick") {
       pendingRef.current = {
-        lap: prevLap + 1,
+        lap: transition.completedLap,
         pitAtStart: pitAtStartRef.current,
         pitDuring: pitDuringRef.current,
         cutDuring: cutDuringRef.current,
@@ -111,8 +112,7 @@ export const useLapHistory = (
       cutDuringRef.current = false;
     }
 
-    if (prevLap === null || restarted || telemetry.lapCount > prevLap)
-      pitAtStartRef.current = telemetry.inPit;
+    if (transition.kind !== "same") pitAtStartRef.current = telemetry.inPit;
 
     for (; consumedCutsRef.current < cuts.length; consumedCutsRef.current++) {
       const cut = cuts[consumedCutsRef.current];

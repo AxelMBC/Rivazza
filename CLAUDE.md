@@ -129,8 +129,8 @@ touch = invalid), with shared-memory cut events as the authoritative override wh
 live delta has no hook of its own: `LapTimes` reads it off the analysis panel's reference lap
 (`resolveReference` over `useLapRecordings`). Also note: AC's "restart session" does **not**
 re-handshake — restarts are detected by the lap counter or lap clock running backwards, a
-signature duplicated in `useLapHistory`, `useLapRecordings`, and `TrackMap`
-(`TrackMap/lineRecorder.ts`). Keep them in sync if you change one.
+signature declared once in `classifyLapTransition` (`web/src/lib/lapTransition.ts`) and shared by
+`useLapHistory`, `useLapRecordings`, and `TrackMap` (`TrackMap/lineRecorder.ts`).
 
 **Track map projection (`web/src/components/TrackMap/`).** `pixel = (world + OFFSET) / SCALE_FACTOR`
 from `map.ini`. If the dot appears mirrored on some track, flip the X term in `metaProjection`

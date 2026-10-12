@@ -1,5 +1,7 @@
 import type { CutEvent, TelemetryFrame } from "@rivazza/protocol";
 
+import { classifyLapTransition } from "../../lib/lapTransition";
+
 import {
   MAX_LAPS,
   MAX_SAMPLES,
@@ -78,18 +80,14 @@ export const createLineRecorder = () => {
     cutList: CutEvent[],
     onRestart: () => void,
   ) => {
-    const prevLap = lap;
-    const restarted =
-      prevLap !== null &&
-      (frame.lapCount < prevLap ||
-        (frame.lapCount === prevLap && frame.lapTimeMs + 1000 < lapTime));
-    if (restarted) {
+    const transition = classifyLapTransition(lap, lapTime, frame);
+    if (transition.kind === "restart") {
       onRestart();
       lapsVersion++;
       consumedCuts = cutList.length;
-    } else if (prevLap !== null && frame.lapCount > prevLap) {
+    } else if (transition.kind === "tick") {
       previousLapsRef.current.push({
-        lap: prevLap + 1,
+        lap: transition.completedLap,
         samples: currentRef.current,
         cut: currentCutRef.current,
       });
