@@ -32,7 +32,6 @@ import {
 } from "./projection";
 import { buildTrackGeometry, type View } from "./trackGeometry";
 import { useFollowControl } from "./useFollowControl";
-import { useTrackMapData } from "./useTrackMapData";
 
 type Props = {
   session: SessionInfo;
@@ -70,8 +69,8 @@ export const TrackMap = ({
   const viewRef = useRef<View | null>(null);
   const zoomRef = useRef<Zoom>(ZOOM_RESET);
   const navRef = useRef<Point | null>(null);
-  const { mapData, mapProbed } = useTrackMapData(session);
   const { followUi, dwelling, follow } = useFollowControl(telemetryRef);
+  const { meta, edges } = session;
   const hasFrameRef = useRef(false);
   const legendKeyRef = useRef("");
 
@@ -113,14 +112,8 @@ export const TrackMap = ({
     if (!ctx) return;
     let rafId = 0;
 
-    const {
-      edges,
-      edgeView,
-      edgesFill,
-      sectorEdges,
-      sectorLabels,
-      sectorTicks,
-    } = buildTrackGeometry(mapData);
+    const { edgeView, edgesFill, sectorEdges, sectorLabels, sectorTicks } =
+      buildTrackGeometry(meta, edges);
 
     const insetRef: React.RefObject<Inset | null> = { current: null };
     const { followCamera, navCamera, dotWorld, followAnimating, navAnimating } =
@@ -330,8 +323,8 @@ export const TrackMap = ({
 
       syncLegend();
 
-      const fixedFit = mapData?.meta
-        ? { mode: "m", base: metaProjection(mapData.meta, width, height) }
+      const fixedFit = meta
+        ? { mode: "m", base: metaProjection(meta, width, height) }
         : edgeView
           ? { mode: "e", base: viewProjection(edgeView, width, height) }
           : null;
@@ -397,7 +390,8 @@ export const TrackMap = ({
       detachGestures();
     };
   }, [
-    mapData,
+    meta,
+    edges,
     telemetryRef,
     lapsRef,
     cutsRef,
@@ -417,7 +411,7 @@ export const TrackMap = ({
         Track map
       </p>
       <div className="absolute top-3 right-4 flex items-center gap-3 text-xs text-ink-muted">
-        {mapProbed && !mapData && (
+        {!meta && !edges && (
           <span>No map file — drawing your driving line</span>
         )}
         <PedalKey />

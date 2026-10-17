@@ -3,9 +3,8 @@ export type SessionInfo = {
   trackConfig: string;
   car: string;
   driver: string;
-  mapAvailable: boolean;
-  boundsAvailable: boolean;
-  edgesAvailable: boolean;
+  meta: MapMeta | null;
+  edges: TrackEdges | null;
   topSpeedKmh: number | null;
 };
 

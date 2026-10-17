@@ -10,7 +10,7 @@ that renders gauges, lap times, and a 2D track map with a live position dot.
 
 ```
 Assetto Corsa ──UDP 9996──▶ bridge (Node) ──WebSocket :3001──▶ React app :5173
-                              └── also serves the track's map.png + map.ini over HTTP
+                              └── the session message carries the track's map.ini bounds + AI-spline edges
 ```
 
 ## Commands
@@ -22,7 +22,7 @@ npm workspaces monorepo (`bridge`, `web`, plus the types-only `packages/protocol
 - `npm run build` — builds both workspaces
 - `npm run mock -w bridge` — fake AC on UDP 9996 streaming a car lapping Magione, for developing without the game. **Stop it before running the real game** (both bind 9996).
 - `npm run record -w bridge -- [--out web/public/demo/imola.json] [--host …] [--port 3001] [--duration <s>]` —
-  records the bridge's WebSocket stream (plus a `.map.json` track outline) for the demo build. Ctrl-C
+  records the bridge's WebSocket stream (its `session` message carries the track outline) for the demo build. Ctrl-C
   or `--duration` ends it; the file is written on exit.
 - `npm run lint -w web` — oxlint (the only linter; the bridge has none)
 - `npm run build -w bridge` — bridge "build" is `tsc --noEmit` (type-check only; it runs via `tsx`, never compiled to JS)
@@ -96,11 +96,12 @@ plus the live current-lap INV cue, and `TrackMap` draws red × markers — ambie
 while the invalid lap is in progress; stored laps reveal theirs on hover (their map
 line, or their session-lap-list row via the shared `hoveredLapRef`).
 
-**Track assets (`bridge/src/content/trackAssets.ts`, served by `bridge/src/trackAssetServer.ts`).** Reads `content/tracks/<track>/[<config>/]data/map.ini`
-for projection bounds; served at `/api/track-map/meta`. The `.ini` bounds alone fix the viewport.
-`map.png` is still served at `/api/track-map/image`, but the web app **deliberately never draws
-it** — AC strokes it at constant width around the AI line, misrepresenting track limits; the
-driven lines are the track. Tracks without a `map.ini` fall back to an auto-fit view of the
+**Track assets (`bridge/src/content/trackAssets.ts`).** Reads `content/tracks/<track>/[<config>/]data/map.ini`
+for projection bounds and `ai/fast_lane.ai` for track edges, resolved before `session` is broadcast and
+sent on it as `meta` / `edges` (`null` = not available) — the bridge serves no asset routes; its port
+is `ws`'s own server, which answers any plain request with 426. The `.ini` bounds alone fix the viewport.
+`map.png` is **deliberately ignored** — AC strokes it at constant width around the AI line,
+misrepresenting track limits; the driven lines are the track. Tracks without a `map.ini` fall back to an auto-fit view of the
 driven line. The AC install itself is resolved once in `content/acPath.ts` (`AC_PATH` env var, else
 the Steam library configs), shared by the track and car modules.
 

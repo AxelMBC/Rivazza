@@ -69,10 +69,9 @@ npm run record -w bridge -- --out web/public/demo/imola.json --duration 180
 ```
 
 The recorder is just another WebSocket client — it complements `npm run mock` and
-touches nothing in the bridge. It writes two files: `imola.json` (the frame
-stream) and `imola.map.json` (the track outline — map.ini bounds + AI-spline
-edges — which the live app fetches from the bridge but must be static in demo
-mode). Commit both.
+touches nothing in the bridge. It writes one file, `imola.json`: the track outline
+(map.ini bounds + AI-spline edges) travels inside its `session` message, so the
+recording alone draws the track in demo mode. Commit it.
 
 **Run the demo locally** (replays the recording, no bridge or game needed):
 

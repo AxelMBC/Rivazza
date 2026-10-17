@@ -1,7 +1,8 @@
+import type { MapMeta, TrackEdges } from "@rivazza/protocol";
+
 import { SECTOR_COUNT } from "../../lib/lapAnalysis";
 
 import { VIEW_MARGIN } from "./constants";
-import type { MapData } from "./useTrackMapData";
 
 export type Anchor = { x: number; z: number; dx: number; dz: number };
 export type View = { cx: number; cz: number; ex: number; ez: number };
@@ -28,8 +29,10 @@ const sectorVertexRuns = (
   });
 };
 
-export const buildTrackGeometry = (mapData: MapData | null) => {
-  const edges = mapData?.edges ?? null;
+export const buildTrackGeometry = (
+  meta: MapMeta | null,
+  edges: TrackEdges | null,
+) => {
   let edgeView: View | null = null;
   let edgeCentre: { x: number; z: number } | null = null;
   if (edges) {
@@ -46,7 +49,7 @@ export const buildTrackGeometry = (mapData: MapData | null) => {
       }
     }
     edgeCentre = { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2 };
-    if (!mapData?.meta)
+    if (!meta)
       edgeView = {
         cx: edgeCentre.x,
         cz: edgeCentre.z,
@@ -130,7 +133,6 @@ export const buildTrackGeometry = (mapData: MapData | null) => {
     });
   }
   return {
-    edges,
     edgeView,
     edgesFill,
     sectorEdges,

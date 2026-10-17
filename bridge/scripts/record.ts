@@ -44,45 +44,15 @@ const outPath = path.isAbsolute(rawOut)
 const durationSec = args.duration ? Number(args.duration) : null;
 
 const url = `ws://${host}:${port}/ws`;
-const httpBase = `http://${host}:${port}`;
-const mapOutPath = outPath.replace(/\.json$/i, "") + ".map.json";
 const recording: Recording = [];
-let mapAssets: { meta: unknown; edges: unknown } | null = null;
-let mapFetched = false;
 let startedAt: number | null = null;
 let wrote = false;
-
-const captureMap = async (): Promise<void> => {
-  if (mapFetched) return;
-  mapFetched = true;
-  const get = async (p: string): Promise<unknown> => {
-    try {
-      const res = await fetch(`${httpBase}${p}`);
-      return res.ok ? await res.json() : null;
-    } catch {
-      return null;
-    }
-  };
-  const [meta, edges] = await Promise.all([
-    get("/api/track-map/meta"),
-    get("/api/track-map/edges"),
-  ]);
-  if (meta || edges) {
-    mapAssets = { meta, edges };
-    console.log(
-      `[record] captured track map (meta:${!!meta} edges:${!!edges})`,
-    );
-  } else {
-    console.log("[record] no track map served by the bridge for this track");
-  }
-};
 
 const write = (): void => {
   if (wrote) return;
   wrote = true;
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, JSON.stringify(recording));
-  if (mapAssets) fs.writeFileSync(mapOutPath, JSON.stringify(mapAssets));
   const counts = recording.reduce<Record<string, number>>((acc, { msg }) => {
     acc[msg.type] = (acc[msg.type] ?? 0) + 1;
     return acc;
@@ -92,7 +62,6 @@ const write = (): void => {
     `[record] wrote ${recording.length} messages (${(spanMs / 1000).toFixed(1)}s) to ${outPath}`,
   );
   console.log(`[record] by type: ${JSON.stringify(counts)}`);
-  if (mapAssets) console.log(`[record] wrote track map to ${mapOutPath}`);
 };
 
 console.log(`[record] connecting to ${url} …`);
@@ -118,7 +87,6 @@ socket.on("message", (data) => {
   const now = performance.now();
   if (startedAt === null) startedAt = now;
   recording.push({ t: Math.round(now - startedAt), msg });
-  if (msg.type === "session") void captureMap();
   if (recording.length % 600 === 0) {
     console.log(`[record] ${recording.length} messages…`);
   }

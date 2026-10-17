@@ -8,7 +8,6 @@ import {
 } from "./content/trackAssets.js";
 import { createFrameThrottle } from "./frameThrottle.js";
 import { startCutDetection } from "./shm/cutDetection.js";
-import { createTrackAssetServer } from "./trackAssetServer.js";
 import { ACClient } from "./udp/acClient.js";
 
 const PORT = Number(process.env.BRIDGE_PORT ?? 3001);
@@ -16,12 +15,9 @@ const BROADCAST_HZ = 60;
 const BROADCAST_INTERVAL_MS = 1000 / BROADCAST_HZ;
 
 let session: SessionInfo | null = null;
-let trackAssets: TrackAssets | null = null;
 let sessionGeneration = 0;
 
-const server = createTrackAssetServer(() => trackAssets);
-
-const wss = new WebSocketServer({ server, path: "/ws" });
+const wss = new WebSocketServer({ port: PORT, path: "/ws" });
 
 wss.on("error", (err) => {
   console.error(`[bridge] cannot serve on port ${PORT}:`, err.message);
@@ -67,15 +63,13 @@ ac.on("session", async (handshake) => {
     );
   }
   if (generation !== sessionGeneration) return;
-  trackAssets = assets;
   session = {
     track: handshake.trackName,
     trackConfig: handshake.trackConfig,
     car: handshake.carName,
     driver: handshake.driverName,
-    mapAvailable: trackAssets?.mapImagePath != null,
-    boundsAvailable: trackAssets?.meta != null,
-    edgesAvailable: trackAssets?.edges != null,
+    meta: assets?.meta ?? null,
+    edges: assets?.edges ?? null,
     topSpeedKmh: resolveCarTopSpeed(handshake.carName),
   };
   broadcast({ type: "status", state: "connected" });
@@ -85,7 +79,6 @@ ac.on("session", async (handshake) => {
 ac.on("waiting", () => {
   sessionGeneration++;
   session = null;
-  trackAssets = null;
   throttle.clear();
   broadcast({ type: "status", state: "waiting" });
 });
@@ -103,8 +96,8 @@ const stopCutDetection = startCutDetection({
   },
 });
 
-server.listen(PORT, () => {
-  console.log(`[bridge] http + ws listening on http://localhost:${PORT}`);
+wss.on("listening", () => {
+  console.log(`[bridge] ws listening on ws://localhost:${PORT}/ws`);
   ac.start();
 });
 
@@ -112,7 +105,7 @@ const shutdown = (): void => {
   stopCutDetection();
   throttle.stop();
   ac.stop();
-  server.close();
+  wss.close();
   process.exit(0);
 };
 process.on("SIGINT", shutdown);

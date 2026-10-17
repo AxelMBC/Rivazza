@@ -10,7 +10,6 @@ import { resolveTrackEdges } from "./aiSpline.js";
 
 export type TrackAssets = {
   meta: MapMeta | null;
-  mapImagePath: string | null;
   edges: TrackEdges | null;
 };
 
@@ -46,16 +45,12 @@ export const resolveTrackAssets = (
     : [trackRoot];
 
   let meta: MapMeta | null = null;
-  let mapImagePath: string | null = null;
   for (const dir of candidates) {
     const iniPath = path.join(dir, "data", "map.ini");
     if (!fs.existsSync(iniPath)) continue;
     try {
       meta = parseMapIni(iniPath);
-      if (!meta) continue;
-      const imagePath = path.join(dir, "map.png");
-      mapImagePath = fs.existsSync(imagePath) ? imagePath : null;
-      break;
+      if (meta) break;
     } catch (err) {
       console.error(`[map] failed to parse ${iniPath}:`, err);
     }
@@ -78,7 +73,7 @@ export const resolveTrackAssets = (
     );
     return null;
   }
-  return { meta, mapImagePath, edges };
+  return { meta, edges };
 };
 
 // Multi-layout tracks (ks_highlands, ks_nurburgring, …) keep every map.ini
