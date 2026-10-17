@@ -41,9 +41,13 @@ script inlines them, so keep the two in step.
 while `web` pins TypeScript 6.0.3 in `web/node_modules`, and only running with cwd `web/` puts the
 right compiler on PATH. `--loglevel=error` silences the same yarn-leaked warnings there instead.
 
-There is **no test framework** in this repo — no vitest, no jest, no `npm test`. Do not invent one,
-and do not put "run the tests" in a `tasks.md`. The automated gate is the four read-only checks in
-`.claude/axl.json`. The web typecheck is `npx tsc -b web --noEmit` on purpose: `npm run build -w web`
+`npm test` runs the unit tests: Node's built-in `node:test` + `node:assert/strict` through
+`tsx --test`, no test dependency. A test sits beside the module it tests (`parsers.test.ts` next to
+`parsers.ts`) and covers pure logic only — the UDP parsers, the lap-transition classifier, the
+lap-analysis maths and the lap log (`stepLapLog`, replayed over the committed Imola recording). No
+UI, DOM, canvas or hook-rendering tests. Web test files type-check under `web/tsconfig.test.json`
+(Node types), kept out of the app build. The automated gate is the read-only checks in
+`.claude/axl.json`, `npm test` among them. The web typecheck is `npx tsc -b web --noEmit` on purpose: `npm run build -w web`
 also runs `vite build` (writes `web/dist/`), and `npm exec -w web -- tsc` swallows tsc's exit code, so
 it passes on red.
 

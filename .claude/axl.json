@@ -5,6 +5,7 @@
     "checks": [
         { "name": "typecheck bridge", "run": "npm run build -w bridge" },
         { "name": "typecheck web", "run": "npx tsc -b web --noEmit" },
+        { "name": "unit tests", "run": "npm test" },
         { "name": "lint web", "run": "npm run lint -w web" },
         { "name": "format", "run": "npm run format:check" }
     ],

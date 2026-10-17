@@ -39,7 +39,127 @@ const settleStatus = (pending: PendingLap, rejected: boolean): LapStatus => {
   return LAP_STATUS.valid;
 };
 
+const settleLap = (pending: PendingLap, frame: TelemetryFrame): LapRecord => {
+  const timeMs = frame.lastLapMs;
+  const wouldBeBest = pending.bestBefore <= 0 || timeMs < pending.bestBefore;
+  const rejected = wouldBeBest && frame.bestLapMs !== timeMs;
+  return { lap: pending.lap, timeMs, status: settleStatus(pending, rejected) };
+};
+
 export type SettledLapLog = { lapCount: number; bestLapMs: number };
+
+export type LapLogState = {
+  laps: LapRecord[];
+  lapCount: number | null;
+  lapTimeMs: number;
+  prevBestMs: number;
+  prevLastMs: number;
+  pitAtStart: boolean;
+  pitDuring: boolean;
+  pending: PendingLap | null;
+  cutDuring: boolean;
+  settled: SettledLapLog;
+  consumedCuts: number;
+  seenCuts: readonly CutEvent[] | null;
+  lastFrame: TelemetryFrame | null;
+};
+
+export const initialLapLog = (): LapLogState => ({
+  laps: [],
+  lapCount: null,
+  lapTimeMs: 0,
+  prevBestMs: 0,
+  prevLastMs: 0,
+  pitAtStart: false,
+  pitDuring: false,
+  pending: null,
+  cutDuring: false,
+  settled: { lapCount: 0, bestLapMs: 0 },
+  consumedCuts: 0,
+  seenCuts: null,
+  lastFrame: null,
+});
+
+export const stepLapLog = (
+  state: LapLogState,
+  frame: TelemetryFrame | null,
+  cuts: readonly CutEvent[],
+): LapLogState => {
+  let consumedCuts = cuts === state.seenCuts ? state.consumedCuts : 0;
+
+  if (!frame)
+    return {
+      ...initialLapLog(),
+      consumedCuts,
+      seenCuts: cuts,
+      lastFrame: state.lastFrame,
+    };
+
+  let { laps, pitAtStart, pitDuring, pending, cutDuring, settled } = state;
+  const transition = classifyLapTransition(
+    state.lapCount,
+    state.lapTimeMs,
+    frame,
+  );
+
+  if (transition.kind === "restart") {
+    laps = [];
+    pitDuring = false;
+    pending = null;
+    cutDuring = false;
+    consumedCuts = cuts.length;
+  } else if (transition.kind === "tick") {
+    pending = {
+      lap: transition.completedLap,
+      pitAtStart,
+      pitDuring,
+      cutDuring,
+      bestBefore: state.prevBestMs,
+      lastLapBefore: state.prevLastMs,
+      framesWaited: 0,
+    };
+    pitDuring = false;
+    cutDuring = false;
+  }
+
+  if (transition.kind !== "same") pitAtStart = frame.inPit;
+
+  for (; consumedCuts < cuts.length; consumedCuts++) {
+    const cut = cuts[consumedCuts];
+    if (cut.lapCount > frame.lapCount) break;
+    if (cut.lapCount === frame.lapCount) cutDuring = true;
+    else if (pending && cut.lapCount + 1 === pending.lap)
+      pending = { ...pending, cutDuring: true };
+  }
+
+  if (pending) {
+    if (isLastLapFresh(frame, pending, PENDING_MAX_FRAMES)) {
+      laps = [...laps, settleLap(pending, frame)];
+      pending = null;
+    } else if (frame !== state.lastFrame) {
+      pending = { ...pending, framesWaited: pending.framesWaited + 1 };
+    }
+  }
+
+  if (!pending)
+    settled = { lapCount: frame.lapCount, bestLapMs: frame.bestLapMs };
+
+  return {
+    laps,
+    lapCount: frame.lapCount,
+    lapTimeMs: frame.lapTimeMs,
+    prevBestMs: frame.bestLapMs,
+    prevLastMs: frame.lastLapMs,
+    pitAtStart,
+    pitDuring: pitDuring || frame.inPit,
+    pending,
+    cutDuring,
+    settled,
+    consumedCuts,
+    seenCuts: cuts,
+    lastFrame: frame,
+  };
+};
 
 export type LapHistory = {
   lapsRef: React.RefObject<LapRecord[]>;
@@ -52,114 +172,22 @@ export const useLapHistory = (
   cutsRef: React.RefObject<CutEvent[]>,
   cutSeq: number,
 ): LapHistory => {
+  const logRef = useRef<LapLogState | null>(null);
   const lapsRef = useRef<LapRecord[]>([]);
-  const lapCountRef = useRef<number | null>(null);
-  const lapTimeRef = useRef(0);
-  const prevBestRef = useRef(0);
-  const prevLastRef = useRef(0);
-  const pitAtStartRef = useRef(false);
-  const pitDuringRef = useRef(false);
-  const pendingRef = useRef<PendingLap | null>(null);
-  const cutDuringRef = useRef(false);
+  const currentLapInvalidRef = useRef(false);
   const settledRef = useRef<SettledLapLog>({ lapCount: 0, bestLapMs: 0 });
-  const consumedCutsRef = useRef(0);
-  const seenCutsRef = useRef<CutEvent[] | null>(null);
-  const lastFrameRef = useRef<TelemetryFrame | null>(null);
 
   useEffect(() => {
-    const cuts = cutsRef.current;
-    if (cuts !== seenCutsRef.current) {
-      seenCutsRef.current = cuts;
-      consumedCutsRef.current = 0;
-    }
-
-    if (!telemetry) {
-      lapsRef.current = [];
-      lapCountRef.current = null;
-      lapTimeRef.current = 0;
-      prevBestRef.current = 0;
-      prevLastRef.current = 0;
-      pitAtStartRef.current = false;
-      pitDuringRef.current = false;
-      pendingRef.current = null;
-      cutDuringRef.current = false;
-      settledRef.current = { lapCount: 0, bestLapMs: 0 };
-      return;
-    }
-
-    const transition = classifyLapTransition(
-      lapCountRef.current,
-      lapTimeRef.current,
+    const log = stepLapLog(
+      logRef.current ?? initialLapLog(),
       telemetry,
+      cutsRef.current,
     );
-
-    if (transition.kind === "restart") {
-      lapsRef.current = [];
-      pitDuringRef.current = false;
-      pendingRef.current = null;
-      cutDuringRef.current = false;
-      consumedCutsRef.current = cuts.length;
-    } else if (transition.kind === "tick") {
-      pendingRef.current = {
-        lap: transition.completedLap,
-        pitAtStart: pitAtStartRef.current,
-        pitDuring: pitDuringRef.current,
-        cutDuring: cutDuringRef.current,
-        bestBefore: prevBestRef.current,
-        lastLapBefore: prevLastRef.current,
-        framesWaited: 0,
-      };
-      pitDuringRef.current = false;
-      cutDuringRef.current = false;
-    }
-
-    if (transition.kind !== "same") pitAtStartRef.current = telemetry.inPit;
-
-    for (; consumedCutsRef.current < cuts.length; consumedCutsRef.current++) {
-      const cut = cuts[consumedCutsRef.current];
-      if (cut.lapCount > telemetry.lapCount) break;
-      if (cut.lapCount === telemetry.lapCount) {
-        cutDuringRef.current = true;
-      } else if (
-        pendingRef.current &&
-        cut.lapCount + 1 === pendingRef.current.lap
-      ) {
-        pendingRef.current.cutDuring = true;
-      }
-    }
-
-    const pending = pendingRef.current;
-    if (pending) {
-      if (isLastLapFresh(telemetry, pending, PENDING_MAX_FRAMES)) {
-        const timeMs = telemetry.lastLapMs;
-        const wouldBeBest =
-          pending.bestBefore <= 0 || timeMs < pending.bestBefore;
-        const rejected = wouldBeBest && telemetry.bestLapMs !== timeMs;
-        lapsRef.current.push({
-          lap: pending.lap,
-          timeMs,
-          status: settleStatus(pending, rejected),
-        });
-        pendingRef.current = null;
-      } else if (telemetry !== lastFrameRef.current) {
-        pending.framesWaited += 1;
-      }
-    }
-
-    if (!pendingRef.current) {
-      settledRef.current = {
-        lapCount: telemetry.lapCount,
-        bestLapMs: telemetry.bestLapMs,
-      };
-    }
-
-    pitDuringRef.current = pitDuringRef.current || telemetry.inPit;
-    lapCountRef.current = telemetry.lapCount;
-    lapTimeRef.current = telemetry.lapTimeMs;
-    prevBestRef.current = telemetry.bestLapMs;
-    prevLastRef.current = telemetry.lastLapMs;
-    lastFrameRef.current = telemetry;
+    logRef.current = log;
+    lapsRef.current = log.laps;
+    currentLapInvalidRef.current = log.cutDuring;
+    settledRef.current = log.settled;
   }, [telemetry, cutsRef, cutSeq]);
 
-  return { lapsRef, currentLapInvalidRef: cutDuringRef, settledRef };
+  return { lapsRef, currentLapInvalidRef, settledRef };
 };
