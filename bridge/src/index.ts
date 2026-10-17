@@ -1,21 +1,17 @@
-import type { BridgeMessage, SessionInfo } from "@rivazza/protocol";
+import type { BridgeMessage } from "@rivazza/protocol";
 import { WebSocket, WebSocketServer } from "ws";
 
-import { resolveCarTopSpeed } from "./content/carAssets.js";
-import {
-  resolveTrackAssetsForSession,
-  type TrackAssets,
-} from "./content/trackAssets.js";
 import { createFrameThrottle } from "./frameThrottle.js";
+import { createSession } from "./session.js";
 import { startCutDetection } from "./shm/cutDetection.js";
+import { readStaticPageTokens } from "./shm/staticPage.js";
 import { ACClient } from "./udp/acClient.js";
 
 const PORT = Number(process.env.BRIDGE_PORT ?? 3001);
 const BROADCAST_HZ = 60;
 const BROADCAST_INTERVAL_MS = 1000 / BROADCAST_HZ;
 
-let session: SessionInfo | null = null;
-let sessionGeneration = 0;
+const session = createSession(readStaticPageTokens);
 
 const wss = new WebSocketServer({ port: PORT, path: "/ws" });
 
@@ -37,57 +33,30 @@ const throttle = createFrameThrottle(BROADCAST_INTERVAL_MS, (frame) =>
 
 wss.on("connection", (socket) => {
   socket.on("error", () => socket.terminate());
-  const hello: BridgeMessage[] = session
-    ? [
-        { type: "status", state: "connected" },
-        { type: "session", ...session },
-      ]
-    : [{ type: "status", state: "waiting" }];
-  for (const message of hello) socket.send(JSON.stringify(message));
+  for (const message of session.greeting())
+    socket.send(JSON.stringify(message));
 });
 
 const ac = new ACClient();
 
 ac.on("session", async (handshake) => {
-  const generation = ++sessionGeneration;
-  let assets: TrackAssets | null = null;
-  try {
-    assets = await resolveTrackAssetsForSession(
-      handshake.trackName,
-      handshake.trackConfig,
-    );
-  } catch (err) {
-    console.warn(
-      "[map] track asset resolution failed:",
-      err instanceof Error ? err.message : String(err),
-    );
-  }
-  if (generation !== sessionGeneration) return;
-  session = {
-    track: handshake.trackName,
-    trackConfig: handshake.trackConfig,
-    car: handshake.carName,
-    driver: handshake.driverName,
-    meta: assets?.meta ?? null,
-    edges: assets?.edges ?? null,
-    topSpeedKmh: resolveCarTopSpeed(handshake.carName),
-  };
-  broadcast({ type: "status", state: "connected" });
-  broadcast({ type: "session", ...session });
+  if (!(await session.start(handshake))) return;
+  for (const message of session.greeting()) broadcast(message);
 });
 
 ac.on("waiting", () => {
-  sessionGeneration++;
-  session = null;
+  session.end();
   throttle.clear();
-  broadcast({ type: "status", state: "waiting" });
+  for (const message of session.greeting()) broadcast(message);
 });
 
-ac.on("telemetry", throttle.push);
+ac.on("telemetry", (frame) => {
+  if (session.isLive()) throttle.push(frame);
+});
 
 const stopCutDetection = startCutDetection({
   getFrame: throttle.latest,
-  isLive: () => session !== null,
+  isLive: session.isLive,
   onCut: (cut) => {
     console.log(
       `[shm] cut: ${cut.tyresOut} tyres out on lap ${cut.lapCount + 1} at (${cut.x.toFixed(1)}, ${cut.z.toFixed(1)})`,
