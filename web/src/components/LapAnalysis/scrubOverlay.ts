@@ -1,5 +1,5 @@
 import type { LapRecording } from "../../hooks/useLapRecordings";
-import { formatGearCompact } from "../../lib/format";
+import { formatDelta, formatGearCompact } from "../../lib/format";
 import {
   interpolateTimeAt,
   sampleNear,
@@ -101,7 +101,7 @@ export const drawScrubOverlay = (
       const d = tSel - tRef;
       rows.push([
         {
-          text: `Δ ${d <= 0 ? "−" : "+"}${(Math.abs(d) / 1000).toFixed(2)}s`,
+          text: `Δ ${formatDelta(d)}s`,
           color: d <= 0 ? THROTTLE_TRACE : BRAKE_TRACE,
         },
       ]);

@@ -1,4 +1,4 @@
-import type { LapStatus } from "../hooks/useLapHistory";
+import type { LapRecord, LapStatus } from "../hooks/useLapHistory";
 
 export type LapStatusTag = { text: string; toneClass: string };
 
@@ -22,4 +22,11 @@ export const lapStatusTag = (
       return unreachable;
     }
   }
+};
+
+export const bestValidLapMs = (laps: readonly LapRecord[]): number | null => {
+  const validTimes = laps
+    .filter((l) => l.status === "valid")
+    .map((l) => l.timeMs);
+  return validTimes.length > 0 ? Math.min(...validTimes) : null;
 };

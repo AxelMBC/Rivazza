@@ -6,6 +6,9 @@ export const formatLapTime = (ms: number | null | undefined): string => {
   return `${minutes}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 };
 
+export const formatDelta = (deltaMs: number): string =>
+  `${deltaMs <= 0 ? "−" : "+"}${(Math.abs(deltaMs) / 1000).toFixed(2)}`;
+
 // AC gears: 0 = reverse, 1 = neutral, 2+ = forward gears.
 export const formatGear = (gear: number): string =>
   gear === 0 ? "R" : gear === 1 ? "N" : String(gear - 1);

@@ -1,5 +1,6 @@
 import { formatLapTime } from "../../lib/format";
 import { isPitLap, lapStatusTag } from "../../lib/lapStatus";
+import { LapStatusChip } from "../LapStatusChip";
 
 import type { LegendEntry } from "./legend";
 
@@ -21,12 +22,8 @@ export const LapLegend = ({ entries }: Props) =>
             />
             <span className="text-ink-muted">
               Lap {entry.lap}
-              {tag && isPitLap(entry.status) && (
-                <span
-                  className={`ml-1.5 text-[0.65rem] uppercase ${tag.toneClass}`}
-                >
-                  {tag.text}
-                </span>
+              {isPitLap(entry.status) && (
+                <LapStatusChip status={entry.status} className="ml-1.5" />
               )}
             </span>
             {entry.timeMs != null && (

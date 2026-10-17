@@ -1,7 +1,7 @@
 import type { CutEvent, TelemetryFrame } from "@rivazza/protocol";
 import { useEffect, useRef } from "react";
 
-import { classifyLapTransition } from "../lib/lapTransition";
+import { classifyLapTransition, isLastLapFresh } from "../lib/lapTransition";
 
 export const LAP_STATUS = {
   valid: "valid",
@@ -64,6 +64,7 @@ export const useLapHistory = (
   const settledRef = useRef<SettledLapLog>({ lapCount: 0, bestLapMs: 0 });
   const consumedCutsRef = useRef(0);
   const seenCutsRef = useRef<CutEvent[] | null>(null);
+  const lastFrameRef = useRef<TelemetryFrame | null>(null);
 
   useEffect(() => {
     const cuts = cutsRef.current;
@@ -116,6 +117,7 @@ export const useLapHistory = (
 
     for (; consumedCutsRef.current < cuts.length; consumedCutsRef.current++) {
       const cut = cuts[consumedCutsRef.current];
+      if (cut.lapCount > telemetry.lapCount) break;
       if (cut.lapCount === telemetry.lapCount) {
         cutDuringRef.current = true;
       } else if (
@@ -128,11 +130,7 @@ export const useLapHistory = (
 
     const pending = pendingRef.current;
     if (pending) {
-      const fresh =
-        telemetry.lastLapMs > 0 &&
-        (telemetry.lastLapMs !== pending.lastLapBefore ||
-          pending.framesWaited >= PENDING_MAX_FRAMES);
-      if (fresh) {
+      if (isLastLapFresh(telemetry, pending, PENDING_MAX_FRAMES)) {
         const timeMs = telemetry.lastLapMs;
         const wouldBeBest =
           pending.bestBefore <= 0 || timeMs < pending.bestBefore;
@@ -143,7 +141,7 @@ export const useLapHistory = (
           status: settleStatus(pending, rejected),
         });
         pendingRef.current = null;
-      } else {
+      } else if (telemetry !== lastFrameRef.current) {
         pending.framesWaited += 1;
       }
     }
@@ -160,6 +158,7 @@ export const useLapHistory = (
     lapTimeRef.current = telemetry.lapTimeMs;
     prevBestRef.current = telemetry.bestLapMs;
     prevLastRef.current = telemetry.lastLapMs;
+    lastFrameRef.current = telemetry;
   }, [telemetry, cutsRef, cutSeq]);
 
   return { lapsRef, currentLapInvalidRef: cutDuringRef, settledRef };

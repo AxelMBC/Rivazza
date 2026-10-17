@@ -3,13 +3,14 @@ import type { LapRecording } from "../../hooks/useLapRecordings";
 import { formatLapTime } from "../../lib/format";
 import { lapColor } from "../../lib/lapColors";
 import { lapStatusTag } from "../../lib/lapStatus";
+import { LapStatusChip } from "../LapStatusChip";
 
 type Props = {
   reviewableLaps: LapRecording[];
   laps: LapRecord[];
   selected: LapRecording | null;
   reference: LapRecording | null;
-  onSelect: (lap: number) => void;
+  onSelect: (rec: LapRecording) => void;
 };
 
 export const LapChips = ({
@@ -21,14 +22,14 @@ export const LapChips = ({
 }: Props) => (
   <div className="flex gap-1.5 overflow-x-auto pb-0.5">
     {[...reviewableLaps].reverse().map((rec) => {
-      const tag = lapStatusTag(laps.find((l) => l.lap === rec.lap)?.status);
+      const status = laps.find((l) => l.lap === rec.lap)?.status;
       const isSelected = selected === rec;
       return (
         <span
           key={rec.lap}
-          onMouseEnter={() => onSelect(rec.lap)}
+          onMouseEnter={() => onSelect(rec)}
           onPointerUp={(e) => {
-            if (e.pointerType === "touch") onSelect(rec.lap);
+            if (e.pointerType === "touch") onSelect(rec);
           }}
           className={`flex shrink-0 cursor-default items-center gap-1.5 rounded border px-2 py-0.5 text-xs transition-colors ${
             isSelected
@@ -42,17 +43,11 @@ export const LapChips = ({
           />
           <span className="text-ink-muted">
             Lap {rec.lap}
-            {tag && (
-              <span
-                className={`ml-1.5 text-[0.65rem] uppercase ${tag.toneClass}`}
-              >
-                {tag.text}
-              </span>
-            )}
+            <LapStatusChip status={status} className="ml-1.5" />
           </span>
           <span
             className={`font-semibold tabular-nums ${
-              tag?.toneClass ??
+              lapStatusTag(status)?.toneClass ??
               (rec === reference ? "text-best" : "text-ink-secondary")
             }`}
           >

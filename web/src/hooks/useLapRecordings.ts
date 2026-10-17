@@ -1,12 +1,8 @@
 import type { SessionInfo, TelemetryFrame } from "@rivazza/protocol";
 import { useEffect, useRef, useState } from "react";
 
-import {
-  COVERAGE_END,
-  COVERAGE_START,
-  resolveReference,
-} from "../lib/lapAnalysis";
-import { classifyLapTransition } from "../lib/lapTransition";
+import { coversLap, resolveReference } from "../lib/lapAnalysis";
+import { classifyLapTransition, isLastLapFresh } from "../lib/lapTransition";
 
 import type { LapRecord } from "./useLapHistory";
 
@@ -129,19 +125,10 @@ export const useLapRecordings = (
 
       const pending = pendingRef.current;
       if (pending) {
-        const fresh =
-          frame.lastLapMs > 0 &&
-          (frame.lastLapMs !== pending.lastLapBefore ||
-            pending.framesWaited >= PENDING_MAX_FRAMES);
-        if (fresh) {
+        if (isLastLapFresh(frame, pending, PENDING_MAX_FRAMES)) {
           const rec = pending.rec;
-          const samples = rec.samples;
           rec.timeMs = frame.lastLapMs;
-          rec.complete =
-            !pending.overflowed &&
-            samples.length >= 2 &&
-            samples[0].pos <= COVERAGE_START &&
-            samples[samples.length - 1].pos >= COVERAGE_END;
+          rec.complete = !pending.overflowed && coversLap(rec.samples);
           const recordings = recordingsRef.current;
           recordings.push(rec);
           if (recordings.length > MAX_RECORDED_LAPS) {
@@ -161,11 +148,7 @@ export const useLapRecordings = (
       const jumpedBackwardsWithoutTick =
         lastSample !== undefined && frame.normalizedPos < lastSample.pos - 0.5;
       if (jumpedBackwardsWithoutTick) {
-        const spansLap =
-          cur.samples.length >= 2 &&
-          cur.samples[0].pos <= COVERAGE_START &&
-          lastSample.pos >= COVERAGE_END;
-        wrappedRef.current = spansLap
+        wrappedRef.current = coversLap(cur.samples)
           ? { rec: cur, overflowed: overflowedRef.current }
           : null;
         currentRef.current = freshLap(frame.lapCount + 1);

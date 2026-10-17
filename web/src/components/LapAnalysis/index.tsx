@@ -18,7 +18,8 @@ import {
   theoreticalBestMs,
   type ScrubPoint,
 } from "../../lib/lapAnalysis";
-import { lapStatusTag } from "../../lib/lapStatus";
+import { bestValidLapMs, lapStatusTag } from "../../lib/lapStatus";
+import { RevealPanel } from "../RevealPanel";
 
 import { ownersKey } from "./constants";
 import { LapChips } from "./LapChips";
@@ -44,7 +45,7 @@ export const LapAnalysis = ({
   className = "",
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [selectedLap, setSelectedLap] = useState<number | null>(null);
+  const [selectedLap, setSelectedLap] = useState<LapRecording | null>(null);
   const [open, setOpen] = useState(false);
 
   const recordings = recordingsRef.current;
@@ -53,17 +54,7 @@ export const LapAnalysis = ({
   const reference = resolveReference(recordings, laps);
   const latest = latestComplete(recordings);
   const selected =
-    (selectedLap !== null
-      ? reviewableLaps.find((r) => r.lap === selectedLap)
-      : undefined) ?? latest;
-
-  useEffect(() => {
-    if (
-      selectedLap !== null &&
-      !recordingsRef.current.some((r) => r.complete && r.lap === selectedLap)
-    )
-      setSelectedLap(null);
-  }, [version, selectedLap, recordingsRef]);
+    selectedLap && reviewableLaps.includes(selectedLap) ? selectedLap : latest;
 
   useEffect(() => {
     analysisLapRef.current = open && selected ? selected.lap : null;
@@ -184,10 +175,7 @@ export const LapAnalysis = ({
     selected === null
       ? null
       : lapStatusTag(laps.find((l) => l.lap === selected.lap)?.status);
-  const validTimes = laps
-    .filter((l) => l.status === "valid")
-    .map((l) => l.timeMs);
-  const sessionBestMs = validTimes.length > 0 ? Math.min(...validTimes) : null;
+  const sessionBestMs = bestValidLapMs(laps);
 
   return (
     <div
@@ -199,13 +187,7 @@ export const LapAnalysis = ({
         if (!CLICK_MODE && e.pointerType === "mouse") setOpen(false);
       }}
     >
-      <div
-        className={`absolute bottom-full left-0 z-10 w-full pb-2 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 ${
-          open
-            ? "pointer-events-auto opacity-100"
-            : "pointer-events-none opacity-0"
-        }`}
-      >
+      <RevealPanel open={open}>
         <section className="flex max-h-[42vh] flex-col gap-2 overflow-y-auto rounded-lg border border-edge bg-page/40 p-3 shadow-xl backdrop-blur-sm">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <p className="text-xs tracking-wide text-ink-muted uppercase">
@@ -263,7 +245,7 @@ export const LapAnalysis = ({
             )}
           </div>
         </section>
-      </div>
+      </RevealPanel>
 
       <div
         className="flex items-center justify-between rounded-lg border border-edge bg-surface px-4 py-2 transition-colors hover:border-accent/60"

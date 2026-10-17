@@ -99,6 +99,10 @@ export const useTelemetry = (): Telemetry => {
           cutsRef.current.push(message);
           setCutSeq((n) => n + 1);
           break;
+        default: {
+          const unreachable: never = message;
+          return unreachable;
+        }
       }
     };
 

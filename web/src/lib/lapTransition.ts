@@ -23,3 +23,12 @@ export const classifyLapTransition = (
     return { kind: "tick", completedLap: prevLapCount + 1 };
   return { kind: "same" };
 };
+
+export const isLastLapFresh = (
+  frame: Pick<TelemetryFrame, "lastLapMs">,
+  pending: { lastLapBefore: number; framesWaited: number },
+  maxFrames: number,
+): boolean =>
+  frame.lastLapMs > 0 &&
+  (frame.lastLapMs !== pending.lastLapBefore ||
+    pending.framesWaited >= maxFrames);

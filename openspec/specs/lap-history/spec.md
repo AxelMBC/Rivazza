@@ -22,7 +22,7 @@ The web app SHALL accumulate a session-scoped lap log from the telemetry stream:
 - **THEN** the log contains only laps completed after connecting (laps 1–4 are absent, not fabricated)
 
 ### Requirement: Heuristic lap invalidity
-A recorded lap SHALL be marked `invalid` when either: (a) a cut event (from the bridge's shared-memory cut detection) was received during that lap — matched by lap counter, including a cut that arrives while the completed lap's record is still pending its refreshed time — or (b) it is not a pit lap and its time beat the `bestLapMs` in effect before the lap completed but `bestLapMs` did not adopt it. When no prior best exists, a completed lap that is not a pit lap and leaves `bestLapMs` unset SHALL also be marked invalid. A lap matching neither condition SHALL be recorded as a pit lap when `inPit` was true on any of its frames, and as valid otherwise. The heuristic's known miss (cut laps slower than best) is accepted only while cut detection is unavailable — when cut events arrive they close that gap authoritatively.
+A recorded lap SHALL be marked `invalid` when either: (a) a cut event (from the bridge's shared-memory cut detection) was received during that lap — matched by lap counter, including a cut that arrives while the completed lap's record is still pending its refreshed time, and a cut stamped with a lap the dashboard's lap state has not reached yet, which is attributed once that state catches up — or (b) it is not a pit lap and its time beat the `bestLapMs` in effect before the lap completed but `bestLapMs` did not adopt it. When no prior best exists, a completed lap that is not a pit lap and leaves `bestLapMs` unset SHALL also be marked invalid. A lap matching neither condition SHALL be recorded as a pit lap when `inPit` was true on any of its frames, and as valid otherwise. The heuristic's known miss (cut laps slower than best) is accepted only while cut detection is unavailable — when cut events arrive they close that gap authoritatively.
 
 #### Scenario: Rejected would-be best
 - **WHEN** a lap that never touched the pit lane completes with a time faster than the previous `bestLapMs` and `bestLapMs` keeps its previous value
@@ -43,6 +43,10 @@ A recorded lap SHALL be marked `invalid` when either: (a) a cut event (from the 
 #### Scenario: Cut arrives while the record is pending
 - **WHEN** a cut event referencing the just-completed lap arrives while that lap's record is held pending a fresh `lastLapMs`
 - **THEN** the recorded lap is marked invalid
+
+#### Scenario: Cut just after crossing the line
+- **WHEN** a cut event stamped with the new lap's counter arrives before the dashboard's throttled lap state has seen that lap begin
+- **THEN** the cut is held until the lap state catches up, the Current-lap tile then shows the INV cue, and the new lap is recorded as invalid when it completes
 
 ### Requirement: Hover-revealed lap list on the completed-lap tiles
 Hovering either the Last-lap tile or the Best-lap tile SHALL reveal a panel listing every recorded lap with its number and formatted time (tabular numerals). Invalid laps SHALL render their time in the critical/red color with an `INV` tag beside the lap number. Pit laps SHALL render their time in the secondary text tone with an `OUT` or `IN` tag, in the same tone, beside the lap number. The fastest valid lap SHALL render in the best-lap accent color. The panel SHALL scroll vertically when the list outgrows its maximum height, SHALL stay open while the pointer moves between the two tiles or onto the panel itself, SHALL disappear when the pointer leaves all of them, and SHALL require no click, keyboard, or window focus to open, scroll, or close. When no laps are recorded yet, the panel SHALL state that instead of rendering empty. The Current-lap and Delta tiles SHALL NOT open the panel.
@@ -125,7 +129,7 @@ The lap log SHALL expose whether the in-progress lap has received a cut event, a
 - **THEN** the cue clears with the rest of the lap log
 
 ### Requirement: Validity-aware best-lap display
-The Best-lap tile SHALL show the game's `bestLapMs` unless the session lap log knows that exact time belongs to a lap it did not mark valid — an invalidated lap (the game adopts cut laps as best in some session types) or a pit lap. In that case the tile SHALL show the fastest valid recorded lap instead, or the placeholder when no valid lap exists yet. While the lap just completed has not yet been given its status in the lap log, the tile SHALL keep the game's `bestLapMs` from before that lap completed, so a lap later found not valid never appears as best, even for a frame. Everywhere the dashboard presents a "best"/"fastest" lap derived from the lap log (analysis panel session best, best-sector baselines, reference lap), only valid laps SHALL qualify.
+The Best-lap tile SHALL show the game's `bestLapMs` unless the session lap log knows that exact time belongs to a lap it did not mark valid — an invalidated lap (the game adopts cut laps as best in some session types) or a pit lap. In that case the tile SHALL show the fastest valid recorded lap instead, or the placeholder when no valid lap exists yet. While the lap just completed has not yet been given its status in the lap log, the tile SHALL keep the game's `bestLapMs` from before that lap completed, so a lap later found not valid never appears as best, even for a frame. Everywhere the dashboard presents a "best"/"fastest" lap derived from the lap log (analysis panel session best, best-sector baselines, sector owners, reference lap), only laps the log has marked valid SHALL qualify; a lap with no status yet SHALL NOT qualify.
 
 #### Scenario: Game adopts a cut lap as best
 - **WHEN** `bestLapMs` equals the time of a lap the log marked invalid and a slower valid lap exists
@@ -146,6 +150,10 @@ The Best-lap tile SHALL show the game's `bestLapMs` unless the session lap log k
 #### Scenario: Crossing the line on an invalid lap
 - **WHEN** the game adopts a just-completed lap as `bestLapMs` before the lap log has recorded that lap as invalid
 - **THEN** the Best-lap tile keeps showing its previous value until the verdict lands, and never shows the invalid lap's time
+
+#### Scenario: Recording stored before its verdict
+- **WHEN** a just-completed lap's recording is stored before the lap log has given that lap a status, and the lap is faster than the session's valid laps
+- **THEN** the analysis panel's reference, theoretical best and sector owners, and the track map's sector owners, ignore that recording until the lap is recorded valid
 
 ### Requirement: Pit laps are classified, not invalidated
 A recorded lap on which `inPit` was true on any frame SHALL be recorded as a pit lap rather than as invalid: an `out` lap when `inPit` was true on the lap's first frame (the frame on which its lap began, or the first frame seen after connecting or after a session restart), otherwise an `in` lap. A pit lap SHALL never be marked valid, so it SHALL never qualify wherever only valid laps qualify. A cut event attributed to the lap SHALL take precedence over the pit classification, so a cut pit lap is recorded as invalid. The rejected-best heuristic SHALL NOT apply to a pit lap, because the pit lane, not a cut, explains why the game did not adopt it as best.
