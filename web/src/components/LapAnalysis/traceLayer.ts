@@ -2,6 +2,7 @@ import type {
   LapRecording,
   LapTelemetrySample,
 } from "../../hooks/useLapRecordings";
+import { sizeCanvas } from "../../lib/canvas";
 import {
   interpolateTimeAt,
   SECTOR_COUNT,
@@ -62,13 +63,7 @@ export const createTraceLayer = (canvas: HTMLCanvasElement) => {
     height: number,
     dpr: number,
   ) => {
-    if (
-      traceLayer.width !== canvas.width ||
-      traceLayer.height !== canvas.height
-    ) {
-      traceLayer.width = canvas.width;
-      traceLayer.height = canvas.height;
-    }
+    sizeCanvas(traceLayer, canvas.width, canvas.height);
     traceCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     traceCtx.clearRect(0, 0, width, height);
     const strips = layoutStrips(height);

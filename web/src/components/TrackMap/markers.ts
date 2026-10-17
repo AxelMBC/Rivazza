@@ -22,6 +22,7 @@ import {
 } from "./constants";
 import type { CutMarker, StoredLap } from "./lineRecorder";
 import {
+  CAR_MARKER,
   HOVERED_GREY_LAP,
   INVALID_TIME,
   SECTOR_EDGE_HOVER,
@@ -242,7 +243,7 @@ export const createMarkers = ({
     if (angle === null) {
       ctx.beginPath();
       ctx.arc(px, py, DOT_RADIUS, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = CAR_MARKER;
       ctx.fill();
       ctx.lineWidth = 2;
       ctx.strokeStyle = SURFACE;
@@ -259,7 +260,7 @@ export const createMarkers = ({
     ctx.lineTo(-DOT_RADIUS * 0.45, 0);
     ctx.lineTo(-DOT_RADIUS, -(DOT_RADIUS - 1));
     ctx.closePath();
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = CAR_MARKER;
     ctx.fill();
     ctx.lineWidth = 2;
     ctx.lineJoin = "round";

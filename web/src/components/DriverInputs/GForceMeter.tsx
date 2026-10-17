@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import type { InputSample } from "../../hooks/useInputHistory";
+import { sizeToDevice } from "../../lib/canvas";
 
 const INITIAL_OUTER_RING_G = 2;
 const MAX_OUTER_RING_G = 5;
@@ -57,10 +58,7 @@ export const GForceMeter = ({
       const maxG = outerRing + RING_HEADROOM_G;
       const rings = Array.from({ length: outerRing }, (_, i) => i + 1);
 
-      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-      }
+      sizeToDevice(canvas, width, height, dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
 

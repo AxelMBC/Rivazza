@@ -10,12 +10,22 @@ export type LegendEntry = {
   status: LapStatus | undefined;
 };
 
+export const coloredFrom = (laps: readonly StoredLap[]): number =>
+  Math.max(0, laps.length - COLORED_LAPS);
+
+export const storedLapColor = (
+  laps: readonly StoredLap[],
+  index: number,
+  fallback: string,
+): string =>
+  index >= coloredFrom(laps) ? lapColor(laps[index].lap) : fallback;
+
 export const legendEntries = (
   previousLaps: StoredLap[],
   laps: LapRecord[],
 ): LegendEntry[] =>
   previousLaps
-    .slice(Math.max(0, previousLaps.length - COLORED_LAPS))
+    .slice(coloredFrom(previousLaps))
     .map(({ lap }) => {
       const record = laps.find((l) => l.lap === lap);
       return {

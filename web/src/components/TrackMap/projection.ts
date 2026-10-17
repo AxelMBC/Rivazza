@@ -16,25 +16,42 @@ export const zoomed =
     return { px: px * zm.level + zm.ox, py: py * zm.level + zm.oy };
   };
 
-export type Affine = { k: number; tx: number; ty: number };
+export type Affine = { kx: number; ky: number; tx: number; ty: number };
 export const affineOf = (project: Project): Affine => {
   const o = project({ x: 0, z: 0 });
   const u = project({ x: 1, z: 0 });
-  return { k: u.px - o.px, tx: o.px, ty: o.py };
+  const v = project({ x: 0, z: 1 });
+  return { kx: u.px - o.px, ky: v.py - o.py, tx: o.px, ty: o.py };
 };
+
+export const scaleAffine = (
+  { kx, ky, tx, ty }: Affine,
+  factor: number,
+): Affine => ({
+  kx: kx * factor,
+  ky: ky * factor,
+  tx: tx * factor,
+  ty: ty * factor,
+});
+
+export const setWorldTransform = (
+  target: CanvasRenderingContext2D,
+  { kx, ky, tx, ty }: Affine,
+  dpr: number,
+) => target.setTransform(dpr * kx, 0, 0, dpr * ky, dpr * tx, dpr * ty);
 
 export const strokeWorldPath = (
   target: CanvasRenderingContext2D,
   path: Path2D,
-  { k, tx, ty }: Affine,
+  aff: Affine,
   dpr: number,
   color: string,
   widthPx: number,
 ) => {
   target.save();
-  target.setTransform(dpr * k, 0, 0, dpr * k, dpr * tx, dpr * ty);
+  setWorldTransform(target, aff, dpr);
   target.strokeStyle = color;
-  target.lineWidth = widthPx / k;
+  target.lineWidth = widthPx / Math.abs(aff.kx);
   target.lineCap = "round";
   target.lineJoin = "round";
   target.stroke(path);

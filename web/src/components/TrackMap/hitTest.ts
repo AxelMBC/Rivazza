@@ -1,9 +1,10 @@
 import type { LapRecord } from "../../hooks/useLapHistory";
 import { formatGearCompact, formatLapTime } from "../../lib/format";
-import { COLORED_LAPS, lapColor } from "../../lib/lapColors";
+import { lapColor } from "../../lib/lapColors";
 import { isPitLap } from "../../lib/lapStatus";
 
-import { DEAD_ZONE, HOVER_RADIUS_SQ } from "./constants";
+import { HOVER_RADIUS_SQ } from "./constants";
+import { coloredFrom, storedLapColor } from "./legend";
 import type { StoredLap } from "./lineRecorder";
 import { insideRect, type Inset, type Point } from "./overviewInset";
 import {
@@ -12,6 +13,9 @@ import {
   HOVERED_GREY_LAP,
   INVALID_TIME,
   PIT_TIME,
+  READOUT_BG,
+  READOUT_BORDER,
+  READOUT_TEXT,
 } from "./palette";
 import type { Project } from "./projection";
 
@@ -62,7 +66,7 @@ export const createHitTest = ({
       (insetRef.current && insideRect(insetRef.current, m))
     )
       return { nearest: -1, rows: [], marker: null };
-    const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
+    const firstColored = coloredFrom(laps);
     let nearest = -1;
     let nearestD = HOVER_RADIUS_SQ;
     let marker: HitResult["marker"] = null;
@@ -86,10 +90,10 @@ export const createHitTest = ({
         marker = {
           x: s.x,
           z: s.z,
-          color: index >= coloredFrom ? lapColor(lap) : HOVERED_GREY_LAP,
+          color: storedLapColor(laps, index, HOVERED_GREY_LAP),
         };
       }
-      if (index >= coloredFrom) {
+      if (index >= firstColored) {
         const s = samples[bestIdx];
         rows.push({
           lap,
@@ -108,11 +112,10 @@ export const createHitTest = ({
   type Seg = { text: string; color: string };
 
   const pedalSeg = (gas: number, brake: number): Seg => {
-    const color = bucketColor(bucketKey(gas, brake));
-    if (brake > DEAD_ZONE && brake >= gas)
-      return { text: ` · BRK ${Math.round(brake * 100)}%`, color };
-    if (gas > DEAD_ZONE)
-      return { text: ` · THR ${Math.round(gas * 100)}%`, color };
+    const key = bucketKey(gas, brake);
+    const color = bucketColor(key);
+    if (key < 0) return { text: ` · BRK ${Math.round(brake * 100)}%`, color };
+    if (key > 0) return { text: ` · THR ${Math.round(gas * 100)}%`, color };
     return { text: " · coast", color };
   };
 
@@ -131,7 +134,7 @@ export const createHitTest = ({
               ? INVALID_TIME
               : isPitLap(record.status)
                 ? PIT_TIME
-                : "#ffffff",
+                : READOUT_TEXT,
         },
       ];
     };
@@ -146,7 +149,7 @@ export const createHitTest = ({
     ]);
     if (!rows.some((row) => row.lap === nearestLap)) {
       lines.unshift([
-        { text: `Lap ${nearestLap}`, color: "#ffffff" },
+        { text: `Lap ${nearestLap}`, color: READOUT_TEXT },
         ...timeSegs(nearestLap),
       ]);
     }
@@ -162,10 +165,10 @@ export const createHitTest = ({
     const y = m.y - 8;
     ctx.beginPath();
     ctx.roundRect(x - 6, y - 14, boxW, lines.length * rowH + 4, 6);
-    ctx.fillStyle = "rgba(13, 13, 13, 0.92)";
+    ctx.fillStyle = READOUT_BG;
     ctx.fill();
     ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+    ctx.strokeStyle = READOUT_BORDER;
     ctx.stroke();
     lines.forEach((segs, row) => {
       let sx = x;

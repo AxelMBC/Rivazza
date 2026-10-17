@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { LapRecord } from "../../hooks/useLapHistory";
 import type { LapRecording } from "../../hooks/useLapRecordings";
+import { sizeToDevice } from "../../lib/canvas";
 import { formatLapTime } from "../../lib/format";
 import {
   CLICK_MODE,
@@ -137,10 +138,7 @@ export const LapAnalysis = ({
       lastH = height;
       lastDpr = dpr;
 
-      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-      }
+      sizeToDevice(canvas, width, height, dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
       if (!sel) {

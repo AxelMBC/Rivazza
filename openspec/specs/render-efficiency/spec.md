@@ -6,7 +6,7 @@ TBD - created by syncing change reduce-web-resource-usage. Update Purpose after 
 ## Requirements
 
 ### Requirement: Canvas surfaces repaint only when their content changes
-Each canvas visualization (track map, G-force meter) SHALL skip repainting on animation frames where nothing it renders has changed, and SHALL repaint when any of its inputs change: a new telemetry frame, pointer hover movement or exit, wheel zoom, or canvas size or devicePixelRatio change. When telemetry stops and all motion has completed, the dashboard's repaint activity SHALL settle to approximately zero.
+Each canvas visualization (track map, G-force meter, lap analysis) SHALL skip repainting on animation frames where nothing it renders has changed, and SHALL repaint when any of its inputs change: a new telemetry frame, pointer hover movement or exit, wheel zoom, canvas size or devicePixelRatio change, or — for the track map — a lap record settling into the lap log after the frame that completed it. A canvas's backing store SHALL be resized only when its device-pixel size (CSS size times devicePixelRatio, rounded to whole pixels) actually changes, so fractional display scaling does not reallocate it on every repaint. When telemetry stops and all motion has completed, the dashboard's repaint activity SHALL settle to approximately zero.
 
 #### Scenario: Game paused mid-session
 - **WHEN** telemetry frames stop arriving and the pointer is not interacting with the dashboard
@@ -16,8 +16,16 @@ Each canvas visualization (track map, G-force meter) SHALL skip repainting on an
 - **WHEN** telemetry is stopped and the user hovers a stored lap line or wheel-zooms the track map
 - **THEN** the map repaints with the hover emphasis/readout or new zoom framing immediately
 
+#### Scenario: Paused right after crossing the line
+- **WHEN** telemetry stops within one throttle interval of a lap completing, before that lap's record reaches the lap log
+- **THEN** the map repaints once when the record arrives, so the legend, hover readout and sector owners show the lap's time without waiting for telemetry to resume
+
+#### Scenario: Fractional display scaling
+- **WHEN** the dashboard runs at a devicePixelRatio such as 1.25 or 1.5 and a canvas's CSS size times that ratio is not a whole number
+- **THEN** repaints reuse the existing backing store, which is resized only when the canvas size or devicePixelRatio changes
+
 ### Requirement: Track map rendering cost is proportional to new content
-The track map SHALL cache completed laps and the current lap's already-drawn segments on offscreen layers so that a typical frame's work is compositing those layers plus drawing only newly added segments — not re-projecting and re-stroking every stored sample. Cached layers SHALL be re-rendered when their appearance inputs change (lap added or session reset, zoom, canvas size or devicePixelRatio, projection/viewport change, hovered-lap change), and the composed output SHALL be visually identical to drawing everything directly, including draw order (map image, previous laps, current lap, hover emphasis, hover readout, car dot). Because every projection mode is a uniform-scale, axis-aligned map, stored laps are kept as world-space paths stroked under the projection's affine transform, so re-rendering under a moving camera costs one native stroke per lap rather than a per-sample projection loop. The newest few current-lap samples stay out of the cache and are drawn per repaint ending exactly at the car marker, because the follow camera draws the marker behind the raw stream and an unclipped line would poke out ahead of it.
+The track map SHALL cache completed laps and the current lap's already-drawn segments on offscreen layers so that a typical frame's work is compositing those layers plus drawing only newly added segments — not re-projecting and re-stroking every stored sample. Cached layers SHALL be re-rendered when their appearance inputs change (lap added or session reset, zoom, canvas size or devicePixelRatio, projection/viewport change, hovered-lap change), and the composed output SHALL be visually identical to drawing everything directly, including draw order (map image, previous laps, current lap, hover emphasis, hover readout, car dot). Because every projection mode is an axis-aligned map with the same scale magnitude on both axes — either axis possibly mirrored — stored laps are kept as world-space paths stroked under the projection's affine transform, which carries a signed scale per axis, so re-rendering under a moving camera costs one native stroke per lap rather than a per-sample projection loop, and a mirrored projection draws cached lines exactly where the car marker is drawn. The newest few current-lap samples stay out of the cache and are drawn per repaint ending exactly at the car marker, because the follow camera draws the marker behind the raw stream and an unclipped line would poke out ahead of it.
 
 #### Scenario: Late in a long session
 - **WHEN** many completed laps are stored and the current lap is thousands of samples long
@@ -30,6 +38,10 @@ The track map SHALL cache completed laps and the current lap's already-drawn seg
 #### Scenario: Fallback viewport settles
 - **WHEN** a track has no map assets and the auto-fit viewport finishes easing toward its target
 - **THEN** the viewport snaps to the target and the map stops repainting until new input arrives
+
+#### Scenario: Mirrored projection
+- **WHEN** a track's projection is X-mirrored
+- **THEN** the track surface, edges, stored laps and current lap are drawn mirrored the same way as the car marker, with the same line widths as an unmirrored map
 
 ### Requirement: Text-layer state updates are decoupled from the telemetry data rate
 The dashboard SHALL keep a full-rate (per-message) telemetry reference for canvas consumers while updating React state — which drives text readouts, gauges, and data-derivation hooks — at approximately 30 Hz. A trailing-edge flush SHALL guarantee the final telemetry frame is always applied to state when the stream pauses. Status and session messages SHALL never be throttled. Lap-boundary and session-restart detection SHALL behave identically (detection may be delayed by at most one throttle interval).

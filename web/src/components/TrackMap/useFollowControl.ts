@@ -41,6 +41,22 @@ const createFollowControl = (
     return true;
   };
 
+  const zoomFollow = (zoomIn: boolean, factor: number): boolean => {
+    const st = followRef.current;
+    if (st === "following") {
+      if (!retargetFollow(factor)) setFollow("exiting");
+      return true;
+    }
+    if (st === "exiting") {
+      if (zoomIn) {
+        followWindowRef.current = followLimitsRef.current.max;
+        setFollow("following");
+      }
+      return true;
+    }
+    return false;
+  };
+
   const fireDwell = () => {
     if (followRef.current !== "off") {
       setFollow("exiting");
@@ -93,7 +109,7 @@ const createFollowControl = (
     followWindowRef,
     followLimitsRef,
     cameraDrivesView,
-    retargetFollow,
+    zoomFollow,
     startDwell,
     leaveDwell,
     cancelDwell,

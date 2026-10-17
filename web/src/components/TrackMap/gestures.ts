@@ -25,9 +25,7 @@ type GestureDeps = {
   navRef: React.RefObject<Point | null>;
   followRef: React.RefObject<FollowState>;
   setFollow: (state: FollowState) => void;
-  followWindowRef: React.RefObject<number>;
-  followLimitsRef: React.RefObject<{ min: number; max: number }>;
-  retargetFollow: (factor: number) => boolean;
+  zoomFollow: (zoomIn: boolean, factor: number) => boolean;
   cameraDrivesView: () => boolean;
 };
 
@@ -40,9 +38,7 @@ export const attachGestures = (
     navRef,
     followRef,
     setFollow,
-    followWindowRef,
-    followLimitsRef,
-    retargetFollow,
+    zoomFollow,
     cameraDrivesView,
   }: GestureDeps,
 ) => {
@@ -94,18 +90,7 @@ export const attachGestures = (
   const onClick = (e: MouseEvent) => navigateTo({ x: e.offsetX, y: e.offsetY });
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    const st = followRef.current;
-    if (st === "following") {
-      if (retargetFollow(ZOOM_STEP ** (e.deltaY / 100))) return;
-      setFollow("exiting");
-      return;
-    }
-    if (st === "exiting") {
-      if (e.deltaY >= 0) return;
-      followWindowRef.current = followLimitsRef.current.max;
-      setFollow("following");
-      return;
-    }
+    if (zoomFollow(e.deltaY < 0, ZOOM_STEP ** (e.deltaY / 100))) return;
     const overInset =
       insetRef.current !== null &&
       insideRect(insetRef.current, { x: e.offsetX, y: e.offsetY });
@@ -190,17 +175,8 @@ export const attachGestures = (
       if (prev.dist <= 0 || lastPinch.dist <= 0) return;
       touchMoved = true;
       navRef.current = null;
-      if (followRef.current === "following") {
-        if (!retargetFollow(prev.dist / lastPinch.dist)) setFollow("exiting");
+      if (zoomFollow(lastPinch.dist > prev.dist, prev.dist / lastPinch.dist))
         return;
-      }
-      if (followRef.current === "exiting") {
-        if (lastPinch.dist > prev.dist) {
-          followWindowRef.current = followLimitsRef.current.max;
-          setFollow("following");
-        }
-        return;
-      }
       const zm = zoomRef.current;
       const level = Math.min(
         ZOOM_MAX,

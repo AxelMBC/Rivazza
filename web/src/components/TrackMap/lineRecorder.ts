@@ -55,6 +55,7 @@ export const createLineRecorder = () => {
     lapTime = 0;
     boundsRef.current = freshBounds();
     anchorRef.current = null;
+    lapsVersion++;
   };
 
   const attachNewCuts = (cutList: CutEvent[], lapCount: number) => {
@@ -83,7 +84,6 @@ export const createLineRecorder = () => {
     const transition = classifyLapTransition(lap, lapTime, frame);
     if (transition.kind === "restart") {
       onRestart();
-      lapsVersion++;
       consumedCuts = cutList.length;
     } else if (transition.kind === "tick") {
       previousLapsRef.current.push({

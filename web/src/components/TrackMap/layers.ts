@@ -1,9 +1,10 @@
 import type { TelemetryFrame, TrackEdges } from "@rivazza/protocol";
 
+import { sizeCanvas } from "../../lib/canvas";
 import type { SectorOwner } from "../../lib/lapAnalysis";
-import { COLORED_LAPS, lapColor } from "../../lib/lapColors";
 
 import { INSET_CAR_RADIUS, LINE_WIDTH, TIP_HOLDBACK } from "./constants";
+import { storedLapColor } from "./legend";
 import type { Sample, StoredLap } from "./lineRecorder";
 import type { Markers } from "./markers";
 import {
@@ -18,6 +19,7 @@ import {
 import {
   bucketColor,
   bucketKey,
+  CAR_MARKER,
   INSET_BORDER,
   INSET_GHOST,
   INSET_GHOST_FILL,
@@ -31,6 +33,8 @@ import {
 import {
   affineOf,
   buildLapPath,
+  scaleAffine,
+  setWorldTransform,
   strokeWorldPath,
   type Project,
 } from "./projection";
@@ -88,13 +92,6 @@ export const createLayers = ({
   if (!lapsLayerCtx || !currentLayerCtx || !trackLayerCtx || !insetLayerCtx)
     return null;
 
-  const sizeLayer = (layer: HTMLCanvasElement, w: number, h: number) => {
-    if (layer.width !== w || layer.height !== h) {
-      layer.width = w;
-      layer.height = h;
-    }
-  };
-
   const blitLayer = (layer: HTMLCanvasElement) => {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -119,20 +116,13 @@ export const createLayers = ({
     const key = `${projKey}|${sectorKey()}`;
     if (key !== trackLayerKey) {
       trackLayerKey = key;
-      sizeLayer(trackLayer, canvas.width, canvas.height);
+      sizeCanvas(trackLayer, canvas.width, canvas.height);
       trackLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       trackLayerCtx.clearRect(0, 0, width, height);
 
       const aff = affineOf(project);
       trackLayerCtx.save();
-      trackLayerCtx.setTransform(
-        dpr * aff.k,
-        0,
-        0,
-        dpr * aff.k,
-        dpr * aff.tx,
-        dpr * aff.ty,
-      );
+      setWorldTransform(trackLayerCtx, aff, dpr);
       trackLayerCtx.fillStyle = TRACK_FILL;
       trackLayerCtx.fill(edgesFill);
       trackLayerCtx.restore();
@@ -173,21 +163,19 @@ export const createLayers = ({
     const key = `${projKey}|${lapsVersion()}|${hoveredIndex}`;
     if (key === lapsLayerKey) return;
     lapsLayerKey = key;
-    sizeLayer(lapsLayer, canvas.width, canvas.height);
+    sizeCanvas(lapsLayer, canvas.width, canvas.height);
     lapsLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     lapsLayerCtx.clearRect(0, 0, width, height);
-    const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
     const aff = affineOf(project);
     laps.forEach((entry, index) => {
       if (index === hoveredIndex) return;
-      const color = index >= coloredFrom ? lapColor(entry.lap) : PREVIOUS_LAP;
       entry.path ??= buildLapPath(entry.samples);
       strokeWorldPath(
         lapsLayerCtx,
         entry.path,
         aff,
         dpr,
-        color,
+        storedLapColor(laps, index, PREVIOUS_LAP),
         LINE_WIDTH - 0.5,
       );
     });
@@ -228,7 +216,7 @@ export const createLayers = ({
 
     if (projKey !== currentLayerKey || newLap) {
       currentLayerKey = projKey;
-      sizeLayer(currentLayer, canvas.width, canvas.height);
+      sizeCanvas(currentLayer, canvas.width, canvas.height);
       currentLayerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       currentLayerCtx.clearRect(0, 0, width, height);
       appendedCount = 0;
@@ -312,25 +300,13 @@ export const createLayers = ({
     const key = `${fitKey}|${edgesFill ? "" : lapsVersion()}`;
     if (key === insetLayerKey) return;
     insetLayerKey = key;
-    sizeLayer(insetLayer, Math.round(at.w * dpr), Math.round(at.h * dpr));
+    sizeCanvas(insetLayer, Math.round(at.w * dpr), Math.round(at.h * dpr));
     insetLayerCtx.setTransform(1, 0, 0, 1, 0, 0);
     insetLayerCtx.clearRect(0, 0, insetLayer.width, insetLayer.height);
-    const fit = affineOf(base);
-    const aff = {
-      k: fit.k * at.scale,
-      tx: fit.tx * at.scale,
-      ty: fit.ty * at.scale,
-    };
+    const aff = scaleAffine(affineOf(base), at.scale);
     if (edgesFill) {
       insetLayerCtx.save();
-      insetLayerCtx.setTransform(
-        dpr * aff.k,
-        0,
-        0,
-        dpr * aff.k,
-        dpr * aff.tx,
-        dpr * aff.ty,
-      );
+      setWorldTransform(insetLayerCtx, aff, dpr);
       insetLayerCtx.fillStyle = TRACK_FILL;
       insetLayerCtx.fill(edgesFill);
       insetLayerCtx.restore();
@@ -390,7 +366,7 @@ export const createLayers = ({
       const car = baseToInset(at, { x: px, y: py });
       ctx.beginPath();
       ctx.arc(car.x, car.y, INSET_CAR_RADIUS, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = CAR_MARKER;
       ctx.fill();
     }
     ctx.restore();

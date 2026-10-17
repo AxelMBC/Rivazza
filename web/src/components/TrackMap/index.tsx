@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LapRecord } from "../../hooks/useLapHistory";
 import type { LapRecording } from "../../hooks/useLapRecordings";
 import type { Telemetry } from "../../hooks/useTelemetry";
+import { sizeToDevice } from "../../lib/canvas";
 import type { ScrubPoint, SectorOwner } from "../../lib/lapAnalysis";
-import { COLORED_LAPS, lapColor } from "../../lib/lapColors";
 import { hasCoarsePointer } from "../../lib/touch";
 
 import { createCamera, easeView, fallbackTarget } from "./camera";
@@ -15,7 +15,12 @@ import { attachGestures } from "./gestures";
 import { createHitTest } from "./hitTest";
 import { LapLegend } from "./LapLegend";
 import { createLayers } from "./layers";
-import { legendEntries, legendKey, type LegendEntry } from "./legend";
+import {
+  legendEntries,
+  legendKey,
+  storedLapColor,
+  type LegendEntry,
+} from "./legend";
 import { createLineRecorder } from "./lineRecorder";
 import { createMarkers } from "./markers";
 import { insetRect, type Inset, type Point, type Zoom } from "./overviewInset";
@@ -102,7 +107,7 @@ export const TrackMap = ({
       followWindowRef,
       followLimitsRef,
       cameraDrivesView,
-      retargetFollow,
+      zoomFollow,
     } = follow;
     const { currentRef, previousLapsRef, currentCutRef, boundsRef, anchorRef } =
       lines;
@@ -215,17 +220,14 @@ export const TrackMap = ({
       blitLayer(currentLayer);
       drawCurrentTail(project);
       if (focus >= 0) {
-        const coloredFrom = Math.max(0, laps.length - COLORED_LAPS);
         const entry = laps[focus];
-        const color =
-          focus >= coloredFrom ? lapColor(entry.lap) : HOVERED_GREY_LAP;
         entry.path ??= buildLapPath(entry.samples);
         strokeWorldPath(
           ctx,
           entry.path,
           affineOf(project),
           dpr,
-          color,
+          storedLapColor(laps, focus, HOVERED_GREY_LAP),
           LINE_WIDTH + 1,
         );
       }
@@ -278,6 +280,7 @@ export const TrackMap = ({
       const mouse = mouseRef.current;
       const zoom = zoomRef.current;
       const cutList = cutsRef.current;
+      const lapLog = lapsRef.current;
       const hoveredLap = hoveredLapRef.current;
       const scrub = scrubRef.current;
       const analysisLap = analysisLapRef.current;
@@ -294,6 +297,8 @@ export const TrackMap = ({
         zoom,
         cutList,
         cutList.length,
+        lapLog,
+        lapLog.length,
         hoveredLap,
         scrub,
         analysisLap,
@@ -314,10 +319,7 @@ export const TrackMap = ({
       syncSectorTables();
       insetRef.current = null;
 
-      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-      }
+      sizeToDevice(canvas, width, height, dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
@@ -378,9 +380,7 @@ export const TrackMap = ({
       navRef,
       followRef,
       setFollow,
-      followWindowRef,
-      followLimitsRef,
-      retargetFollow,
+      zoomFollow,
       cameraDrivesView,
     });
 
