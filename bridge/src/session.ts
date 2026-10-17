@@ -1,4 +1,8 @@
-import type { BridgeMessage, SessionInfo } from "@rivazza/protocol";
+import {
+  PROTOCOL_VERSION,
+  type BridgeMessage,
+  type SessionInfo,
+} from "@rivazza/protocol";
 
 import { resolveCarTopSpeed } from "./content/carAssets.js";
 import {
@@ -62,9 +66,9 @@ export const createSession = (readLayoutTokens: ReadLayoutTokens): Session => {
     greeting: () =>
       current
         ? [
-            { type: "status", state: "connected" },
+            { type: "status", state: "connected", protocol: PROTOCOL_VERSION },
             { type: "session", ...current },
           ]
-        : [{ type: "status", state: "waiting" }],
+        : [{ type: "status", state: "waiting", protocol: PROTOCOL_VERSION }],
   };
 };

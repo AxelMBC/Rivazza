@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
-import type {
-  BridgeMessage,
-  CutEvent,
-  TelemetryFrame,
-} from "@rivazza/protocol";
+import type { CutEvent, TelemetryFrame } from "@rivazza/protocol";
+
+import { loadDemoRecording } from "../lib/demoRecording.testkit";
 
 import { initialLapLog, stepLapLog, type LapLogState } from "./useLapHistory";
 
@@ -311,12 +308,7 @@ describe("lap log", () => {
 });
 
 describe("Imola demo recording", () => {
-  const recording = JSON.parse(
-    readFileSync(
-      new URL("../../public/demo/imola.json", import.meta.url),
-      "utf8",
-    ),
-  ) as { msg: BridgeMessage }[];
+  const recording = loadDemoRecording();
 
   // Every recorded frame (~60 Hz) is stepped, where the hook sees ~30 Hz throttled
   // state; a lap settles within PENDING_MAX_FRAMES new frames either way.

@@ -1,20 +1,34 @@
-import type {
-  BridgeMessage,
-  CutEvent,
-  SessionInfo,
-  TelemetryFrame,
+import {
+  PROTOCOL_VERSION,
+  type BridgeMessage,
+  type CutEvent,
+  type SessionInfo,
+  type TelemetryFrame,
 } from "@rivazza/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DEMO_RECORDING_URL, IS_DEMO } from "../lib/demo";
+import { matchesProtocol } from "../lib/protocolCheck";
 
 const BRIDGE_WS = `ws://${window.location.hostname}:3001/ws`;
 const RECONNECT_MS = 1500;
 const STATE_INTERVAL_MS = 1000 / 30;
 
-export type ConnectionStatus = "connecting" | "waiting" | "connected";
+export type ConnectionStatus =
+  "connecting" | "waiting" | "connected" | "mismatch";
 
 type RecordedEntry = { t: number; msg: BridgeMessage };
+
+type StreamGate = "pending" | "accepted" | "refused";
+
+const warnedTypes = new Set<string>();
+
+const warnUnknownType = (message: { type: unknown }) => {
+  const type = String(message.type);
+  if (warnedTypes.has(type)) return;
+  warnedTypes.add(type);
+  console.warn(`[telemetry] ignoring unknown message type "${type}"`);
+};
 
 export type Telemetry = {
   status: ConnectionStatus;
@@ -52,6 +66,7 @@ export const useTelemetry = (): Telemetry => {
     let replayTimer: number | undefined;
     let lastStateAt = 0;
     let disposed = false;
+    let gate: StreamGate = "pending";
 
     const scheduleFlush = (delay: number) => {
       window.clearTimeout(flushTimer);
@@ -100,17 +115,39 @@ export const useTelemetry = (): Telemetry => {
           setCutSeq((n) => n + 1);
           break;
         default: {
-          const unreachable: never = message;
-          return unreachable;
+          const unhandled: never = message;
+          warnUnknownType(unhandled);
         }
       }
     };
 
+    const admit = (message: BridgeMessage): boolean => {
+      if (gate === "accepted") return true;
+      if (gate === "refused" || message.type !== "status") return false;
+      if (matchesProtocol(message)) {
+        gate = "accepted";
+        return true;
+      }
+      gate = "refused";
+      console.error(
+        `[telemetry] protocol mismatch: received ${String(message.protocol)}, expected ${PROTOCOL_VERSION}`,
+      );
+      setStatus("mismatch");
+      setSession(null);
+      clearFrame();
+      return false;
+    };
+
+    const receive = (message: BridgeMessage) => {
+      if (admit(message)) handleMessage(message);
+    };
+
     const connect = () => {
       socket = new WebSocket(BRIDGE_WS);
+      gate = "pending";
 
       socket.onmessage = (event) => {
-        handleMessage(JSON.parse(event.data) as BridgeMessage);
+        receive(JSON.parse(event.data) as BridgeMessage);
       };
 
       socket.onclose = () => {
@@ -128,6 +165,7 @@ export const useTelemetry = (): Telemetry => {
       }
       let index = 0;
       let loopStart = performance.now();
+      gate = "pending";
 
       const tick = () => {
         if (disposed) return;
@@ -136,13 +174,15 @@ export const useTelemetry = (): Telemetry => {
           index < recording.length &&
           loopStart + recording[index].t <= now
         ) {
-          handleMessage(recording[index].msg);
+          receive(recording[index].msg);
           index++;
         }
+        if (gate === "refused") return;
         if (index >= recording.length) {
           clearFrame();
           index = 0;
           loopStart = performance.now();
+          gate = "pending";
         }
         const dueAt = loopStart + recording[index].t;
         replayTimer = window.setTimeout(

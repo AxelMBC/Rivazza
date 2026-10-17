@@ -15,6 +15,11 @@ const STYLES: Record<
     label: "Waiting for game",
   },
   connected: { dot: "bg-good", text: "text-good", label: "Live" },
+  mismatch: {
+    dot: "bg-critical",
+    text: "text-critical",
+    label: "Version mismatch",
+  },
 };
 
 export const ConnectionBadge = ({ status }: { status: ConnectionStatus }) => {

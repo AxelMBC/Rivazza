@@ -1,3 +1,7 @@
+// Bump when a change to `BridgeMessage` would be misread by a peer built before it: a removed, renamed or
+// retyped field, or a new message variant. A purely additive optional field older peers can ignore needs no bump.
+export const PROTOCOL_VERSION = 1;
+
 export type SessionInfo = {
   track: string;
   trackConfig: string;
@@ -50,7 +54,7 @@ export type CutEvent = {
 };
 
 export type BridgeMessage =
-  | { type: "status"; state: "waiting" | "connected" }
+  | { type: "status"; state: "waiting" | "connected"; protocol: number }
   | ({ type: "session" } & SessionInfo)
   | ({ type: "telemetry" } & TelemetryFrame)
   | ({ type: "cut" } & CutEvent);

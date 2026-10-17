@@ -15,7 +15,7 @@ Assetto Corsa ──UDP 9996──▶ bridge (Node) ──WebSocket :3001──�
 
 ## Commands
 
-npm workspaces monorepo (`bridge`, `web`, plus the types-only `packages/protocol`). Run from the repo root:
+npm workspaces monorepo (`bridge`, `web`, plus the wire-contract `packages/protocol`). Run from the repo root:
 
 - `npm run dev` — starts bridge (:3001) and web app (:5173) together via concurrently
 - `npm run dev:demo` — web app alone (:5173) replaying the committed recording; no bridge
@@ -45,7 +45,7 @@ right compiler on PATH. `--loglevel=error` silences the same yarn-leaked warning
 `tsx --test`, no test dependency. A test sits beside the module it tests (`parsers.test.ts` next to
 `parsers.ts`) and covers pure logic only — the UDP parsers, the lap-transition classifier, the
 lap-analysis maths and the lap log (`stepLapLog`, replayed over the committed Imola recording). No
-UI, DOM, canvas or hook-rendering tests. Web test files type-check under `web/tsconfig.test.json`
+UI, DOM, canvas or hook-rendering tests. Web test files, and the `*.testkit.ts` helpers they share, type-check under `web/tsconfig.test.json`
 (Node types), kept out of the app build. The automated gate is the read-only checks in
 `.claude/axl.json`, `npm test` among them. The web typecheck is `npx tsc -b web --noEmit` on purpose: `npm run build -w web`
 also runs `vite build` (writes `web/dist/`), and `npm exec -w web -- tsc` swallows tsc's exit code, so
@@ -114,9 +114,12 @@ the Steam library configs), shared by the track and car modules.
 speedometer dial). These files routinely contain raw control characters that break `JSON.parse`,
 so the field is regex-scanned out of the text — same garbage-tolerant philosophy as `parsers.ts`.
 
-**Type contract (`packages/protocol`).** The wire format is declared once, in the types-only
-workspace package `@rivazza/protocol`, and both sides `import type` from it. The `BridgeMessage`
-union (`status` | `session` | `telemetry` | `cut`) is the wire format. The package has no build
+**Type contract (`packages/protocol`).** The wire format is declared once, in the workspace
+package `@rivazza/protocol`, and both sides import its types with `import type`. The `BridgeMessage`
+union (`status` | `session` | `telemetry` | `cut`) is the wire format. Its one runtime export is
+`PROTOCOL_VERSION`, stamped on every `status` message; `useTelemetry` ignores a connection (or
+replay) whose first `status` doesn't match, so bump it whenever a peer built before a change would
+misread it (the rule sits beside the constant). The package has no build
 step: its `exports` point at the `.ts` source, and each side's own compiler checks it. Never
 re-declare a wire type locally. A local copy compiles and breaks at runtime.
 

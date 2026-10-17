@@ -20,13 +20,26 @@ const DemoLoadingScreen = () => (
   </div>
 );
 
-const DemoUnavailableScreen = () => (
+const DemoUnavailableScreen = ({ isMismatch }: { isMismatch: boolean }) => (
   <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
     <p className="text-2xl font-semibold text-ink-secondary">
       Recorded session unavailable
     </p>
     <p className="max-w-md text-sm text-ink-muted">
-      The demo recording could not be loaded. Reload the page to try again.
+      {isMismatch
+        ? "The demo recording was captured by a different version of this dashboard."
+        : "The demo recording could not be loaded. Reload the page to try again."}
+    </p>
+  </div>
+);
+
+const MismatchScreen = () => (
+  <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+    <p className="text-2xl font-semibold text-critical">
+      Bridge and dashboard versions differ
+    </p>
+    <p className="max-w-md text-sm text-ink-muted">
+      Stop both and restart them from the same checkout with npm run dev.
     </p>
   </div>
 );
@@ -128,11 +141,13 @@ const App = () => {
           />
         </main>
       ) : IS_DEMO ? (
-        status === "waiting" ? (
-          <DemoUnavailableScreen />
+        status === "waiting" || status === "mismatch" ? (
+          <DemoUnavailableScreen isMismatch={status === "mismatch"} />
         ) : (
           <DemoLoadingScreen />
         )
+      ) : status === "mismatch" ? (
+        <MismatchScreen />
       ) : (
         <WaitingScreen status={status} />
       )}

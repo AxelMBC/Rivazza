@@ -2,7 +2,7 @@
   "name": "@rivazza/protocol",
   "private": true,
   "version": "0.1.0",
-  "description": "Bridge ↔ web WebSocket wire contract (types only)",
+  "description": "Bridge ↔ web WebSocket wire contract (types plus the PROTOCOL_VERSION constant)",
   "license": "MIT",
   "type": "module",
   "types": "./src/index.ts",
