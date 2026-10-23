@@ -6,19 +6,27 @@ TBD - created by syncing change lap-telemetry-recording. Update Purpose after re
 ## Requirements
 
 ### Requirement: Full-rate per-lap telemetry capture
-The web app SHALL record a telemetry trace for every lap driven while the app is open, capturing one sample per received WebSocket telemetry frame (not the ~30 Hz throttled React state, and not a rAF loop subject to background-tab throttling). Each sample SHALL record the frame's `normalizedPos`, `lapTimeMs`, `speedKmh`, `gas`, `brake`, `gear`, and `steerAngle`. A sample SHALL be appended only when `normalizedPos` strictly increased since the previous sample of that lap, so traces stay monotonic in track position.
+The web app SHALL record a telemetry trace for every lap driven while the app is open, considering every received WebSocket telemetry frame for sampling (not the ~30 Hz throttled React state, and not a rAF loop subject to background-tab throttling). Each sample SHALL record the frame's `normalizedPos`, `lapTimeMs`, `speedKmh`, `gas`, `brake`, `gear`, `steerAngle`, and world `x`/`z`. A sample SHALL be appended only when `normalizedPos` has advanced by at least a fixed minimum step (on the order of a ten-thousandth of a lap) beyond the previous sample of that lap, so traces stay monotonic in track position and every lap's trace holds a bounded number of samples whatever the track length or lap time. The step SHALL be small enough that on a typical short circuit it is below one frame's travel at racing speed, so such traces still keep every frame.
 
 #### Scenario: Sample captured from a live frame
-- **WHEN** a telemetry frame arrives with `normalizedPos` greater than the last recorded sample's position
-- **THEN** the in-progress lap's trace gains a sample carrying that frame's position, elapsed time, speed, throttle, brake, gear, and steering angle
+- **WHEN** a telemetry frame arrives with `normalizedPos` at least the minimum step beyond the last recorded sample's position
+- **THEN** the in-progress lap's trace gains a sample carrying that frame's position, elapsed time, speed, throttle, brake, gear, steering angle, and world position
 
 #### Scenario: Recording continues while the browser is unfocused
 - **WHEN** the browser window is unfocused or occluded (the game has focus) while telemetry frames keep arriving
-- **THEN** samples continue to be recorded at the full stream rate
+- **THEN** every frame continues to be considered for sampling at the full stream rate
 
 #### Scenario: Position glitch ignored
 - **WHEN** a frame reports a `normalizedPos` less than or equal to the previous sample's position within the same lap
 - **THEN** no sample is appended for that frame
+
+#### Scenario: Sub-step advance thinned
+- **WHEN** a frame's `normalizedPos` has advanced beyond the previous sample's position by less than the minimum step (a slow corner, or any stretch of a very long track)
+- **THEN** no sample is appended for that frame, and the next frame that clears the step is sampled
+
+#### Scenario: Long lap records whole
+- **WHEN** a lap lasting several times longer than three minutes (a ~10-minute Nordschleife lap) is driven from line to line
+- **THEN** its stored recording covers the whole lap and is flagged complete
 
 ### Requirement: Line crossings without a lap tick are handled by trace coverage
 A large backwards jump in `normalizedPos` (on the order of a wrap, e.g. > 0.5) without a `lapCount` increment SHALL restart the in-progress trace at the line, disambiguated by what the trace covers. When the trace spans the whole lap (start ≤ 0.05, end ≥ 0.95) this is the finish-line crossing of a genuinely completed lap whose `lapCount` increment has not arrived yet — AC reports the position wrap a frame or two before the counter — and the trace SHALL be held and consumed by the imminent lap tick, with post-line samples accruing to the new lap's trace. When the trace does not span the lap (an out-lap from the pit spawn — `lapCount` stays 0 until the first lap completes, so the "current lap" otherwise starts at the spawn and the monotonic guard would reject the entire first flying lap — or a teleport), the pre-line samples belong to no lap and SHALL be discarded. The first flying lap of a session therefore records fully and can be complete.
@@ -54,7 +62,7 @@ The recording store SHALL clear entirely when the session changes and when a ses
 - **THEN** the recording store is empty for the new session
 
 ### Requirement: Bounded memory with best-lap pinning
-The store SHALL cap completed recordings (on the order of tens of laps) and samples per lap (sized for a multi-minute lap at full rate). When the lap cap is exceeded the oldest recording SHALL be dropped, except the fastest valid complete recording, which SHALL be pinned and never evicted while its session lasts. A recording whose lap has no status in the session lap log yet SHALL NOT be treated as the pinned best. A lap that exceeds the per-lap sample cap SHALL stop appending samples and SHALL be flagged not complete.
+The store SHALL cap completed recordings (on the order of tens of laps). Samples per lap SHALL be bounded by the capture requirement's minimum position step rather than by a separate per-lap sample cap, so no lap is truncated however long it runs. When the lap cap is exceeded the oldest recording SHALL be dropped, except the fastest valid complete recording, which SHALL be pinned and never evicted while its session lasts. A recording whose lap has no status in the session lap log yet SHALL NOT be treated as the pinned best.
 
 #### Scenario: Long session evicts oldest but keeps the best
 - **WHEN** the lap cap is reached and the oldest stored recording is the session-best valid lap
@@ -64,9 +72,9 @@ The store SHALL cap completed recordings (on the order of tens of laps) and samp
 - **WHEN** the lap cap is exceeded by a just-completed lap that is faster than the session-best valid lap but has no status in the lap log yet, and the oldest stored recording is the session-best valid lap
 - **THEN** the session-best valid lap stays pinned and the second-oldest recording is dropped instead
 
-#### Scenario: Runaway lap hits the sample cap
-- **WHEN** an in-progress lap reaches the per-lap sample cap
-- **THEN** no further samples are appended and the eventual stored recording is flagged not complete
+#### Scenario: Stuck lap counter stays bounded
+- **WHEN** the lap counter stops incrementing while the car keeps circulating
+- **THEN** each line crossing restarts the in-progress trace, so it never holds more than one lap's worth of samples at the minimum step
 
 ### Requirement: Ref-based exposure with a change signal
 The store SHALL be exposed following the established derived-data hook pattern: recordings readable through a ref (safe for rAF consumers at any frequency without re-renders), plus a monotonically increasing version signal that React consumers can depend on to re-render when recordings change. Lap validity SHALL NOT be re-derived by the store; consumers join recordings to the session lap log by lap number.

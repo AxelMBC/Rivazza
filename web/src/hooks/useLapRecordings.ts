@@ -27,14 +27,14 @@ export type LapRecording = {
 
 // 30 laps × 12k samples × ~9 numbers is ~20 MB worst case.
 const MAX_RECORDED_LAPS = 30;
-// ~3 minutes of lap at the 60 Hz stream rate.
-const MAX_LAP_SAMPLES = 12000;
+// Positions only rise within a lap, so this caps every trace at 12k samples on any track:
+// ~1.7 m apart on the Nordschleife, under one 60 Hz frame of travel on a short circuit.
+const MIN_POS_STEP = 1 / 12000;
 // Counted in raw frames: this hook runs at the full stream rate, not the ~30 Hz state.
 const PENDING_MAX_FRAMES = 6;
 
 type PendingRecording = {
   rec: LapRecording;
-  overflowed: boolean;
   lastLapBefore: number;
   framesWaited: number;
 };
@@ -64,10 +64,7 @@ export const useLapRecordings = (
   const lapTimeRef = useRef(0);
   const prevLastRef = useRef(0);
   const pendingRef = useRef<PendingRecording | null>(null);
-  const overflowedRef = useRef(false);
-  const wrappedRef = useRef<{ rec: LapRecording; overflowed: boolean } | null>(
-    null,
-  );
+  const wrappedRef = useRef<LapRecording | null>(null);
 
   useEffect(() => {
     recordingsRef.current = [];
@@ -76,7 +73,6 @@ export const useLapRecordings = (
     lapTimeRef.current = 0;
     prevLastRef.current = 0;
     pendingRef.current = null;
-    overflowedRef.current = false;
     wrappedRef.current = null;
     setVersion((n) => n + 1);
   }, [session]);
@@ -93,17 +89,15 @@ export const useLapRecordings = (
         recordingsRef.current = [];
         currentRef.current = freshLap(frame.lapCount + 1);
         pendingRef.current = null;
-        overflowedRef.current = false;
         wrappedRef.current = null;
         setVersion((n) => n + 1);
       } else if (transition.kind === "tick") {
         const wrapped = wrappedRef.current;
         wrappedRef.current = null;
         if (wrapped) {
-          wrapped.rec.lap = transition.completedLap;
+          wrapped.lap = transition.completedLap;
           pendingRef.current = {
-            rec: wrapped.rec,
-            overflowed: wrapped.overflowed,
+            rec: wrapped,
             lastLapBefore: prevLastRef.current,
             framesWaited: 0,
           };
@@ -112,12 +106,10 @@ export const useLapRecordings = (
           currentRef.current.lap = transition.completedLap;
           pendingRef.current = {
             rec: currentRef.current,
-            overflowed: overflowedRef.current,
             lastLapBefore: prevLastRef.current,
             framesWaited: 0,
           };
           currentRef.current = freshLap(frame.lapCount + 1);
-          overflowedRef.current = false;
         }
       } else if (transition.kind === "first") {
         currentRef.current.lap = frame.lapCount + 1;
@@ -128,7 +120,7 @@ export const useLapRecordings = (
         if (isLastLapFresh(frame, pending, PENDING_MAX_FRAMES)) {
           const rec = pending.rec;
           rec.timeMs = frame.lastLapMs;
-          rec.complete = !pending.overflowed && coversLap(rec.samples);
+          rec.complete = coversLap(rec.samples);
           const recordings = recordingsRef.current;
           recordings.push(rec);
           if (recordings.length > MAX_RECORDED_LAPS) {
@@ -148,31 +140,24 @@ export const useLapRecordings = (
       const jumpedBackwardsWithoutTick =
         lastSample !== undefined && frame.normalizedPos < lastSample.pos - 0.5;
       if (jumpedBackwardsWithoutTick) {
-        wrappedRef.current = coversLap(cur.samples)
-          ? { rec: cur, overflowed: overflowedRef.current }
-          : null;
+        wrappedRef.current = coversLap(cur.samples) ? cur : null;
         currentRef.current = freshLap(frame.lapCount + 1);
-        overflowedRef.current = false;
       }
 
       const samples = currentRef.current.samples;
       const last = samples[samples.length - 1];
-      if (!last || frame.normalizedPos > last.pos) {
-        if (samples.length < MAX_LAP_SAMPLES) {
-          samples.push({
-            pos: frame.normalizedPos,
-            timeMs: frame.lapTimeMs,
-            speedKmh: frame.speedKmh,
-            gas: frame.gas,
-            brake: frame.brake,
-            gear: frame.gear,
-            steerAngle: frame.steerAngle,
-            x: frame.x,
-            z: frame.z,
-          });
-        } else {
-          overflowedRef.current = true;
-        }
+      if (!last || frame.normalizedPos >= last.pos + MIN_POS_STEP) {
+        samples.push({
+          pos: frame.normalizedPos,
+          timeMs: frame.lapTimeMs,
+          speedKmh: frame.speedKmh,
+          gas: frame.gas,
+          brake: frame.brake,
+          gear: frame.gear,
+          steerAngle: frame.steerAngle,
+          x: frame.x,
+          z: frame.z,
+        });
       }
 
       lapCountRef.current = frame.lapCount;
