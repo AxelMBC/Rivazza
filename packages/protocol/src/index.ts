@@ -41,6 +41,8 @@ export type TelemetryFrame = {
   x: number;
   y: number;
   z: number;
+  // The car's yaw in radians, from the physics shared-memory page; absent wherever that page can't be read.
+  heading?: number;
 };
 
 // `lapCount` is AC's raw counter; the display convention is that lapCount N is "Lap N+1".
@@ -53,8 +55,11 @@ export type CutEvent = {
   tyresOut: number;
 };
 
+export type GameState = "live" | "paused" | "replay";
+
 export type BridgeMessage =
-  | { type: "status"; state: "waiting" | "connected"; protocol: number }
+  | { type: "status"; state: "waiting"; protocol: number }
+  | { type: "status"; state: "connected"; protocol: number; game?: GameState }
   | ({ type: "session" } & SessionInfo)
   | ({ type: "telemetry" } & TelemetryFrame)
   | ({ type: "cut" } & CutEvent);

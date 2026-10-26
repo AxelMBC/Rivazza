@@ -15,6 +15,8 @@ const STYLES: Record<
     label: "Waiting for game",
   },
   connected: { dot: "bg-good", text: "text-good", label: "Live" },
+  paused: { dot: "bg-warning", text: "text-warning", label: "Paused" },
+  replay: { dot: "bg-accent", text: "text-accent", label: "In replay" },
   mismatch: {
     dot: "bg-critical",
     text: "text-critical",

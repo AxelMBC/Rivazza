@@ -1,11 +1,18 @@
+import { AC_HOST } from "../acHost.js";
+
 const FILE_MAP_READ = 0x0004;
+
+const isLoopback = (host: string): boolean =>
+  /^(127\.|localhost$|::1$)/i.test(host);
 
 export const SHM_STATE =
   process.platform !== "win32"
     ? "unsupported"
     : process.env.AC_SHM === "0"
       ? "disabled"
-      : "enabled";
+      : !isLoopback(AC_HOST)
+        ? "remote"
+        : "enabled";
 
 export type MappedPage = {
   read: (dest: Buffer) => void;
@@ -17,6 +24,10 @@ export type Kernel32 = {
 };
 
 const loadKernel32 = async (): Promise<Kernel32 | null> => {
+  if (SHM_STATE === "disabled")
+    console.log("[shm] shared memory disabled (AC_SHM=0)");
+  if (SHM_STATE === "remote")
+    console.log("[shm] shared memory off: AC_HOST is another PC");
   if (SHM_STATE !== "enabled") return null;
   try {
     const koffi = (await import("koffi")).default;

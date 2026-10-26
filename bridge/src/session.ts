@@ -1,6 +1,7 @@
 import {
   PROTOCOL_VERSION,
   type BridgeMessage,
+  type GameState,
   type SessionInfo,
 } from "@rivazza/protocol";
 
@@ -16,12 +17,26 @@ export type Session = {
   start: (handshake: HandshakerResponse) => Promise<boolean>;
   end: () => void;
   isLive: () => boolean;
+  status: () => BridgeMessage;
   greeting: () => BridgeMessage[];
 };
 
-export const createSession = (readLayoutTokens: ReadLayoutTokens): Session => {
+export const createSession = (
+  readLayoutTokens: ReadLayoutTokens,
+  readGame: () => GameState | undefined,
+): Session => {
   let current: SessionInfo | null = null;
   let generation = 0;
+
+  const status = (): BridgeMessage =>
+    current
+      ? {
+          type: "status",
+          state: "connected",
+          protocol: PROTOCOL_VERSION,
+          game: readGame(),
+        }
+      : { type: "status", state: "waiting", protocol: PROTOCOL_VERSION };
 
   const resolveAssets = async (
     handshake: HandshakerResponse,
@@ -63,12 +78,8 @@ export const createSession = (readLayoutTokens: ReadLayoutTokens): Session => {
       current = null;
     },
     isLive: () => current !== null,
+    status,
     greeting: () =>
-      current
-        ? [
-            { type: "status", state: "connected", protocol: PROTOCOL_VERSION },
-            { type: "session", ...current },
-          ]
-        : [{ type: "status", state: "waiting", protocol: PROTOCOL_VERSION }],
+      current ? [status(), { type: "session", ...current }] : [status()],
   };
 };

@@ -1,0 +1,12 @@
+# Review: yaw-and-game-state
+
+Snapshot: 892c74ca0db9365633b7e80b8d8ce62fcd8eefcb
+
+1. [defect] bridge/src/shm/kernel32.ts:3 — `SHM_STATE` ignores `AC_HOST`, so with AC on another PC any local `Local\acpmf_*` page (a locally running mock, a leftover page held by another tool, a past local run) is read as the remote game's: remote frames get its yaw stamped (0.0 on a zero-filled page, pinning the wedge and skipping the motion fallback), and while it reads paused or replay the arrival gate (index.ts:77, status only, no freshness) drops every remote frame indefinitely. Breaks the game-state "Shared memory unavailable" and car-heading-marker "No shared memory" scenarios, and CLAUDE.md's "remote `AC_HOST` … never let it affect the UDP path" · fixed
+   Fix: in kernel32.ts, report `SHM_STATE` as off when `AC_HOST` isn't loopback (127.0.0.1, localhost, ::1), so every consumer goes unknown together.
+2. [defect] bridge/src/shm/cutDetection.ts:39-47 — `lastPacketId` and `wasOut` update on every fresh physics sample before the `isLive()`/`isGameHeld()` gate, so a replay (whose physics page advances with the replayed car) overwrites the live excursion state: pause while four wheels out (onset already sent), watch a replay that ends on track, resume still off track → a second `cut` for the same excursion, stamped at the pause spot. Breaks "exactly one cut event per off-track excursion" · fixed
+   Fix: check the hold at the top of `poll`, before any state is updated (e.g. an `isHeld` dependency fed by index.ts's `isGameHeld`), returning early so the detector resumes with its pre-pause `wasOut`.
+3. [rule] CLAUDE.md:60 — still says `AC_SHM` "disable[s] shared-memory cut detection"; it now also turns off the yaw stamp and the game-state gate · fixed
+   Fix: reword the `AC_SHM` entry to cover all shared-memory features.
+4. [defect] bridge/src/shm/kernel32.ts:3-4 — `isLoopback` treats only an unset `AC_HOST` as local, while `acClient.ts:16` uses `process.env.AC_HOST ?? "127.0.0.1"`: an empty `AC_HOST=""` stays `""`, which Node's udp4 `connect` resolves to 127.0.0.1, so UDP talks to the local game while `SHM_STATE` reads `"remote"` and cut detection, the yaw stamp and the game-state gate silently turn off (logging "AC_HOST is another PC"). Low likelihood: needs an empty variable set · fixed
+   Fix: resolve the host once with an empty value also falling back to the default (`process.env.AC_HOST || "127.0.0.1"`), export it from one module, and have both `acClient.ts` and `isLoopback` read it.

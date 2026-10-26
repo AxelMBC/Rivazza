@@ -3,6 +3,8 @@ import { EventEmitter } from "node:events";
 
 import type { TelemetryFrame } from "@rivazza/protocol";
 
+import { AC_HOST } from "../acHost.js";
+
 import {
   buildHandshakePacket,
   HANDSHAKE_RESPONSE_SIZE,
@@ -13,7 +15,6 @@ import {
   type HandshakerResponse,
 } from "./parsers.js";
 
-const AC_HOST = process.env.AC_HOST ?? "127.0.0.1";
 const AC_PORT = Number(process.env.AC_PORT ?? 9996);
 const HANDSHAKE_RETRY_MS = 3000;
 const STALE_SESSION_MS = 5000;
@@ -31,6 +32,10 @@ type ACClientEvents = {
   waiting: [];
 };
 
+type ACClientOptions = {
+  holdSession?: () => boolean;
+};
+
 export class ACClient extends EventEmitter<ACClientEvents> {
   private socket = dgram.createSocket("udp4");
   private state: "handshaking" | "subscribed" = "handshaking";
@@ -38,6 +43,12 @@ export class ACClient extends EventEmitter<ACClientEvents> {
   private staleTimer: NodeJS.Timeout | null = null;
   private connectTimer: NodeJS.Timeout | null = null;
   private connected = false;
+  private holdSession: () => boolean;
+
+  constructor({ holdSession = () => false }: ACClientOptions = {}) {
+    super();
+    this.holdSession = holdSession;
+  }
 
   start = (): void => {
     this.socket.on("error", this.onSocketError);
@@ -110,13 +121,30 @@ export class ACClient extends EventEmitter<ACClientEvents> {
     }
   };
 
+  endSession = (): void => {
+    if (this.state !== "subscribed") return;
+    if (this.staleTimer) clearTimeout(this.staleTimer);
+    console.log("[ac] game left the session, waiting for a new session");
+    this.dropSession();
+  };
+
   private touchStaleTimer = (): void => {
     if (this.staleTimer) clearTimeout(this.staleTimer);
-    this.staleTimer = setTimeout(() => {
-      console.log("[ac] telemetry went quiet, waiting for a new session");
-      this.send(OperationId.DISMISS);
-      this.beginHandshaking();
-    }, STALE_SESSION_MS);
+    this.staleTimer = setTimeout(this.onStale, STALE_SESSION_MS);
+  };
+
+  private onStale = (): void => {
+    if (this.holdSession()) {
+      this.touchStaleTimer();
+      return;
+    }
+    console.log("[ac] telemetry went quiet, waiting for a new session");
+    this.dropSession();
+  };
+
+  private dropSession = (): void => {
+    this.send(OperationId.DISMISS);
+    this.beginHandshaking();
   };
 
   private send = (operationId: number): void => {

@@ -5,6 +5,7 @@ export const DOT_RADIUS = 7;
 // AC positions are millimetric, so anchors this far apart give a stable heading
 // with no angular smoothing.
 export const HEADING_BASELINE_M = 0.75;
+export const HEADING_LOOKAHEAD_M = 1;
 export const STEER_FULL_DEG = 90;
 export const STEER_TICK_LEN = 8; // screen px
 export const SAMPLE_SPACING = 1; // m — fine enough for exact corner shapes

@@ -17,7 +17,9 @@ const handshakeResponse = () => {
   return b;
 };
 
-const PHYSICS = { packetId: 0, speedKmh: 28, tyresOut: 244 };
+const PHYSICS = { packetId: 0, speedKmh: 28, heading: 208, tyresOut: 244 };
+const GRAPHICS = { packetId: 0, status: 4 };
+const AC_STATUS = { replay: 1, live: 2, paused: 3 };
 
 const CAR_INFO = {
   size: 4,
@@ -48,8 +50,11 @@ const SLIP_PEAK = 4;
 const SLIP_BASELINE = 0.2;
 const REAR_WHEELS = [2, 3];
 const FRONT_WHEELS = [0, 1];
+const GAME_EVENT_EVERY_S = 60;
+const GAME_EVENT_S = 6;
+const REPLAY_REWIND_S = 20;
 
-const startPhysicsPage = async () => {
+const startSharedPages = async () => {
   if (process.platform !== 'win32') return null;
   try {
     const koffi = (await import('koffi')).default;
@@ -65,27 +70,38 @@ const startPhysicsPage = async () => {
     const PAGE_READWRITE = 0x04;
     const FILE_MAP_WRITE = 0x0002;
     const PAGE_SIZE = 800;
-    const handle = createFileMapping(PAGE_FILE_BACKED, null, PAGE_READWRITE, 0, PAGE_SIZE, 'Local\\acpmf_physics');
-    if (handle == null) return null;
-    const view = mapViewOfFile(handle, FILE_MAP_WRITE, 0, 0, 0);
-    if (view == null) return null;
-    const staging = Buffer.alloc(PAGE_SIZE);
-    let packetId = 0;
-    return (speedKmh, tyresOut) => {
-      staging.writeInt32LE(++packetId, PHYSICS.packetId);
-      staging.writeFloatLE(speedKmh, PHYSICS.speedKmh);
-      staging.writeInt32LE(tyresOut, PHYSICS.tyresOut);
-      rtlMoveMemory(view, staging, PAGE_SIZE);
+    const createPage = (name) => {
+      const handle = createFileMapping(PAGE_FILE_BACKED, null, PAGE_READWRITE, 0, PAGE_SIZE, name);
+      if (handle == null) return null;
+      const view = mapViewOfFile(handle, FILE_MAP_WRITE, 0, 0, 0);
+      if (view == null) return null;
+      const staging = Buffer.alloc(PAGE_SIZE);
+      return { staging, flush: () => rtlMoveMemory(view, staging, PAGE_SIZE) };
+    };
+    const physics = createPage('Local\\acpmf_physics');
+    const graphics = createPage('Local\\acpmf_graphics');
+    if (!physics || !graphics) return null;
+    let physicsPacketId = 0;
+    let graphicsPacketId = 0;
+    return (mode, { speedKmh, heading, tyresOut }) => {
+      if (mode !== 'paused') physics.staging.writeInt32LE(++physicsPacketId, PHYSICS.packetId);
+      physics.staging.writeFloatLE(speedKmh, PHYSICS.speedKmh);
+      physics.staging.writeFloatLE(heading, PHYSICS.heading);
+      physics.staging.writeInt32LE(tyresOut, PHYSICS.tyresOut);
+      physics.flush();
+      graphics.staging.writeInt32LE(++graphicsPacketId, GRAPHICS.packetId);
+      graphics.staging.writeInt32LE(AC_STATUS[mode], GRAPHICS.status);
+      graphics.flush();
     };
   } catch {
     return null;
   }
 };
-const writePhysics = await startPhysicsPage();
+const writePages = await startSharedPages();
 console.log(
-  writePhysics
-    ? '[mock] physics page live — simulated cuts every ~40 s of driving'
-    : '[mock] physics page off (needs Windows + koffi); udp telemetry only',
+  writePages
+    ? `[mock] shared memory live — simulated cuts every ~${CUT_EVERY_S} s of driving, a pause or a replay every ${GAME_EVENT_EVERY_S} s`
+    : '[mock] shared memory off (needs Windows + koffi); udp telemetry only',
 );
 
 const slipFor = (seconds) => {
@@ -96,16 +112,45 @@ const slipFor = (seconds) => {
   return [0, 1, 2, 3].map((i) => SLIP_BASELINE + (slipping && wheels.includes(i) ? rise : 0));
 };
 
+const startedAt = Date.now();
+const gameModeAt = (now) => {
+  const sinceStart = (now - startedAt) / 1000;
+  const event = Math.floor(sinceStart / GAME_EVENT_EVERY_S);
+  if (event === 0 || sinceStart % GAME_EVENT_EVERY_S >= GAME_EVENT_S) return 'live';
+  return event % 2 === 1 ? 'paused' : 'replay';
+};
+
+// Inverse of yawForward in web/src/components/TrackMap/markers.ts.
+const yawAlong = (dx, dz) => Math.atan2(-dx, dz);
+
 // magione map.ini: WIDTH=342.88 HEIGHT=861.583 X_OFFSET=187.289 Z_OFFSET=444.422
 // t follows wall-clock time because Windows quantizes the send timer.
 let t = 0;
+let replayT = 0;
+let mode = 'live';
 let lastTick = Date.now();
 const carInfo = () => {
   const now = Date.now();
-  t += (now - lastTick) / 1000;
+  const dt = (now - lastTick) / 1000;
   lastTick = now;
-  const lapMs = Math.round((t * 1000) % LAP_MS);
-  const speedKmh = 120 + 60 * Math.sin(t * 2);
+  const nextMode = gameModeAt(now);
+  if (nextMode !== mode) {
+    if (nextMode === 'replay') replayT = Math.max(0, t - REPLAY_REWIND_S);
+    console.log(
+      nextMode === 'paused'
+        ? '[mock] game paused'
+        : nextMode === 'replay'
+          ? `[mock] replay started, ${REPLAY_REWIND_S} s back`
+          : `[mock] ${mode === 'paused' ? 'resumed' : 'replay ended'}, driving`,
+    );
+    mode = nextMode;
+  }
+  if (mode === 'live') t += dt;
+  if (mode === 'replay') replayT += dt;
+  const at = mode === 'replay' ? replayT : t;
+
+  const lapMs = Math.round((at * 1000) % LAP_MS);
+  const speedKmh = 120 + 60 * Math.sin(at * 2);
   const b = Buffer.alloc(328);
   b.write('a', 0);
   b.writeInt32LE(328, CAR_INFO.size);
@@ -113,19 +158,23 @@ const carInfo = () => {
   b.writeInt32LE(lapMs, CAR_INFO.lapTimeMs);
   b.writeInt32LE(83456, CAR_INFO.lastLapMs);
   b.writeInt32LE(81999, CAR_INFO.bestLapMs);
-  b.writeInt32LE(Math.floor((t * 1000) / LAP_MS), CAR_INFO.lapCount);
-  b.writeFloatLE(0.5 + 0.5 * Math.sin(t * 2), CAR_INFO.gas);
-  b.writeFloatLE(Math.max(0, -Math.sin(t * 2)) * 0.8, CAR_INFO.brake);
-  b.writeFloatLE(5000 + 2500 * Math.sin(t * 3), CAR_INFO.rpm);
-  b.writeFloatLE(25 + 20 * Math.sin(t * 2), CAR_INFO.steerAngle);
+  b.writeInt32LE(Math.floor((at * 1000) / LAP_MS), CAR_INFO.lapCount);
+  b.writeFloatLE(0.5 + 0.5 * Math.sin(at * 2), CAR_INFO.gas);
+  b.writeFloatLE(Math.max(0, -Math.sin(at * 2)) * 0.8, CAR_INFO.brake);
+  b.writeFloatLE(5000 + 2500 * Math.sin(at * 3), CAR_INFO.rpm);
+  b.writeFloatLE(25 + 20 * Math.sin(at * 2), CAR_INFO.steerAngle);
   b.writeInt32LE(GEAR_THIRD, CAR_INFO.gear);
-  slipFor(t).forEach((slip, i) => b.writeFloatLE(slip, CAR_INFO.ndSlip + 4 * i));
-  b.writeFloatLE((t / 30) % 1, CAR_INFO.normalizedPos);
-  b.writeFloatLE(-15.8 + 120 * Math.cos(t), CAR_INFO.x);
+  slipFor(at).forEach((slip, i) => b.writeFloatLE(slip, CAR_INFO.ndSlip + 4 * i));
+  b.writeFloatLE((at / 30) % 1, CAR_INFO.normalizedPos);
+  b.writeFloatLE(-15.8 + 120 * Math.cos(at), CAR_INFO.x);
   b.writeFloatLE(5.0, CAR_INFO.y);
-  b.writeFloatLE(-13.6 + 300 * Math.sin(t), CAR_INFO.z);
-  const cutting = (t + FIRST_CUT_PHASE_S) % CUT_EVERY_S < CUT_WINDOW_S;
-  writePhysics?.(speedKmh, cutting ? 4 : 0);
+  b.writeFloatLE(-13.6 + 300 * Math.sin(at), CAR_INFO.z);
+  const cutting = (at + FIRST_CUT_PHASE_S) % CUT_EVERY_S < CUT_WINDOW_S;
+  writePages?.(mode, {
+    speedKmh,
+    heading: yawAlong(-120 * Math.sin(at), 300 * Math.cos(at)),
+    tyresOut: cutting ? 4 : 0,
+  });
   return b;
 };
 

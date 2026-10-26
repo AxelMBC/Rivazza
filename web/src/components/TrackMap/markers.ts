@@ -17,6 +17,7 @@ import {
   CUT_WIDTH,
   DOT_RADIUS,
   HEADING_BASELINE_M,
+  HEADING_LOOKAHEAD_M,
   STEER_FULL_DEG,
   STEER_TICK_LEN,
 } from "./constants";
@@ -40,6 +41,13 @@ import {
 } from "./palette";
 import { strokeWorldPath, type Affine, type Project } from "./projection";
 import type { Anchor } from "./trackGeometry";
+
+// AC leaves its yaw convention undocumented; bridge/scripts/mock-ac.js writes
+// this function's inverse.
+const yawForward = (yaw: number): { dx: number; dz: number } => ({
+  dx: -Math.sin(yaw),
+  dz: Math.cos(yaw),
+});
 
 type MarkerDeps = {
   ctx: CanvasRenderingContext2D;
@@ -228,18 +236,37 @@ export const createMarkers = ({
     }
   };
 
-  const markerAngle = (project: Project): number | null => {
-    if (!headingFrom || !headingTo) return null;
-    const a = project(headingFrom);
-    const b = project(headingTo);
+  const screenAngle = (
+    project: Project,
+    from: { x: number; z: number },
+    to: { x: number; z: number },
+  ): number => {
+    const a = project(from);
+    const b = project(to);
     return Math.atan2(b.py - a.py, b.px - a.px);
+  };
+
+  const markerAngle = (
+    project: Project,
+    pos: { x: number; z: number },
+    yaw: number | undefined,
+  ): number | null => {
+    if (yaw !== undefined) {
+      const { dx, dz } = yawForward(yaw);
+      return screenAngle(project, pos, {
+        x: pos.x + dx * HEADING_LOOKAHEAD_M,
+        z: pos.z + dz * HEADING_LOOKAHEAD_M,
+      });
+    }
+    if (!headingFrom || !headingTo) return null;
+    return screenAngle(project, headingFrom, headingTo);
   };
 
   const drawDot = (project: Project, frame: TelemetryFrame) => {
     const pos = dotWorld(frame);
     trackHeading(pos);
     const { px, py } = project(pos);
-    const angle = markerAngle(project);
+    const angle = markerAngle(project, pos, frame.heading);
     if (angle === null) {
       ctx.beginPath();
       ctx.arc(px, py, DOT_RADIUS, 0, Math.PI * 2);

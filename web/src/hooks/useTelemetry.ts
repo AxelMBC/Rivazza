@@ -2,6 +2,7 @@ import {
   PROTOCOL_VERSION,
   type BridgeMessage,
   type CutEvent,
+  type GameState,
   type SessionInfo,
   type TelemetryFrame,
 } from "@rivazza/protocol";
@@ -15,7 +16,13 @@ const RECONNECT_MS = 1500;
 const STATE_INTERVAL_MS = 1000 / 30;
 
 export type ConnectionStatus =
-  "connecting" | "waiting" | "connected" | "mismatch";
+  "connecting" | "waiting" | "connected" | "paused" | "replay" | "mismatch";
+
+const GAME_STATUS: Record<GameState, ConnectionStatus> = {
+  live: "connected",
+  paused: "paused",
+  replay: "replay",
+};
 
 type RecordedEntry = { t: number; msg: BridgeMessage };
 
@@ -87,11 +94,13 @@ export const useTelemetry = (): Telemetry => {
     const handleMessage = (message: BridgeMessage) => {
       switch (message.type) {
         case "status":
-          setStatus(message.state);
-          if (message.state === "waiting") {
-            setSession(null);
-            clearFrame();
+          if (message.state === "connected") {
+            setStatus(GAME_STATUS[message.game ?? "live"]);
+            break;
           }
+          setStatus(message.state);
+          setSession(null);
+          clearFrame();
           break;
         case "session":
           setSession(message);

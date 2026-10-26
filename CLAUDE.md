@@ -57,7 +57,7 @@ repaint or a hover-revealed panel is a manual check, run with the procedure in
 
 ## Bridge configuration (env vars)
 
-`AC_PATH` (game folder for track maps; auto-discovered from Steam library configs if unset), `AC_HOST` (default `127.0.0.1`), `AC_PORT` (default `9996`), `BRIDGE_PORT` (default `3001`), `AC_SHM` (set `0` to disable shared-memory cut detection).
+`AC_PATH` (game folder for track maps; auto-discovered from Steam library configs if unset), `AC_HOST` (default `127.0.0.1`), `AC_PORT` (default `9996`), `BRIDGE_PORT` (default `3001`), `AC_SHM` (set `0` to disable every shared-memory feature: cut detection, the yaw stamp and the game-state gate).
 
 ## Architecture
 
@@ -73,8 +73,17 @@ strings are fixed 50-wchar buffers with trailing garbage (often a stray `%`); `r
 cuts at the first control char or `%`. Corrupt strings here silently break track-folder lookups.
 
 **Session lifecycle (`bridge/src/udp/acClient.ts`).** `ACClient` runs handshake → subscribe →
-RTCarInfo stream. AC never signals session end, so a stale timer (5s of silence) drops back to
+RTCarInfo stream. AC never signals session end over UDP, so a stale timer (5s of silence) drops back to
 handshaking and emits `waiting`. It retries the handshake every 3s while the game is closed.
+Where shared memory is readable, the graphics page's `status`@4 adds the game's run state
+(`bridge/src/shm/gameState.ts`, polled at 10 Hz through the pure, unit-tested `stepGameWatch`).
+Paused or in a replay, AC keeps (or may keep) streaming UDP, so `index.ts` judges each arriving
+frame by a fresh 8-byte graphics read and drops it, and the connected `status` carries an optional
+`game` (`live` | `paused` | `replay`, rebroadcast on change) that the badge renders. While paused or
+in a replay with the page's `packetId` advancing within ~2 s, `holdSession` re-arms the stale timer
+instead of dropping the session; a turn to off ends it at once through `endSession()`, but only once
+the page has reported a non-off state with an advancing `packetId` during that session, since the
+bridge's open handle keeps an exited run's last page alive. Unknown state gates nothing.
 
 **Throttling (`bridge/src/frameThrottle.ts`).** AC floods RTCarInfo packets; the bridge keeps only the
 newest frame and flushes to WebSocket clients at 60 Hz (needed for the track map's ~1 m line
@@ -91,10 +100,15 @@ only native dependency) maps AC's `Local\acpmf_physics` shared-memory page and p
 magic numbers in the parsers.ts tradition). `numberOfTyresOut` is the game's own
 lap-invalidation counter: a `<4 → ≥4` transition across fresh `packetId`s broadcasts a
 `{ type: 'cut' }` message stamped with the newest UDP frame's position/lap. Gates (frozen
-`packetId`, `inPit`, speed < 10 km/h, no live session) suppress pause/menu/teleport noise.
+`packetId`, `inPit`, speed < 10 km/h, no live session, game paused or in a replay) suppress
+pause/menu/teleport/replay noise. The same page's `heading`@208 is the car's yaw, stamped on each
+telemetry frame as it is sent (`shm/yaw.ts`). Each page is mapped once in `index.ts` by
+`createLazyPage` (`shm/lazyPage.ts`: maps on first read, retries every 3 s, logs once) and handed to
+every consumer; `staticPage.ts` keeps its one-shot read.
 Anywhere the page can't be read (non-Windows, `AC_SHM=0`, remote `AC_HOST`, koffi load
 failure) the feature is silently off — never let it affect the UDP path. The mock writes the
-same mapping with periodic fake excursions. Web side: `useTelemetry` accumulates cuts
+physics and graphics mappings with periodic fake excursions, a yaw along its path, and a
+6-second pause or replay (rewound frames, the case that would wipe the lap log) every minute. Web side: `useTelemetry` accumulates cuts
 (`cutsRef` + `cutSeq` signal), `useLapHistory` turns them into authoritative lap invalidity
 plus the live current-lap INV cue, and `TrackMap` draws red × markers — ambient only
 while the invalid lap is in progress; stored laps reveal theirs on hover (their map
