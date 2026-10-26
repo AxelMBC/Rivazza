@@ -15,7 +15,9 @@ const OFF_SPEED_KMH = 28;
 const OFF_TYRES_OUT = 244;
 const READ_SIZE = 256;
 
-const POLL_MS = 16; // ~60 Hz nominal; Windows floors short timers near 15.6 ms
+// Windows ticks timers every ~15.6 ms: under one tick polls at ~64 Hz, while
+// 16 ms rounds up to two ticks and polls at ~32 Hz.
+const POLL_MS = 10;
 const OPEN_RETRY_MS = 3000;
 const CUT_TYRES = 4; // AC invalidates a lap at four wheels beyond the limits
 const MIN_SPEED_KMH = 10;
