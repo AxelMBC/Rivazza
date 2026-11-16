@@ -19,6 +19,7 @@ import {
   type ScrubPoint,
 } from "../../lib/lapAnalysis";
 import { bestValidLapMs, lapStatusTag } from "../../lib/lapStatus";
+import { equalDivision, type SectorDivision } from "../../lib/sectorDivision";
 import { RevealPanel } from "../RevealPanel";
 
 import { ownersKey } from "./constants";
@@ -27,10 +28,13 @@ import { attachScrub } from "./scrubInput";
 import { drawScrubOverlay } from "./scrubOverlay";
 import { createTraceLayer } from "./traceLayer";
 
+const THEORETICAL_BEST_BOUNDS = equalDivision(SECTOR_COUNT).bounds;
+
 type Props = {
   recordingsRef: React.RefObject<LapRecording[]>;
   version: number;
   lapsRef: React.RefObject<LapRecord[]>;
+  division: SectorDivision;
   scrubRef: React.RefObject<ScrubPoint | null>;
   analysisLapRef: React.RefObject<number | null>;
   className?: string;
@@ -40,6 +44,7 @@ export const LapAnalysis = ({
   recordingsRef,
   version,
   lapsRef,
+  division,
   scrubRef,
   analysisLapRef,
   className = "",
@@ -64,9 +69,9 @@ export const LapAnalysis = ({
   }, [open, selected, analysisLapRef]);
 
   const theoreticalMs = theoreticalBestMs(
-    bestSectors(recordings, laps, SECTOR_COUNT),
+    bestSectors(recordings, laps, THEORETICAL_BEST_BOUNDS),
   );
-  const owners = sectorOwners(recordings, laps, SECTOR_COUNT);
+  const owners = sectorOwners(recordings, laps, division.bounds);
 
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -83,7 +88,7 @@ export const LapAnalysis = ({
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const traces = createTraceLayer(canvas);
+    const traces = createTraceLayer(canvas, division.bounds);
     if (!traces) return;
     let rafId = 0;
 
@@ -151,6 +156,7 @@ export const LapAnalysis = ({
           scrubPosRef.current,
           sel,
           ref,
+          division,
           ownersRef.current,
           width,
           height,
@@ -158,6 +164,7 @@ export const LapAnalysis = ({
     };
 
     const detachScrub = attachScrub(canvas, {
+      division,
       scrubPosRef,
       selectedRef,
       scrubRef,
@@ -169,7 +176,7 @@ export const LapAnalysis = ({
       detachScrub();
       scrubRef.current = null;
     };
-  }, [scrubRef]);
+  }, [scrubRef, division]);
 
   const selectedTag =
     selected === null

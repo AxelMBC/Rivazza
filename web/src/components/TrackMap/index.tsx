@@ -6,6 +6,7 @@ import type { LapRecording } from "../../hooks/useLapRecordings";
 import type { Telemetry } from "../../hooks/useTelemetry";
 import { sizeToDevice } from "../../lib/canvas";
 import type { ScrubPoint, SectorOwner } from "../../lib/lapAnalysis";
+import type { SectorDivision } from "../../lib/sectorDivision";
 import { hasCoarsePointer } from "../../lib/touch";
 
 import { createCamera, easeView, fallbackTarget } from "./camera";
@@ -40,6 +41,7 @@ import { useFollowControl } from "./useFollowControl";
 
 type Props = {
   session: SessionInfo;
+  division: SectorDivision;
   telemetryRef: React.RefObject<TelemetryFrame | null>;
   subscribeFrame: Telemetry["subscribeFrame"];
   lapsRef: React.RefObject<LapRecord[]>;
@@ -54,6 +56,7 @@ type Props = {
 
 export const TrackMap = ({
   session,
+  division,
   telemetryRef,
   subscribeFrame,
   lapsRef,
@@ -118,7 +121,7 @@ export const TrackMap = ({
     let rafId = 0;
 
     const { edgeView, edgesFill, sectorEdges, sectorLabels, sectorTicks } =
-      buildTrackGeometry(meta, edges);
+      buildTrackGeometry(meta, edges, division);
 
     const insetRef: React.RefObject<Inset | null> = { current: null };
     const { followCamera, navCamera, dotWorld, followAnimating, navAnimating } =
@@ -135,6 +138,7 @@ export const TrackMap = ({
 
     const {
       drawSectorTick,
+      sectorLabelBox,
       drawSectorLabel,
       sectorKey,
       syncSectorTables,
@@ -145,6 +149,7 @@ export const TrackMap = ({
       drawDot,
     } = createMarkers({
       ctx,
+      division,
       sectorEdges,
       sectorLabels,
       sectorTicks,
@@ -162,6 +167,7 @@ export const TrackMap = ({
       ctx,
       edges,
       edgesFill,
+      division,
       sectorEdges,
       sectorTicks,
       currentRef,
@@ -170,6 +176,7 @@ export const TrackMap = ({
       sectorOwnersRef,
       sectorKey,
       drawSectorTick,
+      sectorLabelBox,
       drawSectorLabel,
       telemetryRef,
       zoomRef,
@@ -392,6 +399,7 @@ export const TrackMap = ({
   }, [
     meta,
     edges,
+    division,
     telemetryRef,
     lapsRef,
     cutsRef,

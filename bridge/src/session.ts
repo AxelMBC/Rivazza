@@ -69,6 +69,7 @@ export const createSession = (
         driver: handshake.driverName,
         meta: assets?.meta ?? null,
         edges: assets?.edges ?? null,
+        sections: assets?.sections ?? null,
         topSpeedKmh: resolveCarTopSpeed(handshake.carName),
       };
       return true;

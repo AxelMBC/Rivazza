@@ -117,7 +117,10 @@ line, or their session-lap-list row via the shared `hoveredLapRef`).
 **Track assets (`bridge/src/content/trackAssets.ts`).** Reads `content/tracks/<track>/[<config>/]data/map.ini`
 for projection bounds and `ai/fast_lane.ai` for track edges, resolved before `session` is broadcast and
 sent on it as `meta` / `edges` (`null` = not available) — the bridge serves no asset routes; its port
-is `ws`'s own server, which answers any plain request with 426. The `.ini` bounds alone fix the viewport.
+is `ws`'s own server, which answers any plain request with 426. `data/sections.ini`, where the track ships
+one, gives its named sections (`content/sectionsIni.ts`), sent as the optional `sections` field; the web
+turns them into the session's one sector division (`web/src/lib/sectorDivision.ts`), or eight equal slices
+without them. The `.ini` bounds alone fix the viewport.
 `map.png` is **deliberately ignored** — AC strokes it at constant width around the AI line,
 misrepresenting track limits; the driven lines are the track. Tracks without a `map.ini` fall back to an auto-fit view of the
 driven line. The AC install itself is resolved once in `content/acPath.ts` (`AC_PATH` env var, else

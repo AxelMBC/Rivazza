@@ -3,12 +3,12 @@ import type { TelemetryFrame } from "@rivazza/protocol";
 import type { LapRecord } from "../../hooks/useLapHistory";
 import type { LapRecording } from "../../hooks/useLapRecordings";
 import {
-  SECTOR_COUNT,
   sectorOwners,
   type ScrubPoint,
   type SectorOwner,
 } from "../../lib/lapAnalysis";
 import { lapColor } from "../../lib/lapColors";
+import { sectorLabel, type SectorDivision } from "../../lib/sectorDivision";
 
 import {
   ANCHOR_SNAP_M,
@@ -22,6 +22,7 @@ import {
   STEER_TICK_LEN,
 } from "./constants";
 import type { CutMarker, StoredLap } from "./lineRecorder";
+import type { Rect } from "./overviewInset";
 import {
   CAR_MARKER,
   HOVERED_GREY_LAP,
@@ -31,6 +32,7 @@ import {
   SECTOR_LABEL_FONT_ON,
   SECTOR_LABEL_HALO,
   SECTOR_LABEL_IDLE,
+  SECTOR_LABEL_LINE_H,
   SECTOR_LABEL_OFFSET,
   SECTOR_TICK,
   SECTOR_TICK_LEN,
@@ -51,6 +53,7 @@ const yawForward = (yaw: number): { dx: number; dz: number } => ({
 
 type MarkerDeps = {
   ctx: CanvasRenderingContext2D;
+  division: SectorDivision;
   sectorEdges: { left: Path2D; right: Path2D }[];
   sectorLabels: (Anchor | null)[];
   sectorTicks: (Anchor | null)[][];
@@ -66,6 +69,7 @@ type MarkerDeps = {
 
 export const createMarkers = ({
   ctx,
+  division,
   sectorEdges,
   sectorLabels,
   sectorTicks,
@@ -105,6 +109,39 @@ export const createMarkers = ({
     target.stroke();
   };
 
+  const placeSectorLabel = (
+    project: Project,
+    sector: number,
+    owner: SectorOwner | null,
+  ) => {
+    const anchor = sectorLabels[sector];
+    if (!anchor) return null;
+    const o = outwardScreen(project, anchor);
+    if (!o) return null;
+    const name = sectorLabel(division, sector);
+    return {
+      px: o.px + o.ux * SECTOR_LABEL_OFFSET,
+      py: o.py + o.uy * SECTOR_LABEL_OFFSET,
+      text: owner
+        ? `${name} · L${owner.lap}${owner.invalid ? " INV" : ""}`
+        : name,
+    };
+  };
+
+  const sectorLabelBox = (
+    target: CanvasRenderingContext2D,
+    project: Project,
+    sector: number,
+    owner: SectorOwner | null,
+  ): Rect | null => {
+    const label = placeSectorLabel(project, sector, owner);
+    if (!label) return null;
+    target.font = SECTOR_LABEL_FONT;
+    const w = target.measureText(label.text).width + SECTOR_LABEL_HALO;
+    const h = SECTOR_LABEL_LINE_H + SECTOR_LABEL_HALO;
+    return { x: label.px - w / 2, y: label.py - h / 2, w, h };
+  };
+
   const drawSectorLabel = (
     target: CanvasRenderingContext2D,
     project: Project,
@@ -112,15 +149,9 @@ export const createMarkers = ({
     owner: SectorOwner | null,
     emphasized: boolean,
   ) => {
-    const anchor = sectorLabels[sector];
-    if (!anchor) return;
-    const o = outwardScreen(project, anchor);
-    if (!o) return;
-    const px = o.px + o.ux * SECTOR_LABEL_OFFSET;
-    const py = o.py + o.uy * SECTOR_LABEL_OFFSET;
-    const text = owner
-      ? `S${sector + 1} · L${owner.lap}${owner.invalid ? " INV" : ""}`
-      : `S${sector + 1}`;
+    const label = placeSectorLabel(project, sector, owner);
+    if (!label) return;
+    const { px, py, text } = label;
     target.font = emphasized ? SECTOR_LABEL_FONT_ON : SECTOR_LABEL_FONT;
     target.textAlign = "center";
     target.textBaseline = "middle";
@@ -147,7 +178,7 @@ export const createMarkers = ({
     const key = `${recordingsVersionRef.current}|${laps.length}`;
     if (key === sectorKey) return;
     sectorKey = key;
-    sectorOwnersRef.current = sectorOwners(recordings, laps, SECTOR_COUNT);
+    sectorOwnersRef.current = sectorOwners(recordings, laps, division.bounds);
   };
 
   const drawRing = (px: number, py: number, color: string) => {
@@ -316,6 +347,7 @@ export const createMarkers = ({
 
   return {
     drawSectorTick,
+    sectorLabelBox,
     drawSectorLabel,
     sectorKey: () => sectorKey,
     syncSectorTables,

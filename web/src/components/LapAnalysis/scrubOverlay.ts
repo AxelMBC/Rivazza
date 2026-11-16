@@ -3,10 +3,14 @@ import { formatDelta, formatGearCompact } from "../../lib/format";
 import {
   interpolateTimeAt,
   sampleNear,
-  SECTOR_COUNT,
   type SectorOwner,
 } from "../../lib/lapAnalysis";
 import { lapColor } from "../../lib/lapColors";
+import {
+  sectorIndexAt,
+  sectorLabel,
+  type SectorDivision,
+} from "../../lib/sectorDivision";
 
 import {
   BRAKE_TRACE,
@@ -16,16 +20,32 @@ import {
   PAD_X,
   plotX,
   SCRUB_BAND,
+  SECTORS_CAPTION,
   SLICE_INVALID,
-  sliceAt,
   THROTTLE_TRACE,
 } from "./constants";
+
+const READOUT_GAP = 12;
+
+const fitText = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string => {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  for (let length = text.length - 1; length > 0; length--) {
+    const shortened = `${text.slice(0, length).trimEnd()}…`;
+    if (ctx.measureText(shortened).width <= maxWidth) return shortened;
+  }
+  return "";
+};
 
 export const drawScrubOverlay = (
   ctx: CanvasRenderingContext2D,
   pos: number,
   sel: LapRecording,
   ref: LapRecording | null,
+  division: SectorDivision,
   owners: readonly (SectorOwner | null)[],
   width: number,
   height: number,
@@ -34,13 +54,13 @@ export const drawScrubOverlay = (
   const x = plotX(pos, width);
   const bottom = strips.sectors.top + strips.sectors.h;
 
-  const slice = sliceAt(pos);
+  const slice = sectorIndexAt(division, pos);
   ctx.fillStyle = SCRUB_BAND;
-  const bandX = plotX(slice / SECTOR_COUNT, width);
+  const bandX = plotX(division.bounds[slice], width);
   ctx.fillRect(
     bandX,
     strips.speed.top,
-    plotX((slice + 1) / SECTOR_COUNT, width) - bandX,
+    plotX(division.bounds[slice + 1], width) - bandX,
     bottom - strips.speed.top,
   );
 
@@ -53,9 +73,20 @@ export const drawScrubOverlay = (
 
   const owner = owners[slice];
   if (owner) {
-    const head = `S${slice + 1} · Lap ${owner.lap} · `;
+    const lapPart = `Lap ${owner.lap} · `;
     const tail = `${(owner.timeMs / 1000).toFixed(3)}${owner.invalid ? " inv" : ""}`;
     ctx.font = "10px system-ui";
+    const captionEnd =
+      PAD_X + ctx.measureText(SECTORS_CAPTION).width + READOUT_GAP;
+    const name = fitText(
+      ctx,
+      sectorLabel(division, slice),
+      width -
+        PAD_X -
+        captionEnd -
+        ctx.measureText(` · ${lapPart}${tail}`).width,
+    );
+    const head = name ? `${name} · ${lapPart}` : lapPart;
     const headW = ctx.measureText(head).width;
     const readoutX = width - PAD_X - headW - ctx.measureText(tail).width;
     const readoutY = strips.sectors.top - 4;

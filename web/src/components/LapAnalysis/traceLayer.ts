@@ -3,11 +3,7 @@ import type {
   LapTelemetrySample,
 } from "../../hooks/useLapRecordings";
 import { sizeCanvas } from "../../lib/canvas";
-import {
-  interpolateTimeAt,
-  SECTOR_COUNT,
-  type SectorOwner,
-} from "../../lib/lapAnalysis";
+import { interpolateTimeAt, type SectorOwner } from "../../lib/lapAnalysis";
 import { lapColor } from "../../lib/lapColors";
 
 import {
@@ -22,14 +18,18 @@ import {
   plotX,
   REFERENCE_TRACE,
   RIBBON_H,
-  SLICE_GAP,
+  SECTORS_CAPTION,
   SLICE_INVALID,
   SLICE_UNOWNED,
+  sliceSeam,
   THROTTLE_TRACE,
   type Strip,
 } from "./constants";
 
-export const createTraceLayer = (canvas: HTMLCanvasElement) => {
+export const createTraceLayer = (
+  canvas: HTMLCanvasElement,
+  bounds: readonly number[],
+) => {
   const traceLayer = document.createElement("canvas");
   const traceCtx = traceLayer.getContext("2d");
   if (!traceCtx) return null;
@@ -68,12 +68,12 @@ export const createTraceLayer = (canvas: HTMLCanvasElement) => {
     traceCtx.clearRect(0, 0, width, height);
     const strips = layoutStrips(height);
 
-    for (let i = 0; i < SECTOR_COUNT; i++) {
+    const lastSlice = bounds.length - 2;
+    for (let i = 0; i <= lastSlice; i++) {
       const owner = owners[i];
-      const x0 = plotX(i / SECTOR_COUNT, width);
-      const x1 = plotX((i + 1) / SECTOR_COUNT, width);
-      const gap = i === SECTOR_COUNT - 1 ? 0 : SLICE_GAP;
-      const w = x1 - x0 - gap;
+      const x0 = plotX(bounds[i], width);
+      const x1 = plotX(bounds[i + 1], width);
+      const w = x1 - x0 - (i === lastSlice ? 0 : sliceSeam(x1 - x0));
       traceCtx.fillStyle = owner === null ? SLICE_UNOWNED : lapColor(owner.lap);
       traceCtx.globalAlpha = owner?.invalid ? INVALID_SLICE_ALPHA : 1;
       traceCtx.fillRect(x0, strips.sectors.top, w, RIBBON_H);
@@ -195,7 +195,7 @@ export const createTraceLayer = (canvas: HTMLCanvasElement) => {
     traceCtx.fillText("SPEED", PAD_X, strips.speed.top - 4);
     traceCtx.fillText("THROTTLE / BRAKE", PAD_X, strips.pedals.top - 4);
     traceCtx.fillText("DELTA TO REFERENCE", PAD_X, strips.delta.top - 4);
-    traceCtx.fillText("SECTORS", PAD_X, strips.sectors.top - 4);
+    traceCtx.fillText(SECTORS_CAPTION, PAD_X, strips.sectors.top - 4);
     traceCtx.textAlign = "right";
     traceCtx.fillText(
       `${Math.round(maxSpeed)} km/h`,

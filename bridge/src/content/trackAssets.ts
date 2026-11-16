@@ -1,15 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { MapMeta, TrackEdges } from "@rivazza/protocol";
+import type { MapMeta, TrackEdges, TrackSection } from "@rivazza/protocol";
 
 import { AC_PATH } from "./acPath.js";
 import { resolveTrackEdges } from "./aiSpline.js";
+import { parseSectionsIni } from "./sectionsIni.js";
 
 export type TrackAssets = {
   meta: MapMeta | null;
   edges: TrackEdges | null;
+  sections: TrackSection[] | null;
 };
+
+const hasMapData = (assets: TrackAssets): boolean =>
+  assets.meta !== null || assets.edges !== null;
 
 export type ReadLayoutTokens = () => Promise<ReadonlySet<string>>;
 
@@ -18,6 +23,21 @@ const trackRootPath = (track: string): string =>
 const mapIniPath = (dir: string): string => path.join(dir, "data", "map.ini");
 const fastLanePath = (dir: string): string =>
   path.join(dir, "ai", "fast_lane.ai");
+const sectionsIniPath = (dir: string): string =>
+  path.join(dir, "data", "sections.ini");
+
+// Like the AI spline, the root file of a multi-layout track describes another
+// layout, so only the first existing file is ever read.
+const resolveSections = (candidates: string[]): TrackSection[] | null => {
+  const iniPath = candidates.map(sectionsIniPath).find(fs.existsSync);
+  if (!iniPath) return null;
+  try {
+    return parseSectionsIni(fs.readFileSync(iniPath));
+  } catch (err) {
+    console.error(`[sections] failed to read ${iniPath}:`, err);
+    return null;
+  }
+};
 
 const parseMapIni = (iniPath: string): MapMeta | null => {
   const values: Record<string, number> = {};
@@ -70,14 +90,16 @@ export const resolveTrackAssets = (
     break;
   }
 
+  const sections = resolveSections(candidates);
+
   if (!meta && !edges) {
     // JSON.stringify exposes invisible characters in the handshake strings.
     console.warn(
       `[map] no map data found for track ${JSON.stringify(track)} (config ${JSON.stringify(trackConfig)})`,
     );
-    return null;
+    if (!sections) return null;
   }
-  return { meta, edges };
+  return { meta, edges, sections };
 };
 
 // Multi-layout tracks (ks_highlands, ks_nurburgring, …) keep every map.ini
@@ -120,10 +142,10 @@ export const resolveTrackAssetsForSession = async (
   readLayoutTokens: ReadLayoutTokens,
 ): Promise<TrackAssets | null> => {
   const direct = resolveTrackAssets(track, handshakeConfig);
-  if (direct) return direct;
+  if (direct && hasMapData(direct)) return direct;
 
   const configs = listTrackConfigs(track);
-  if (configs.length === 0) return null;
+  if (configs.length === 0) return direct;
   if (configs.length === 1) return resolveTrackAssets(track, configs[0]);
 
   const layout = await resolveLoadedLayout(configs, readLayoutTokens);

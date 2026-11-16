@@ -16,6 +16,9 @@ import {
   theoreticalBestMs,
 } from "./lapAnalysis";
 
+const HALVES = [0, 0.5, 1];
+const QUARTERS = [0, 0.25, 0.5, 0.75, 1];
+
 const sample = (pos: number, timeMs: number): LapTelemetrySample => ({
   pos,
   timeMs,
@@ -82,7 +85,7 @@ describe("interpolateTimeAt", () => {
 describe("sectorTimes", () => {
   test("a fully sampled lap splits into its equal-length slices", () => {
     assert.deepEqual(
-      sectorTimes(recordingOf(1, [20000, 22000, 18000, 21000]), 4),
+      sectorTimes(recordingOf(1, [20000, 22000, 18000, 21000]), QUARTERS),
       [20000, 22000, 18000, 21000],
     );
   });
@@ -94,7 +97,20 @@ describe("sectorTimes", () => {
       complete: true,
       samples: [sample(0.02, 1000), sample(0.5, 40000), sample(0.98, 79000)],
     };
-    assert.deepEqual(sectorTimes(rec, 2), [40000, 40500]);
+    assert.deepEqual(sectorTimes(rec, HALVES), [40000, 40500]);
+  });
+
+  test("unequal bounds time each sector between its own boundaries", () => {
+    const rec: LapRecording = {
+      lap: 1,
+      timeMs: 100000,
+      complete: true,
+      samples: [sample(0, 0), sample(1, 100000)],
+    };
+    assert.deepEqual(
+      sectorTimes(rec, [0, 0.1, 0.85, 1]),
+      [10000, 75000, 15000],
+    );
   });
 
   test("slices before a partial lap's first sample have no time", () => {
@@ -109,7 +125,7 @@ describe("sectorTimes", () => {
         sample(1, 70000),
       ],
     };
-    assert.deepEqual(sectorTimes(rec, 4), [null, null, 25000, 25000]);
+    assert.deepEqual(sectorTimes(rec, QUARTERS), [null, null, 25000, 25000]);
   });
 });
 
@@ -129,13 +145,13 @@ describe("best sectors", () => {
 
   test("the best of each sector is taken from valid laps only", () => {
     assert.deepEqual(
-      bestSectors(recordings, laps, 4),
+      bestSectors(recordings, laps, QUARTERS),
       [19000, 22000, 18000, 20000],
     );
   });
 
   test("a sector's owner can be an invalid lap, flagged as such, but never a pit lap", () => {
-    assert.deepEqual(sectorOwners(recordings, laps, 4), [
+    assert.deepEqual(sectorOwners(recordings, laps, QUARTERS), [
       { lap: 2, timeMs: 15000, invalid: true },
       { lap: 1, timeMs: 22000, invalid: false },
       { lap: 1, timeMs: 18000, invalid: false },
@@ -144,10 +160,10 @@ describe("best sectors", () => {
   });
 
   test("a recording with no lap in the log owns no sector", () => {
-    assert.deepEqual(sectorOwners([recordingOf(9, [1000, 1000])], laps, 2), [
-      null,
-      null,
-    ]);
+    assert.deepEqual(
+      sectorOwners([recordingOf(9, [1000, 1000])], laps, HALVES),
+      [null, null],
+    );
   });
 
   test("the theoretical best is the sum of the best sectors", () => {

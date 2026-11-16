@@ -19,6 +19,7 @@ export const SECTOR_TICK = "rgba(255, 255, 255, 0.5)";
 export const SECTOR_LABEL_FONT = "600 10px system-ui";
 export const SECTOR_LABEL_FONT_ON = "700 11px system-ui";
 export const SECTOR_LABEL_HALO = 3;
+export const SECTOR_LABEL_LINE_H = 12; // the 10 px label font's line box
 export const SECTOR_LABEL_OFFSET = 15; // screen px
 export const SECTOR_LABEL_IDLE = "rgba(255, 255, 255, 0.4)";
 export const STEER_TICK_COLOR = "#3987e5"; // --color-accent

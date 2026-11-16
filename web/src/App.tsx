@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 
 import { DriverInputs } from "./components/DriverInputs";
 import { InstrumentCluster } from "./components/InstrumentCluster";
@@ -12,6 +12,7 @@ import { useLapRecordings } from "./hooks/useLapRecordings";
 import { useTelemetry, type ConnectionStatus } from "./hooks/useTelemetry";
 import { IS_DEMO } from "./lib/demo";
 import type { ScrubPoint } from "./lib/lapAnalysis";
+import { sessionDivision } from "./lib/sectorDivision";
 
 const DemoLoadingScreen = () => (
   <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
@@ -74,6 +75,8 @@ const App = () => {
     subscribeFrame,
   } = useTelemetry();
 
+  const division = useMemo(() => sessionDivision(session?.sections), [session]);
+
   const historyRef = useInputHistory(telemetry);
 
   const {
@@ -102,6 +105,7 @@ const App = () => {
 
             <TrackMap
               session={session}
+              division={division}
               telemetryRef={telemetryRef}
               subscribeFrame={subscribeFrame}
               lapsRef={lapHistoryRef}
@@ -135,6 +139,7 @@ const App = () => {
             recordingsRef={recordingsRef}
             version={recVersion}
             lapsRef={lapHistoryRef}
+            division={division}
             scrubRef={scrubRef}
             analysisLapRef={analysisLapRef}
             className="lg:col-start-2 lg:row-start-4 lg:mt-1"

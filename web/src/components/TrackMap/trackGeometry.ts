@@ -1,6 +1,10 @@
 import type { MapMeta, TrackEdges } from "@rivazza/protocol";
 
-import { SECTOR_COUNT } from "../../lib/lapAnalysis";
+import {
+  sectorCount,
+  sectorIndexAt,
+  type SectorDivision,
+} from "../../lib/sectorDivision";
 
 import { VIEW_MARGIN } from "./constants";
 
@@ -9,12 +13,13 @@ export type View = { cx: number; cz: number; ex: number; ez: number };
 
 const sectorVertexRuns = (
   pos: readonly number[],
-  count: number,
+  division: SectorDivision,
   closed: boolean,
 ): number[][] => {
+  const count = sectorCount(division);
   const starts = new Array<number>(count).fill(-1);
   for (let i = 0; i < pos.length; i++) {
-    const s = Math.min(count - 1, Math.max(0, Math.floor(pos[i] * count)));
+    const s = sectorIndexAt(division, pos[i]);
     if (starts[s] < 0) starts[s] = i;
   }
   return starts.map((from, s) => {
@@ -32,6 +37,7 @@ const sectorVertexRuns = (
 export const buildTrackGeometry = (
   meta: MapMeta | null,
   edges: TrackEdges | null,
+  division: SectorDivision,
 ) => {
   let edgeView: View | null = null;
   let edgeCentre: { x: number; z: number } | null = null;
@@ -87,7 +93,7 @@ export const buildTrackGeometry = (
       traceInto(edgesFill, edges.right, true, false);
       edgesFill.closePath();
     }
-    const runs = sectorVertexRuns(edges.pos, SECTOR_COUNT, edges.closed);
+    const runs = sectorVertexRuns(edges.pos, division, edges.closed);
     const traceRun = (line: [number, number][], run: number[]) => {
       const p = new Path2D();
       run.forEach((i, k) => {

@@ -14,8 +14,9 @@ export const coversLap = (samples: readonly { pos: number }[]): boolean =>
   samples[0].pos <= COVERAGE_START &&
   samples[samples.length - 1].pos >= COVERAGE_END;
 
-// AC's track assets carry no corner metadata, so the slices are equal; 8 puts a
-// sector at ~600 m on a typical circuit, few enough to name on the map.
+// The equal split for tracks that name no sections, and the basis of the
+// theoretical best on every track: 8 puts a sector at ~600 m on a typical
+// circuit, and finer slices splice a lap no driver could string together.
 export const SECTOR_COUNT = 8;
 
 export type ScrubPoint = {
@@ -27,6 +28,21 @@ export type ScrubPoint = {
 
 type PosTimed = { pos: number; timeMs: number };
 
+export const lowerIndex = (
+  length: number,
+  valueAt: (index: number) => number,
+  pos: number,
+): number => {
+  let lo = 0;
+  let hi = length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (valueAt(mid) <= pos) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+};
+
 const bracket = (samples: readonly PosTimed[], pos: number): number => {
   if (
     samples.length < 2 ||
@@ -34,14 +50,7 @@ const bracket = (samples: readonly PosTimed[], pos: number): number => {
     pos > samples[samples.length - 1].pos
   )
     return -1;
-  let lo = 0;
-  let hi = samples.length - 1;
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1;
-    if (samples[mid].pos <= pos) lo = mid;
-    else hi = mid;
-  }
-  return lo;
+  return lowerIndex(samples.length, (i) => samples[i].pos, pos);
 };
 
 export const interpolateTimeAt = (
@@ -108,25 +117,24 @@ export const resolveReference = (
 
 export const sectorTimes = (
   rec: LapRecording,
-  count: number,
+  bounds: readonly number[],
 ): (number | null)[] => {
   const samples = rec.samples;
+  const count = bounds.length - 1;
   const startsAtLine = samples.length > 0 && samples[0].pos <= COVERAGE_START;
   const endsAtLine =
     samples.length > 0 && samples[samples.length - 1].pos >= COVERAGE_END;
-  const bounds: (number | null)[] = [];
-  for (let i = 0; i <= count; i++) {
-    let t = interpolateTimeAt(samples, i / count);
-    if (t === null) {
-      if (i === 0 && startsAtLine) t = 0;
-      else if (i === count && endsAtLine && rec.timeMs !== null) t = rec.timeMs;
-    }
-    bounds.push(t);
-  }
+  const times = bounds.map((bound, i) => {
+    const t = interpolateTimeAt(samples, bound);
+    if (t !== null) return t;
+    if (i === 0 && startsAtLine) return 0;
+    if (i === count && endsAtLine) return rec.timeMs;
+    return null;
+  });
   const slices: (number | null)[] = [];
   for (let i = 0; i < count; i++) {
-    const a = bounds[i];
-    const b = bounds[i + 1];
+    const a = times[i];
+    const b = times[i + 1];
     slices.push(a !== null && b !== null && b > a ? b - a : null);
   }
   return slices;
@@ -135,13 +143,15 @@ export const sectorTimes = (
 export const bestSectors = (
   recordings: readonly LapRecording[],
   laps: readonly LapRecord[],
-  count: number,
+  bounds: readonly number[],
 ): (number | null)[] => {
   const valid = validLapSet(laps);
-  const best: (number | null)[] = new Array<number | null>(count).fill(null);
+  const best: (number | null)[] = new Array<number | null>(
+    bounds.length - 1,
+  ).fill(null);
   for (const rec of recordings) {
     if (rec.timeMs === null || !valid.has(rec.lap)) continue;
-    sectorTimes(rec, count).forEach((t, i) => {
+    sectorTimes(rec, bounds).forEach((t, i) => {
       const b = best[i];
       if (t !== null && (b === null || t < b)) best[i] = t;
     });
@@ -154,16 +164,16 @@ export type SectorOwner = { lap: number; timeMs: number; invalid: boolean };
 export const sectorOwners = (
   recordings: readonly LapRecording[],
   laps: readonly LapRecord[],
-  count: number,
+  bounds: readonly number[],
 ): (SectorOwner | null)[] => {
   const statusByLap = new Map(laps.map((l) => [l.lap, l.status]));
-  const owners = new Array<SectorOwner | null>(count).fill(null);
+  const owners = new Array<SectorOwner | null>(bounds.length - 1).fill(null);
   for (const rec of recordings) {
     const status = statusByLap.get(rec.lap);
     if (rec.timeMs === null || status === undefined || isPitLap(status))
       continue;
     const invalid = status === "invalid";
-    sectorTimes(rec, count).forEach((t, i) => {
+    sectorTimes(rec, bounds).forEach((t, i) => {
       const owner = owners[i];
       if (t !== null && (owner === null || t < owner.timeMs))
         owners[i] = { lap: rec.lap, timeMs: t, invalid };

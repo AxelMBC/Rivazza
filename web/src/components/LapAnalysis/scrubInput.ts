@@ -1,10 +1,12 @@
 import type { LapRecording } from "../../hooks/useLapRecordings";
 import { worldPointAt, type ScrubPoint } from "../../lib/lapAnalysis";
 import { lapColor } from "../../lib/lapColors";
+import { sectorIndexAt, type SectorDivision } from "../../lib/sectorDivision";
 
-import { PAD_X, sliceAt } from "./constants";
+import { PAD_X } from "./constants";
 
 type ScrubDeps = {
+  division: SectorDivision;
   scrubPosRef: React.RefObject<number | null>;
   selectedRef: React.RefObject<LapRecording | null>;
   scrubRef: React.RefObject<ScrubPoint | null>;
@@ -12,7 +14,7 @@ type ScrubDeps = {
 
 export const attachScrub = (
   canvas: HTMLCanvasElement,
-  { scrubPosRef, selectedRef, scrubRef }: ScrubDeps,
+  { division, scrubPosRef, selectedRef, scrubRef }: ScrubDeps,
 ) => {
   const scrubAt = (offsetX: number) => {
     const width = canvas.clientWidth;
@@ -26,7 +28,11 @@ export const attachScrub = (
     const point = sel ? worldPointAt(sel.samples, pos) : null;
     scrubRef.current =
       sel && point
-        ? { ...point, color: lapColor(sel.lap), slice: sliceAt(pos) }
+        ? {
+            ...point,
+            color: lapColor(sel.lap),
+            slice: sectorIndexAt(division, pos),
+          }
         : null;
   };
   const clearScrub = () => {

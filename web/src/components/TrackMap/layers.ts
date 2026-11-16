@@ -2,6 +2,7 @@ import type { TelemetryFrame, TrackEdges } from "@rivazza/protocol";
 
 import { sizeCanvas } from "../../lib/canvas";
 import type { SectorOwner } from "../../lib/lapAnalysis";
+import { sectorCount, type SectorDivision } from "../../lib/sectorDivision";
 
 import { INSET_CAR_RADIUS, LINE_WIDTH, TIP_HOLDBACK } from "./constants";
 import { storedLapColor } from "./legend";
@@ -45,6 +46,7 @@ type LayerDeps = {
   ctx: CanvasRenderingContext2D;
   edges: TrackEdges | null;
   edgesFill: Path2D | null;
+  division: SectorDivision;
   sectorEdges: { left: Path2D; right: Path2D }[];
   sectorTicks: (Anchor | null)[][];
   currentRef: React.RefObject<Sample[]>;
@@ -53,6 +55,7 @@ type LayerDeps = {
   sectorOwnersRef: React.RefObject<(SectorOwner | null)[]>;
   sectorKey: () => string;
   drawSectorTick: Markers["drawSectorTick"];
+  sectorLabelBox: Markers["sectorLabelBox"];
   drawSectorLabel: Markers["drawSectorLabel"];
   telemetryRef: React.RefObject<TelemetryFrame | null>;
   zoomRef: React.RefObject<Zoom>;
@@ -66,6 +69,7 @@ export const createLayers = ({
   ctx,
   edges,
   edgesFill,
+  division,
   sectorEdges,
   sectorTicks,
   currentRef,
@@ -74,6 +78,7 @@ export const createLayers = ({
   sectorOwnersRef,
   sectorKey,
   drawSectorTick,
+  sectorLabelBox,
   drawSectorLabel,
   telemetryRef,
   zoomRef,
@@ -81,6 +86,18 @@ export const createLayers = ({
   insetRef,
   dotWorld,
 }: LayerDeps) => {
+  const sectorsLongestFirst = Array.from(
+    { length: sectorCount(division) },
+    (_, s) => s,
+  ).sort(
+    (a, b) =>
+      division.bounds[b + 1] -
+      division.bounds[b] -
+      (division.bounds[a + 1] - division.bounds[a]),
+  );
+
+  const overlaps = (a: Rect, b: Rect) =>
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   const lapsLayer = document.createElement("canvas");
   const lapsLayerCtx = lapsLayer.getContext("2d");
   const currentLayer = document.createElement("canvas");
@@ -139,14 +156,16 @@ export const createLayers = ({
           );
         for (const anchor of sectorTicks[s] ?? [])
           drawSectorTick(trackLayerCtx, project, anchor, false);
-        drawSectorLabel(
-          trackLayerCtx,
-          project,
-          s,
-          sectorOwnersRef.current[s],
-          false,
-        );
       });
+
+      const placed: Rect[] = [];
+      for (const s of sectorsLongestFirst) {
+        const owner = sectorOwnersRef.current[s] ?? null;
+        const box = sectorLabelBox(trackLayerCtx, project, s, owner);
+        if (!box || placed.some((other) => overlaps(box, other))) continue;
+        placed.push(box);
+        drawSectorLabel(trackLayerCtx, project, s, owner, false);
+      }
     }
     blitLayer(trackLayer);
   };
