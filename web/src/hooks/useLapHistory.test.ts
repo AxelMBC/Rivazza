@@ -335,21 +335,19 @@ describe("Imola demo recording", () => {
     return log;
   };
 
-  test("replays into the five laps the recording completes", () => {
+  test("replays into the four laps the recording completes", () => {
     const log = replay();
     assert.deepEqual(log.laps, [
-      // lapCount 0→1, lastLapMs 90526; no frame is in the pit
-      { lap: 1, timeMs: 90526, status: "valid" },
-      // lapCount 1→2, lastLapMs 86473, adopted as bestLapMs
-      { lap: 2, timeMs: 86473, status: "valid" },
-      // lapCount 2→3, lastLapMs 87495; all four cut events carry lapCount 2
-      { lap: 3, timeMs: 87495, status: "invalid" },
-      // lapCount 3→4, lastLapMs 84734, adopted as bestLapMs
-      { lap: 4, timeMs: 84734, status: "valid" },
-      // lapCount 4→5, lastLapMs 88148, slower than the 84734 best
-      { lap: 5, timeMs: 88148, status: "valid" },
+      // lapCount 0→1, lastLapMs 94023, adopted as bestLapMs; no frame is in the pit and no cut is recorded
+      { lap: 1, timeMs: 94023, status: "valid" },
+      // lapCount 1→2, lastLapMs 87218, adopted as bestLapMs
+      { lap: 2, timeMs: 87218, status: "valid" },
+      // lapCount 2→3, lastLapMs 89296, slower than the 87218 best
+      { lap: 3, timeMs: 89296, status: "valid" },
+      // lapCount 3→4, lastLapMs 88813, slower than the 87218 best
+      { lap: 4, timeMs: 88813, status: "valid" },
     ]);
-    assert.deepEqual(log.settled, { lapCount: 5, bestLapMs: 84734 });
+    assert.deepEqual(log.settled, { lapCount: 4, bestLapMs: 87218 });
     assert.equal(log.cutDuring, false);
   });
 });

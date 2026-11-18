@@ -61,27 +61,27 @@ The dashboard SHALL show status lights for ABS, TC, and PIT as a single row of t
 - **THEN** the PIT telltale renders filled in the accent colour
 
 ### Requirement: Pedal input lights
-The dashboard SHALL show throttle and brake as two on/off lights in the instrument cluster's status-light group, shaped as thin vertical lamps flanking the wheel-slip car glyph: throttle on the left of the car, brake on the right. Each lamp SHALL carry a small visible label ("THR" and "BRK") and SHALL be at least as tall as the car glyph's wheelbase. A light SHALL be lit while its input (`gas` for THR, `brake` for BRK) exceeds a small dead zone (5%), and dark otherwise; the lit state SHALL use the positive color for THR and the critical color for BRK (the driving-line convention). The lights SHALL show no percentage and no partial fill, and SHALL update with the throttled telemetry state.
+The dashboard SHALL show throttle and brake as two level lamps in the instrument cluster's status-light group, shaped as thin vertical lamps flanking the wheel-slip car glyph: throttle on the left of the car, brake on the right. Each lamp SHALL carry a small visible label ("THR" and "BRK") and SHALL be at least as tall as the car glyph's wheelbase. Each lamp SHALL fill from its bottom in proportion to its input (`gas` for THR, `brake` for BRK), from empty at 0 to its full height at 1, with the input clamped to that range, and SHALL render empty while the input is at or below a small dead zone (5%); the fill SHALL use the positive color for THR and the critical color for BRK (the driving-line convention) over the lamp's unlit track. The fill SHALL follow the input without an animated transition, SHALL show no percentage, and SHALL update with the throttled telemetry state.
 
 #### Scenario: Flat out
 - **WHEN** telemetry reports `gas` 1.0 and `brake` 0
-- **THEN** THR is lit in the positive color and BRK is dark
+- **THEN** THR is filled over its full height in the positive color and BRK is empty
 
 #### Scenario: Trail braking
 - **WHEN** telemetry reports `brake` 0.6 and `gas` 0.15
-- **THEN** both THR and BRK are lit
+- **THEN** BRK is filled to 60% of its height in the critical color and THR to 15% of its height
 
-#### Scenario: Partial throttle lights the whole lamp
+#### Scenario: Partial throttle fills part of the lamp
 - **WHEN** telemetry reports `gas` 0.3
-- **THEN** the THR lamp is lit over its full height, not filled to 30%
+- **THEN** the THR lamp is filled from its bottom to 30% of its height, not over its full height
 
 #### Scenario: Resting a foot on the pedal
 - **WHEN** telemetry reports `gas` 0.02 and `brake` 0.03
-- **THEN** both lights stay dark
+- **THEN** both lamps stay empty
 
 #### Scenario: No telemetry
 - **WHEN** no telemetry frame has been received
-- **THEN** both lights render dark, without errors
+- **THEN** both lamps render empty, without errors
 
 ### Requirement: Wheel slip lamps
 The instrument cluster's status-light group SHALL show wheel slip as a single top-down car glyph: a chassis outline with four tyres in car layout (front-left and front-right at the top, rear-left and rear-right below), drawn as inline vector graphics using the gauges' outline and idle colours, placed beneath the ABS/TC/PIT telltale row. The tyres SHALL carry no FL/FR/RL/RR text labels; a tyre's position on the glyph identifies its wheel. A tyre SHALL light in the warning color while its wheel's `tyreSlip` value is above the slip-on threshold, and SHALL go dark again only once that value falls below a lower slip-off threshold. The gap between the two thresholds stops a wheel hovering at the limit from flickering at the telemetry state rate. The slip-on threshold SHALL sit just past the tyre's grip peak (normalised slip ~1). A lit tyre whose slip is at or above the tyre overlay's critical threshold SHALL render in the critical color instead of the warning color. Before any telemetry frame has been received, all four tyres SHALL render in a muted state. The glyph SHALL update with the throttled telemetry state and SHALL NOT add a canvas or a repaint input.

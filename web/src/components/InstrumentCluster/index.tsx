@@ -17,7 +17,6 @@ import { useWheelSlipLamps } from "./useWheelSlipLamps";
 
 const RPM_MAX = 10000;
 const REDLINE_FROM_RPM = 8500;
-const PEDAL_ON_THRESHOLD = 0.05;
 
 const StatusLight = ({
   label,
@@ -136,14 +135,14 @@ export const InstrumentCluster = ({
             <div className="flex items-start justify-center gap-3">
               <PedalLamp
                 label="THR"
-                active={(telemetry?.gas ?? 0) > PEDAL_ON_THRESHOLD}
-                activeClass="bg-good"
+                input={telemetry?.gas ?? 0}
+                fillClass="bg-good"
               />
               <CarSlipGlyph lamps={slipLamps} slip={telemetry?.tyreSlip} />
               <PedalLamp
                 label="BRK"
-                active={(telemetry?.brake ?? 0) > PEDAL_ON_THRESHOLD}
-                activeClass="bg-critical"
+                input={telemetry?.brake ?? 0}
+                fillClass="bg-critical"
               />
             </div>
           </div>
