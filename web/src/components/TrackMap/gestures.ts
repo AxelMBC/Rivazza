@@ -4,7 +4,6 @@ import { TAP_SLOP_PX } from "../../lib/touch";
 import {
   INSET_DWELL_MS,
   INSET_REST_SLOP_PX,
-  ZOOM_MAX,
   ZOOM_RESET,
   ZOOM_SNAP_LEVEL,
   ZOOM_STEP,
@@ -22,6 +21,7 @@ type GestureDeps = {
   insetRef: React.RefObject<Inset | null>;
   mouseRef: React.RefObject<Point | null>;
   zoomRef: React.RefObject<Zoom>;
+  zoomMaxRef: React.RefObject<number>;
   navRef: React.RefObject<Point | null>;
   followRef: React.RefObject<FollowState>;
   setFollow: (state: FollowState) => void;
@@ -35,6 +35,7 @@ export const attachGestures = (
     insetRef,
     mouseRef,
     zoomRef,
+    zoomMaxRef,
     navRef,
     followRef,
     setFollow,
@@ -97,7 +98,7 @@ export const attachGestures = (
     if (!overInset) navRef.current = null;
     const zm = zoomRef.current;
     const level = Math.min(
-      ZOOM_MAX,
+      zoomMaxRef.current,
       Math.max(1, zm.level * ZOOM_STEP ** (-e.deltaY / 100)),
     );
     if (level === zm.level) return;
@@ -179,7 +180,7 @@ export const attachGestures = (
         return;
       const zm = zoomRef.current;
       const level = Math.min(
-        ZOOM_MAX,
+        zoomMaxRef.current,
         Math.max(1, zm.level * (lastPinch.dist / prev.dist)),
       );
       if (level === 1) {

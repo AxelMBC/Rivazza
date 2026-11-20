@@ -70,6 +70,7 @@ export const createSession = (
         meta: assets?.meta ?? null,
         edges: assets?.edges ?? null,
         sections: assets?.sections ?? null,
+        lanes: assets?.lanes ?? null,
         topSpeedKmh: resolveCarTopSpeed(handshake.carName),
       };
       return true;

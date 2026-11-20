@@ -1,4 +1,4 @@
-import type { MapMeta, TrackEdges } from "@rivazza/protocol";
+import type { MapMeta, TrackEdges, TrafficLane } from "@rivazza/protocol";
 
 import {
   sectorCount,
@@ -37,6 +37,7 @@ const sectorVertexRuns = (
 export const buildTrackGeometry = (
   meta: MapMeta | null,
   edges: TrackEdges | null,
+  lanes: readonly TrafficLane[] | null,
   division: SectorDivision,
 ) => {
   let edgeView: View | null = null;
@@ -76,6 +77,11 @@ export const buildTrackGeometry = (
       else path.lineTo(x, z);
     }
   };
+  let lanesPath: Path2D | null = null;
+  if (lanes) {
+    lanesPath = new Path2D();
+    for (const lane of lanes) traceInto(lanesPath, lane, false, true);
+  }
   let edgesFill: Path2D | null = null;
   let sectorEdges: { left: Path2D; right: Path2D }[] = [];
   let sectorLabels: (Anchor | null)[] = [];
@@ -141,6 +147,7 @@ export const buildTrackGeometry = (
   return {
     edgeView,
     edgesFill,
+    lanesPath,
     sectorEdges,
     sectorLabels,
     sectorTicks,

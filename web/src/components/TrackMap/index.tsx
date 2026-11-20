@@ -9,8 +9,13 @@ import type { ScrubPoint, SectorOwner } from "../../lib/lapAnalysis";
 import type { SectorDivision } from "../../lib/sectorDivision";
 import { hasCoarsePointer } from "../../lib/touch";
 
-import { createCamera, easeView, fallbackTarget } from "./camera";
-import { INSET_MIN_LEVEL, LINE_WIDTH, ZOOM_RESET } from "./constants";
+import { createCamera, easeView, fallbackTarget, maxZoomLevel } from "./camera";
+import {
+  INSET_MIN_LEVEL,
+  LINE_WIDTH,
+  ZOOM_MAX_FLOOR,
+  ZOOM_RESET,
+} from "./constants";
 import { FollowButton } from "./FollowButton";
 import { attachGestures } from "./gestures";
 import { createHitTest } from "./hitTest";
@@ -79,6 +84,7 @@ export const TrackMap = ({
   const navRef = useRef<Point | null>(null);
   const { followUi, dwelling, follow } = useFollowControl(telemetryRef);
   const { meta, edges } = session;
+  const lanes = session.lanes ?? null;
   const hasFrameRef = useRef(false);
   const legendKeyRef = useRef("");
 
@@ -120,14 +126,22 @@ export const TrackMap = ({
     if (!ctx) return;
     let rafId = 0;
 
-    const { edgeView, edgesFill, sectorEdges, sectorLabels, sectorTicks } =
-      buildTrackGeometry(meta, edges, division);
+    const {
+      edgeView,
+      edgesFill,
+      lanesPath,
+      sectorEdges,
+      sectorLabels,
+      sectorTicks,
+    } = buildTrackGeometry(meta, edges, lanes, division);
 
     const insetRef: React.RefObject<Inset | null> = { current: null };
+    const zoomMaxRef: React.RefObject<number> = { current: ZOOM_MAX_FLOOR };
     const { followCamera, navCamera, dotWorld, followAnimating, navAnimating } =
       createCamera({
         telemetryRef,
         zoomRef,
+        zoomMaxRef,
         navRef,
         followRef,
         setFollow,
@@ -165,8 +179,8 @@ export const TrackMap = ({
     const layers = createLayers({
       canvas,
       ctx,
-      edges,
       edgesFill,
+      lanesPath,
       division,
       sectorEdges,
       sectorTicks,
@@ -340,6 +354,7 @@ export const TrackMap = ({
       if (fixedFit) {
         fallbackEasing = false;
         const { base } = fixedFit;
+        zoomMaxRef.current = maxZoomLevel(base, width, height);
         followCamera(base, width, height, dt);
         navCamera(width, height, dt);
         const project: Project = zoomed(base, zoomRef);
@@ -371,6 +386,7 @@ export const TrackMap = ({
       );
       fallbackEasing = stillEasing;
       const base = viewProjection(view, width, height);
+      zoomMaxRef.current = maxZoomLevel(base, width, height);
       followCamera(base, width, height, dt);
       const project: Project = zoomed(base, zoomRef);
 
@@ -384,6 +400,7 @@ export const TrackMap = ({
       insetRef,
       mouseRef,
       zoomRef,
+      zoomMaxRef,
       navRef,
       followRef,
       setFollow,
@@ -399,6 +416,7 @@ export const TrackMap = ({
   }, [
     meta,
     edges,
+    lanes,
     division,
     telemetryRef,
     lapsRef,

@@ -12,7 +12,12 @@ export type SessionInfo = {
   topSpeedKmh: number | null;
   // Absent on a session from a bridge or recording that predates the field; read it as `null`.
   sections?: TrackSection[] | null;
+  // Absent on a session from a bridge or recording that predates the field; read it as `null`.
+  lanes?: TrafficLane[] | null;
 };
+
+// One lane of CSP's traffic lane graph (`data/traffic.json`), as world [x, z] in metres.
+export type TrafficLane = [number, number][];
 
 // A named stretch of track from the track's own sections.ini; `in` and `out` are normalized track positions (0-1).
 export type TrackSection = {

@@ -33,7 +33,7 @@ The track map SHALL draw an overview inset, a miniature of the whole track at th
 - **THEN** no inset is drawn
 
 ### Requirement: Inset shows the track, the car, and the current view
-The inset SHALL depict the track at the fit framing, scaled into the inset: the track-limits ribbon when edge data exists, otherwise the stored lap lines in a single neutral tone. It SHALL show the car's current position as a small dot, and SHALL outline the part of the track the main view currently shows as a rectangle that exactly corresponds to the main canvas's visible area at the current zoom and offset. It SHALL NOT render pedal colours, sector labels, cut markers, or hover readouts.
+The inset SHALL depict the track at the fit framing, scaled into the inset: the traffic lanes in a thin neutral tone when lanes exist and the track-limits ribbon above them when edge data exists; only when neither exists, the stored lap lines in a single neutral tone. It SHALL show the car's current position as a small dot, and SHALL outline the part of the track the main view currently shows as a rectangle that exactly corresponds to the main canvas's visible area at the current zoom and offset. It SHALL NOT render pedal colours, sector labels, cut markers, or hover readouts.
 
 #### Scenario: Viewport rectangle tracks the main view
 - **WHEN** the user wheel-zooms further in over a corner while the inset is visible
@@ -42,6 +42,10 @@ The inset SHALL depict the track at the fit framing, scaled into the inset: the 
 #### Scenario: Car dot on the inset
 - **WHEN** the car drives out of the zoomed main view
 - **THEN** its dot keeps moving on the inset, showing where it is relative to the viewport rectangle
+
+#### Scenario: Lanes on the inset
+- **WHEN** the inset is shown on SRP's `main_layout`, which has lanes but no track edges
+- **THEN** the inset depicts the lane network, not the stored lap lines
 
 ### Requirement: Hovering the inset previews and navigates without a click
 While the cursor is over the inset, a ghost rectangle, the same size on the inset as the viewport rectangle, SHALL be drawn centred on the cursor. When the cursor rests on the inset (stays within a few pixels) for about 250 ms, the main view SHALL glide smoothly (eased, no snapping) so that the track point under the cursor becomes the centre of the main view, at the unchanged zoom level. Moving and resting again SHALL navigate again, retargeting a glide already in progress. Passing the cursor across the inset without resting SHALL NOT move the main view. Navigation SHALL require no click, drag, keyboard input, or browser-window focus. Navigation from the inset SHALL leave follow mode off.
@@ -96,7 +100,7 @@ While the cursor is over the visible inset, the map SHALL NOT pick lap lines und
 - **THEN** no lap readout or emphasis appears, and only the ghost rectangle is drawn
 
 ### Requirement: Inset rendering preserves render idling
-The inset's static content (track depiction at the fit framing) SHALL be cached and re-rendered only when its inputs change: canvas size or devicePixelRatio, projection mode or fit framing, track edges, or the stored lap lines it depicts. Showing the inset, moving the ghost rectangle, and gliding SHALL repaint the map only while something visible changes. When the glide settles, it SHALL snap to its exact target within a sub-pixel epsilon so the map stops repainting. A resting cursor with no pending navigation, a stationary car, and no new telemetry SHALL leave the map idle.
+The inset's static content (track depiction at the fit framing) SHALL be cached and re-rendered only when its inputs change: canvas size or devicePixelRatio, projection mode or fit framing, track edges, traffic lanes, or the stored lap lines it depicts. Showing the inset, moving the ghost rectangle, and gliding SHALL repaint the map only while something visible changes. When the glide settles, it SHALL snap to its exact target within a sub-pixel epsilon so the map stops repainting. A resting cursor with no pending navigation, a stationary car, and no new telemetry SHALL leave the map idle.
 
 #### Scenario: Idle after navigating
 - **WHEN** the telemetry stream is paused, the user rests on the inset, and the glide completes
@@ -105,6 +109,10 @@ The inset's static content (track depiction at the fit framing) SHALL be cached 
 #### Scenario: Paused and hovering
 - **WHEN** telemetry is paused and the cursor rests on the inset after a navigation has already completed at that spot
 - **THEN** no further repaints occur
+
+#### Scenario: Completed laps leave a lane depiction alone
+- **WHEN** a lap completes on a track whose inset depicts lanes
+- **THEN** the inset's cached depiction is not re-rendered on its account
 
 ### Requirement: Navigation state resets with the session
 A pending dwell or an in-progress glide SHALL be discarded when the session changes or a session restart is detected, together with the existing zoom reset to the 1× fit view, after which the inset is hidden until the user zooms in two notches again.

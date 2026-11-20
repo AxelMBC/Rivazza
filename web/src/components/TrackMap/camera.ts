@@ -9,7 +9,8 @@ import {
   FOLLOW_WINDOW_HEADROOM,
   VIEW_EASE,
   VIEW_MARGIN,
-  ZOOM_MAX,
+  ZOOM_MAX_FLOOR,
+  ZOOM_MIN_WINDOW_M,
   ZOOM_RESET,
 } from "./constants";
 import {
@@ -18,13 +19,27 @@ import {
   type Point,
   type Zoom,
 } from "./overviewInset";
-import type { Project } from "./projection";
+import { affineOf, type Project } from "./projection";
 import type { View } from "./trackGeometry";
 import type { FollowState } from "./useFollowControl";
+
+export const maxZoomLevel = (
+  base: Project,
+  width: number,
+  height: number,
+): number => {
+  const pxPerMeter = Math.abs(affineOf(base).kx);
+  if (pxPerMeter <= 0) return ZOOM_MAX_FLOOR;
+  return Math.max(
+    ZOOM_MAX_FLOOR,
+    Math.min(width, height) / (ZOOM_MIN_WINDOW_M * pxPerMeter),
+  );
+};
 
 type CameraDeps = {
   telemetryRef: React.RefObject<TelemetryFrame | null>;
   zoomRef: React.RefObject<Zoom>;
+  zoomMaxRef: React.RefObject<number>;
   navRef: React.RefObject<Point | null>;
   followRef: React.RefObject<FollowState>;
   setFollow: (state: FollowState) => void;
@@ -36,6 +51,7 @@ type CameraDeps = {
 export const createCamera = ({
   telemetryRef,
   zoomRef,
+  zoomMaxRef,
   navRef,
   followRef,
   setFollow,
@@ -115,7 +131,7 @@ export const createCamera = ({
       const maxWindow = (span / pxPerMeter) * FOLLOW_WINDOW_HEADROOM;
       const minWindow = Math.max(
         FOLLOW_MIN_WINDOW_M,
-        span / (ZOOM_MAX * pxPerMeter),
+        span / (zoomMaxRef.current * pxPerMeter),
       );
       followLimitsRef.current = { min: minWindow, max: maxWindow };
       const window_ = Math.min(

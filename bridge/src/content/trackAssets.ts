@@ -1,16 +1,23 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { MapMeta, TrackEdges, TrackSection } from "@rivazza/protocol";
+import type {
+  MapMeta,
+  TrackEdges,
+  TrackSection,
+  TrafficLane,
+} from "@rivazza/protocol";
 
 import { AC_PATH } from "./acPath.js";
 import { resolveTrackEdges } from "./aiSpline.js";
 import { parseSectionsIni } from "./sectionsIni.js";
+import { parseTrafficLanes } from "./trafficLanes.js";
 
 export type TrackAssets = {
   meta: MapMeta | null;
   edges: TrackEdges | null;
   sections: TrackSection[] | null;
+  lanes: TrafficLane[] | null;
 };
 
 const hasMapData = (assets: TrackAssets): boolean =>
@@ -25,6 +32,8 @@ const fastLanePath = (dir: string): string =>
   path.join(dir, "ai", "fast_lane.ai");
 const sectionsIniPath = (dir: string): string =>
   path.join(dir, "data", "sections.ini");
+const trafficJsonPath = (dir: string): string =>
+  path.join(dir, "data", "traffic.json");
 
 // Like the AI spline, the root file of a multi-layout track describes another
 // layout, so only the first existing file is ever read.
@@ -37,6 +46,27 @@ const resolveSections = (candidates: string[]): TrackSection[] | null => {
     console.error(`[sections] failed to read ${iniPath}:`, err);
     return null;
   }
+};
+
+const resolveLanes = (
+  candidates: string[],
+  meta: MapMeta | null,
+): TrafficLane[] | null => {
+  const jsonPath = candidates.map(trafficJsonPath).find(fs.existsSync);
+  if (!jsonPath) return null;
+  let text: string;
+  try {
+    text = fs.readFileSync(jsonPath, "utf8");
+  } catch (err) {
+    console.warn(`[lanes] failed to read ${jsonPath}:`, err);
+    return null;
+  }
+  const result = parseTrafficLanes(text, meta);
+  if (result.ok) return result.lanes;
+  console.warn(
+    `[lanes] ${jsonPath} yields no traffic lanes (${result.reason})`,
+  );
+  return null;
 };
 
 const parseMapIni = (iniPath: string): MapMeta | null => {
@@ -91,6 +121,7 @@ export const resolveTrackAssets = (
   }
 
   const sections = resolveSections(candidates);
+  const lanes = resolveLanes(candidates, meta);
 
   if (!meta && !edges) {
     // JSON.stringify exposes invisible characters in the handshake strings.
@@ -99,7 +130,7 @@ export const resolveTrackAssets = (
     );
     if (!sections) return null;
   }
-  return { meta, edges, sections };
+  return { meta, edges, sections, lanes };
 };
 
 // Multi-layout tracks (ks_highlands, ks_nurburgring, …) keep every map.ini

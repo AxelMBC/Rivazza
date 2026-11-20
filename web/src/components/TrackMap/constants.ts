@@ -16,6 +16,9 @@ export const TELEPORT_DIST = 100; // m between frames — beyond this it isn't d
 export const DEAD_ZONE = 0.05;
 // Thin on purpose: at 3 px several laps overlapping on a corner merged into one band.
 export const LINE_WIDTH = 2;
+// Wider than a real ~3.5 m lane: neighbouring SRP lane centrelines sit 3.59 m apart
+// at the median and 3.81 m at p75, and a narrower band shows the outline between them.
+export const LANE_WIDTH_M = 4;
 // screen px
 export const CUT_ARM = 5;
 export const CUT_WIDTH = 2.5;
@@ -26,7 +29,8 @@ export const VIEW_EASE = 0.06;
 // before the track's real size is known.
 export const FIRST_LAP_EXTENT = 1500;
 
-export const ZOOM_MAX = 40;
+export const ZOOM_MAX_FLOOR = 40;
+export const ZOOM_MIN_WINDOW_M = 30;
 export const ZOOM_STEP = 1.2;
 export const ZOOM_RESET: Zoom = { level: 1, ox: 0, oy: 0 };
 // Fingers can't land on exactly 1×, so a pinch ending below this snaps to the fit view.

@@ -1,10 +1,15 @@
-import type { TelemetryFrame, TrackEdges } from "@rivazza/protocol";
+import type { TelemetryFrame } from "@rivazza/protocol";
 
 import { sizeCanvas } from "../../lib/canvas";
 import type { SectorOwner } from "../../lib/lapAnalysis";
 import { sectorCount, type SectorDivision } from "../../lib/sectorDivision";
 
-import { INSET_CAR_RADIUS, LINE_WIDTH, TIP_HOLDBACK } from "./constants";
+import {
+  INSET_CAR_RADIUS,
+  LANE_WIDTH_M,
+  LINE_WIDTH,
+  TIP_HOLDBACK,
+} from "./constants";
 import { storedLapColor } from "./legend";
 import type { Sample, StoredLap } from "./lineRecorder";
 import type { Markers } from "./markers";
@@ -44,8 +49,8 @@ import type { Anchor } from "./trackGeometry";
 type LayerDeps = {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
-  edges: TrackEdges | null;
   edgesFill: Path2D | null;
+  lanesPath: Path2D | null;
   division: SectorDivision;
   sectorEdges: { left: Path2D; right: Path2D }[];
   sectorTicks: (Anchor | null)[][];
@@ -67,8 +72,8 @@ type LayerDeps = {
 export const createLayers = ({
   canvas,
   ctx,
-  edges,
   edgesFill,
+  lanesPath,
   division,
   sectorEdges,
   sectorTicks,
@@ -129,8 +134,8 @@ export const createLayers = ({
     height: number,
     dpr: number,
   ) => {
-    if (!edges || !edgesFill) return;
-    const key = `${projKey}|${sectorKey()}`;
+    if (!edgesFill && !lanesPath) return;
+    const key = edgesFill ? `${projKey}|${sectorKey()}` : projKey;
     if (key !== trackLayerKey) {
       trackLayerKey = key;
       sizeCanvas(trackLayer, canvas.width, canvas.height);
@@ -138,33 +143,48 @@ export const createLayers = ({
       trackLayerCtx.clearRect(0, 0, width, height);
 
       const aff = affineOf(project);
-      trackLayerCtx.save();
-      setWorldTransform(trackLayerCtx, aff, dpr);
-      trackLayerCtx.fillStyle = TRACK_FILL;
-      trackLayerCtx.fill(edgesFill);
-      trackLayerCtx.restore();
+      if (lanesPath) {
+        const bandPx = LANE_WIDTH_M * Math.abs(aff.kx);
+        strokeWorldPath(
+          trackLayerCtx,
+          lanesPath,
+          aff,
+          dpr,
+          TRACK_EDGE,
+          bandPx + 2 * TRACK_EDGE_WIDTH,
+        );
+        strokeWorldPath(trackLayerCtx, lanesPath, aff, dpr, TRACK_FILL, bandPx);
+      }
 
-      sectorEdges.forEach((sector, s) => {
-        for (const path of [sector.left, sector.right])
-          strokeWorldPath(
-            trackLayerCtx,
-            path,
-            aff,
-            dpr,
-            TRACK_EDGE,
-            TRACK_EDGE_WIDTH,
-          );
-        for (const anchor of sectorTicks[s] ?? [])
-          drawSectorTick(trackLayerCtx, project, anchor, false);
-      });
+      if (edgesFill) {
+        trackLayerCtx.save();
+        setWorldTransform(trackLayerCtx, aff, dpr);
+        trackLayerCtx.fillStyle = TRACK_FILL;
+        trackLayerCtx.fill(edgesFill);
+        trackLayerCtx.restore();
 
-      const placed: Rect[] = [];
-      for (const s of sectorsLongestFirst) {
-        const owner = sectorOwnersRef.current[s] ?? null;
-        const box = sectorLabelBox(trackLayerCtx, project, s, owner);
-        if (!box || placed.some((other) => overlaps(box, other))) continue;
-        placed.push(box);
-        drawSectorLabel(trackLayerCtx, project, s, owner, false);
+        sectorEdges.forEach((sector, s) => {
+          for (const path of [sector.left, sector.right])
+            strokeWorldPath(
+              trackLayerCtx,
+              path,
+              aff,
+              dpr,
+              TRACK_EDGE,
+              TRACK_EDGE_WIDTH,
+            );
+          for (const anchor of sectorTicks[s] ?? [])
+            drawSectorTick(trackLayerCtx, project, anchor, false);
+        });
+
+        const placed: Rect[] = [];
+        for (const s of sectorsLongestFirst) {
+          const owner = sectorOwnersRef.current[s] ?? null;
+          const box = sectorLabelBox(trackLayerCtx, project, s, owner);
+          if (!box || placed.some((other) => overlaps(box, other))) continue;
+          placed.push(box);
+          drawSectorLabel(trackLayerCtx, project, s, owner, false);
+        }
       }
     }
     blitLayer(trackLayer);
@@ -316,13 +336,16 @@ export const createLayers = ({
     at: Inset,
     dpr: number,
   ) => {
-    const key = `${fitKey}|${edgesFill ? "" : lapsVersion()}`;
+    const depictsTrack = edgesFill !== null || lanesPath !== null;
+    const key = `${fitKey}|${depictsTrack ? "" : lapsVersion()}`;
     if (key === insetLayerKey) return;
     insetLayerKey = key;
     sizeCanvas(insetLayer, Math.round(at.w * dpr), Math.round(at.h * dpr));
     insetLayerCtx.setTransform(1, 0, 0, 1, 0, 0);
     insetLayerCtx.clearRect(0, 0, insetLayer.width, insetLayer.height);
     const aff = scaleAffine(affineOf(base), at.scale);
+    if (lanesPath)
+      strokeWorldPath(insetLayerCtx, lanesPath, aff, dpr, TRACK_EDGE, 1);
     if (edgesFill) {
       insetLayerCtx.save();
       setWorldTransform(insetLayerCtx, aff, dpr);
@@ -332,8 +355,8 @@ export const createLayers = ({
       for (const sector of sectorEdges)
         for (const path of [sector.left, sector.right])
           strokeWorldPath(insetLayerCtx, path, aff, dpr, TRACK_EDGE, 1);
-      return;
     }
+    if (depictsTrack) return;
     for (const entry of previousLapsRef.current) {
       entry.path ??= buildLapPath(entry.samples);
       strokeWorldPath(insetLayerCtx, entry.path, aff, dpr, PREVIOUS_LAP, 1);
