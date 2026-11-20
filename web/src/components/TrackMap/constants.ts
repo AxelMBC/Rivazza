@@ -29,7 +29,8 @@ export const VIEW_EASE = 0.06;
 // before the track's real size is known.
 export const FIRST_LAP_EXTENT = 1500;
 
-export const ZOOM_MAX = 40;
+export const ZOOM_MAX_FLOOR = 40;
+export const ZOOM_MIN_WINDOW_M = 30;
 export const ZOOM_STEP = 1.2;
 export const ZOOM_RESET: Zoom = { level: 1, ox: 0, oy: 0 };
 // Fingers can't land on exactly 1×, so a pinch ending below this snaps to the fit view.

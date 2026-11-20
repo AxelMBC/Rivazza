@@ -9,8 +9,13 @@ import type { ScrubPoint, SectorOwner } from "../../lib/lapAnalysis";
 import type { SectorDivision } from "../../lib/sectorDivision";
 import { hasCoarsePointer } from "../../lib/touch";
 
-import { createCamera, easeView, fallbackTarget } from "./camera";
-import { INSET_MIN_LEVEL, LINE_WIDTH, ZOOM_RESET } from "./constants";
+import { createCamera, easeView, fallbackTarget, maxZoomLevel } from "./camera";
+import {
+  INSET_MIN_LEVEL,
+  LINE_WIDTH,
+  ZOOM_MAX_FLOOR,
+  ZOOM_RESET,
+} from "./constants";
 import { FollowButton } from "./FollowButton";
 import { attachGestures } from "./gestures";
 import { createHitTest } from "./hitTest";
@@ -131,10 +136,12 @@ export const TrackMap = ({
     } = buildTrackGeometry(meta, edges, lanes, division);
 
     const insetRef: React.RefObject<Inset | null> = { current: null };
+    const zoomMaxRef: React.RefObject<number> = { current: ZOOM_MAX_FLOOR };
     const { followCamera, navCamera, dotWorld, followAnimating, navAnimating } =
       createCamera({
         telemetryRef,
         zoomRef,
+        zoomMaxRef,
         navRef,
         followRef,
         setFollow,
@@ -347,6 +354,7 @@ export const TrackMap = ({
       if (fixedFit) {
         fallbackEasing = false;
         const { base } = fixedFit;
+        zoomMaxRef.current = maxZoomLevel(base, width, height);
         followCamera(base, width, height, dt);
         navCamera(width, height, dt);
         const project: Project = zoomed(base, zoomRef);
@@ -378,6 +386,7 @@ export const TrackMap = ({
       );
       fallbackEasing = stillEasing;
       const base = viewProjection(view, width, height);
+      zoomMaxRef.current = maxZoomLevel(base, width, height);
       followCamera(base, width, height, dt);
       const project: Project = zoomed(base, zoomRef);
 
@@ -391,6 +400,7 @@ export const TrackMap = ({
       insetRef,
       mouseRef,
       zoomRef,
+      zoomMaxRef,
       navRef,
       followRef,
       setFollow,
