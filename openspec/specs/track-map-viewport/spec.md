@@ -6,7 +6,7 @@ TBD - created by syncing change track-map-bounds. Update Purpose after review.
 ## Requirements
 
 ### Requirement: Real track bounds fix the viewport from the first frame
-Whenever the session carries `map.ini` metadata (`meta` is non-null), the track map SHALL project world coordinates through the metadata transform (offsets, scale factor, pixel dimensions). The track map SHALL NOT render the track's `map.png` image: AC draws that image as a constant-width stroke around the AI line, which misrepresents track limits. The track surface is depicted by the track-limits ribbon (per the `track-limits` capability) when edge data resolves, with the driven lines drawn above it; without edge data the driven lines remain the only track depiction. The metadata is used solely for projection and framing. The resulting viewport SHALL be fully determined before the first telemetry frame and SHALL NOT pan, zoom, or re-fit **automatically** at any point: absent user input, the first-lap line draws at the same position and scale it will have on every later lap. User-initiated scroll-wheel zoom (per the `track-map-zoom` capability) MAY magnify this viewport; at 1× zoom the framing is exactly the fixed fit described here.
+Whenever the session carries `map.ini` metadata (`meta` is non-null), the track map SHALL project world coordinates through the metadata transform (offsets, scale factor, pixel dimensions). The track map SHALL NOT render the track's `map.png` image: AC draws that image as a constant-width stroke around the AI line, which misrepresents track limits. The track surface is depicted by the track-limits ribbon (per the `track-limits` capability) when edge data resolves and by the traffic lanes (per the `traffic-lanes` capability) when lanes resolve, the lanes beneath the ribbon, with the driven lines drawn above both; with neither, the driven lines remain the only track depiction. The metadata is used solely for projection and framing. The resulting viewport SHALL be fully determined before the first telemetry frame and SHALL NOT pan, zoom, or re-fit **automatically** at any point: absent user input, the first-lap line draws at the same position and scale it will have on every later lap. User-initiated scroll-wheel zoom (per the `track-map-zoom` capability) MAY magnify this viewport; at 1× zoom the framing is exactly the fixed fit described here.
 
 #### Scenario: Bounds on first load
 - **WHEN** the page loads mid-first-lap on a track whose session carries `meta`
@@ -26,7 +26,11 @@ Whenever the session carries `map.ini` metadata (`meta` is non-null), the track 
 
 #### Scenario: Track ships a map.png
 - **WHEN** a session starts on a track whose folder contains both `data/map.ini` and `map.png`
-- **THEN** the map image is neither delivered nor drawn; only the track-limits ribbon (if edges resolved), the metadata-projected driven lines, and the car dot appear
+- **THEN** the map image is neither delivered nor drawn; only the traffic lanes (if lanes resolved), the track-limits ribbon (if edges resolved), the metadata-projected driven lines, and the car dot appear
+
+#### Scenario: Lanes without edges
+- **WHEN** a session carries `meta` and lanes but no edges, as on SRP's `main_layout`
+- **THEN** the lanes depict the track surface inside the metadata viewport, with the driven lines above them
 
 ### Requirement: Heuristic camera only without bounds data
 The anchored, zoomed-out heuristic camera SHALL be used only when neither `map.ini` metadata nor track-edge data exists for the track, and the on-canvas note SHALL distinguish this case (drawing blind) from the bounds-known case (map metadata missing but scale known). The heuristic camera's projection SHALL use the same world-to-screen handedness as the `map.ini` transform — world +Z maps down-screen — so the driven line is never mirrored relative to the other rendering modes and turn direction on the map always matches turn direction in the car. Until the first lap completes the track's shape is unknown, so the heuristic camera stays anchored on the starting point at a zoomed-out scale, widening (never tightening) only if the driven line outgrows it.

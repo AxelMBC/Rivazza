@@ -16,6 +16,9 @@ export const TELEPORT_DIST = 100; // m between frames — beyond this it isn't d
 export const DEAD_ZONE = 0.05;
 // Thin on purpose: at 3 px several laps overlapping on a corner merged into one band.
 export const LINE_WIDTH = 2;
+// Wider than a real ~3.5 m lane: neighbouring SRP lane centrelines sit 3.59 m apart
+// at the median and 3.81 m at p75, and a narrower band shows the outline between them.
+export const LANE_WIDTH_M = 4;
 // screen px
 export const CUT_ARM = 5;
 export const CUT_WIDTH = 2.5;

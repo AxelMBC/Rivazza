@@ -2,6 +2,8 @@ import fs from "node:fs";
 
 import type { MapMeta, TrackEdges } from "@rivazza/protocol";
 
+import { insideMapBounds, roundCm } from "./mapBounds.js";
+
 // ai/fast_lane.ai is AC's AI spline: little-endian, header of four int32s
 // (version == 7, point count, lap time, sample count), then count 20-byte
 // points { float x, y, z, length; int32 id }, then an int32 extra-record
@@ -19,8 +21,6 @@ const SIDE_RIGHT_OFFSET = 6 * 4;
 const MAX_SIDE_M = 50;
 const MIN_POINTS = 50; // AC's drift track ships a 12-byte stub
 const MIN_USABLE_RATIO = 0.7;
-const MIN_IN_BOUNDS_RATIO = 0.8;
-const BOUNDS_MARGIN = 0.1;
 const CLOSED_GAP_M = 30;
 const MIN_WIDTH_M = 0.5;
 
@@ -37,8 +37,6 @@ const median3 = (values: number[]): number[] =>
     const c = values[Math.min(values.length - 1, i + 1)];
     return Math.max(Math.min(a, v), Math.min(Math.max(a, v), c));
   });
-
-const roundCm = (v: number): number => Math.round(v * 100) / 100;
 
 // 1e-5 of a lap is ~5 cm on a 5 km circuit, below what the map can draw.
 const POS_PRECISION = 1e5;
@@ -80,21 +78,6 @@ const parseSpline = (buf: Buffer): SplinePoint[] | null => {
   return points;
 };
 
-// Mod tracks sometimes ship a fast_lane.ai copied from another track.
-const insideMapBounds = (points: SplinePoint[], meta: MapMeta): boolean => {
-  const spanX = meta.width * meta.scaleFactor;
-  const spanZ = meta.height * meta.scaleFactor;
-  const minX = -meta.xOffset - spanX * BOUNDS_MARGIN;
-  const maxX = -meta.xOffset + spanX * (1 + BOUNDS_MARGIN);
-  const minZ = -meta.zOffset - spanZ * BOUNDS_MARGIN;
-  const maxZ = -meta.zOffset + spanZ * (1 + BOUNDS_MARGIN);
-  let inside = 0;
-  for (const p of points) {
-    if (p.x >= minX && p.x <= maxX && p.z >= minZ && p.z <= maxZ) inside++;
-  }
-  return inside / points.length >= MIN_IN_BOUNDS_RATIO;
-};
-
 export const resolveTrackEdges = (
   aiPath: string,
   meta: MapMeta | null,
@@ -119,7 +102,13 @@ export const resolveTrackEdges = (
     );
     return null;
   }
-  if (meta && !insideMapBounds(points, meta)) {
+  if (
+    meta &&
+    !insideMapBounds(
+      points.map((p) => [p.x, p.z] as const),
+      meta,
+    )
+  ) {
     console.warn(
       `[edges] ${aiPath} does not fit this track's map bounds — likely copied from another track`,
     );

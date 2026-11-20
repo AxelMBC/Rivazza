@@ -120,7 +120,10 @@ sent on it as `meta` / `edges` (`null` = not available) — the bridge serves no
 is `ws`'s own server, which answers any plain request with 426. `data/sections.ini`, where the track ships
 one, gives its named sections (`content/sectionsIni.ts`), sent as the optional `sections` field; the web
 turns them into the session's one sector division (`web/src/lib/sectorDivision.ts`), or eight equal slices
-without them. The `.ini` bounds alone fix the viewport.
+without them. `data/traffic.json`, CSP's traffic-lane graph (mod tracks like SRP ship one; no stock track
+does), gives lanes the AI line never drives, such as junction ramps (`content/trafficLanes.ts`, bounds-checked
+against `map.ini` like the spline in `content/mapBounds.ts`). They are sent as the optional `lanes` field and
+drawn as 4 m bands under the ribbon, only where the map already has a fixed fit. The `.ini` bounds alone fix the viewport.
 `map.png` is **deliberately ignored** — AC strokes it at constant width around the AI line,
 misrepresenting track limits; the driven lines are the track. Tracks without a `map.ini` fall back to an auto-fit view of the
 driven line. The AC install itself is resolved once in `content/acPath.ts` (`AC_PATH` env var, else
@@ -174,7 +177,8 @@ expression, and every other job is a sibling module. State that must outlive the
 `useState`: the line recorder (`lineRecorder.ts`: samples, stored laps, lap counter, cut cursor)
 and follow control (`useFollowControl.ts`). Everything scoped to one map is an effect-level
 `create…` factory, called once per effect with the refs it reads: `camera.ts`, `markers.ts`,
-`layers.ts` (offscreen layer caches), `hitTest.ts` and `gestures.ts`. The pieces communicate
+`layers.ts` (offscreen layer caches; the track layer strokes the traffic lanes before the ribbon),
+`hitTest.ts` and `gestures.ts`. The pieces communicate
 only through refs (`zoomRef`, `navRef`, `insetRef`, …), never through a primitive captured at
 creation. A new repaint input is one more term in the gate in `index.tsx`, not a flag in a module.
 

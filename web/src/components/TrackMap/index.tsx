@@ -79,6 +79,7 @@ export const TrackMap = ({
   const navRef = useRef<Point | null>(null);
   const { followUi, dwelling, follow } = useFollowControl(telemetryRef);
   const { meta, edges } = session;
+  const lanes = session.lanes ?? null;
   const hasFrameRef = useRef(false);
   const legendKeyRef = useRef("");
 
@@ -120,8 +121,14 @@ export const TrackMap = ({
     if (!ctx) return;
     let rafId = 0;
 
-    const { edgeView, edgesFill, sectorEdges, sectorLabels, sectorTicks } =
-      buildTrackGeometry(meta, edges, division);
+    const {
+      edgeView,
+      edgesFill,
+      lanesPath,
+      sectorEdges,
+      sectorLabels,
+      sectorTicks,
+    } = buildTrackGeometry(meta, edges, lanes, division);
 
     const insetRef: React.RefObject<Inset | null> = { current: null };
     const { followCamera, navCamera, dotWorld, followAnimating, navAnimating } =
@@ -165,8 +172,8 @@ export const TrackMap = ({
     const layers = createLayers({
       canvas,
       ctx,
-      edges,
       edgesFill,
+      lanesPath,
       division,
       sectorEdges,
       sectorTicks,
@@ -399,6 +406,7 @@ export const TrackMap = ({
   }, [
     meta,
     edges,
+    lanes,
     division,
     telemetryRef,
     lapsRef,
